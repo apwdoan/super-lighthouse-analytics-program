@@ -309,6 +309,39 @@ async function main() {
   await runJob(job);
 }
 
+/**
+ * A failure that arrives after the result must not destroy the result.
+ *
+ * `killQuietly()` is not enough on its own. chrome-launcher also calls
+ * `destroyTmp()` from a `chromeProcess.on('close')` listener, so the
+ * Windows temp-directory error surfaces as an **uncaught exception in an
+ * event handler**, which no try/catch around `kill()` can reach:
+ *
+ *   at Launcher.destroyTmp (chrome-launcher.js:353)
+ *   at ChildProcess.<anonymous> (chrome-launcher.js:328)
+ *
+ * Node's default behaviour there is to print the stack and die immediately.
+ * The envelope had already been written to stdout, but a pipe write is not
+ * synchronous, so whether Python sees a complete result or a truncated one
+ * came down to flush timing. Handling it here means the process unwinds
+ * normally and stdout is flushed before exit.
+ */
+function lateFailure(kind) {
+  return (err) => {
+    if (delivered) {
+      process.stderr.write(
+        `[worker] ${kind} after the result was sent: ${err?.stack || err}\n`,
+      );
+      process.exitCode = 0;
+      return;
+    }
+    fail("worker_crashed", err?.stack || err);
+  };
+}
+
+process.on("uncaughtException", lateFailure("uncaughtException"));
+process.on("unhandledRejection", lateFailure("unhandledRejection"));
+
 main().catch((err) => {
   fail("worker_crashed", err?.stack || err);
 });

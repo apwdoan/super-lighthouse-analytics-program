@@ -32,8 +32,33 @@ Three things were wrong, and all three are worth keeping fixed:
    takes the *first* envelope. Line splitting could not have separated these
    two anyway, since there was no separator between them.
 
-The worker being well-behaved is what makes 1 and 2 sufficient. 3 exists
+4. **The throw did not come from the call we were guarding.** `killQuietly`
+   wraps the `kill()` the worker awaits, but chrome-launcher *also* calls
+   `destroyTmp()` from a `chromeProcess.on('close')` listener, so the error
+   arrives as an uncaught exception in an event handler that no try/catch
+   around `kill()` can reach:
+
+   ```
+   at Launcher.destroyTmp (chrome-launcher.js:353)
+   at ChildProcess.<anonymous> (chrome-launcher.js:328)
+   ```
+
+   Node's default there is to print the stack and die on the spot. The
+   envelope had already been written, but a pipe write is not synchronous,
+   so whether Python saw a complete result or a truncated one was down to
+   flush timing. `process.on("uncaughtException")` and
+   `("unhandledRejection")` now let the process unwind normally when a
+   result has already been delivered.
+
+The worker being well-behaved is what makes 1, 2 and 4 sufficient. 3 exists
 because trusting that is how this went unnoticed in the first place.
+
+**How this was verified.** A throw was injected into chrome-launcher's
+`destroyTmp()` so cleanup fails on every call, reproducing the CI stdout
+byte-for-byte: two concatenated envelopes, exit 1. With the fixes, the same
+injection yields one clean envelope, exit 0, the failure on stderr, and a
+completed audit. A deliberately broken `CHROME_PATH` still produces a
+failure envelope and exit 1, so the fix does not swallow real errors.
 
 ## Setup
 

@@ -460,3 +460,37 @@ def test_probe_failure_names_every_lookup(tmp_path):
     assert "/usr/bin/node" in message
     assert str(worker) in message
     assert "/somewhere/chrome" in message
+
+
+def test_the_worker_protects_a_delivered_result():
+    """Source-level guard on three properties of worker.js.
+
+    Behavioural verification needs a Windows-style temp-cleanup failure,
+    which was done by injecting a throw into chrome-launcher's destroyTmp
+    and confirming the probe still returns its result. That injection is
+    not reproducible in CI, where node_modules is installed fresh, so this
+    asserts the mechanisms are present rather than silently regressing.
+
+    Each line here was a real Windows failure:
+      - `delivered` guard: the worker emitted a success envelope and then a
+        crash envelope, and the crash won.
+      - newline: the two were concatenated into one unparseable line.
+      - uncaughtException: chrome-launcher throws from a ChildProcess
+        'close' listener, which no try/catch around kill() can reach, and
+        Node's default is to die before stdout flushes.
+    """
+    from pathlib import Path
+
+    import slap
+
+    worker = Path(slap.__file__).parent / "node_worker" / "worker.js"
+    source = worker.read_text(encoding="utf-8")
+
+    assert "let delivered = false;" in source
+    assert "if (delivered) {" in source
+    assert "${JSON.stringify(payload)}\\n" in source
+    assert 'process.on("uncaughtException"' in source
+    assert 'process.on("unhandledRejection"' in source
+    assert "async function killQuietly" in source
+    # And nothing may call chrome.kill() outside killQuietly itself.
+    assert source.count("chrome.kill()") == 1
