@@ -5,10 +5,20 @@
 ## Setup
 
 ```bash
-npm install --prefix src/slap/node_worker    # Lighthouse + chrome-launcher
+cd src/slap/node_worker && npm install       # Lighthouse + chrome-launcher
+cd -
 playwright install chromium                  # the pinned browser (shared with PDF export)
 slap doctor                                  # confirm every backend
 ```
+
+Run npm from *inside* the worker directory. `npm install --prefix <dir>`
+looks correct and works on macOS and Linux, but on Windows npm ignores the
+prefix and reads the current directory's package.json, failing at the repo
+root with `ENOENT ... package.json`. That is [npm/cli#7722], open since
+2015. It cost a Windows CI build, and the platform-specific nature is the
+whole problem: it passes everywhere you are likely to test it.
+
+[npm/cli#7722]: https://github.com/npm/cli/issues/7722
 
 Node **>= 22.19** is required; Lighthouse 13 declares it in `engines` and
 fails on older LTS in ways that do not obviously point at the Node version.

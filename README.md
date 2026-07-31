@@ -24,9 +24,23 @@ same core. See `docs/gui-architecture.md`, `docs/lighthouse.md`, and
 ```bash
 pip install -e ".[dev,all]"
 playwright install chromium                    # PDF export and Lighthouse
-npm install --prefix src/slap/node_worker      # Lighthouse itself
 slap doctor                                    # confirm every backend
 ```
+
+Lighthouse itself installs from *inside* the worker directory:
+
+```bash
+cd src/slap/node_worker
+npm install
+```
+
+**Do not use `npm install --prefix src/slap/node_worker`.** On Windows npm
+ignores the prefix and reads the package.json in the current directory, so
+it fails at the repo root with a confusing `ENOENT ... package.json`. The
+bug is open ([npm/cli#7722](https://github.com/npm/cli/issues/7722)) and
+does not reproduce on macOS or Linux, which is exactly what makes it easy
+to ship. `packaging/build.py` and the CI workflow both run npm with a
+working directory instead.
 
 Extras: `report` (PDF), `gui` (desktop app), `all` (both).
 

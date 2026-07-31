@@ -137,10 +137,28 @@ jobs:
           python -m pip install -e ".[dev,all]"
           python -m pip install pyinstaller
 
-      - name: Install browsers and Lighthouse
-        run: |
-          python -m playwright install chromium
-          npm install --omit=dev --no-audit --no-fund --prefix src/slap/node_worker
+      - name: Install browsers
+        run: python -m playwright install chromium
+
+      # ----------------------------------------------------------------
+      # `working-directory`, NOT `npm install --prefix`.
+      #
+      # The --prefix form worked on the Linux and macOS runners and failed
+      # on Windows, where npm ignored the prefix and read the repository
+      # root's package.json instead:
+      #
+      #   npm error path D:\a\...\Super-Lighthouse-Analytics-Project\package.json
+      #   npm error enoent Could not read package.json
+      #
+      # There is no root package.json and there should not be; this is a
+      # Python project with one vendored Node worker. `working-directory`
+      # is resolved by the Actions runner rather than by npm, so it behaves
+      # identically everywhere. packaging/build.py already had this right:
+      # it passes cwd= to the subprocess and never used --prefix.
+      # ----------------------------------------------------------------
+      - name: Install the Lighthouse worker
+        working-directory: src/slap/node_worker
+        run: npm install --omit=dev --no-audit --no-fund
 
       # Runs on every platform in the matrix regardless of what is being
       # built, because "does the test suite pass on Intel macOS" is worth
