@@ -27,25 +27,73 @@ needed on a teammate's machine.
 
 ### Or let CI do all three
 
-`.github/workflows/build.yml` builds Windows, macOS (Apple Silicon) and
-Linux on GitHub's own runners, which is the only way to get all three
-without owning all three machines.
+`.github/workflows/build.yml` builds all four targets on GitHub's own
+runners, which is the only way to get them without owning four machines.
 
-- **Manually:** Actions → *Build distributables* → *Run workflow*, with a
-  platform picker if you only want one.
-- **On a tag:** pushing `v0.2.0` builds all three.
+| Artifact | Runner | Notes |
+|---|---|---|
+| `SALP-windows-x64` | `windows-latest` | |
+| `SALP-macos-arm64` | `macos-latest` | Apple Silicon |
+| `SALP-macos-x64` | `macos-15-intel` | Intel |
+| `SALP-linux-x64` | `ubuntu-latest` | |
+
+- **Manually:** Actions → *Build distributables* → *Run workflow*. The
+  picker takes `all`, `windows`, `linux`, `macos` (both Macs), or
+  `macos-arm64` / `macos-x64` for one of them.
+- **On a tag:** pushing `v0.2.0` builds all four.
 
 Each job installs dependencies, runs the full test suite, builds, and then
 **runs the bundle it just built** — a real audit and a real PDF export, not
 just `doctor`. A build that cannot produce a PDF fails the job rather than
-being uploaded. Artifacts land under the run as `SALP-windows-x64`,
-`SALP-macos-arm64`, `SALP-linux-x64`, kept for 14 days.
+being uploaded. Artifacts are kept for 14 days.
+
+The test suite runs on every platform in the matrix even when the picker
+narrows the build, because "does the suite pass on Intel macOS" is worth
+knowing on a run that only ships the arm64 zip. Only build, verify and
+upload are gated.
 
 `fail-fast` is off, so a Windows-only breakage still leaves usable macOS and
 Linux artifacts.
 
-Intel Macs need a `macos-13` entry in the matrix; `macos-latest` is Apple
-Silicon and its output will not run on an Intel machine.
+**One step decides whether a platform is built.** The `gate` step writes
+`build=true|false` and the three later steps read it. The condition used to
+be repeated inline on each of them, which meant adding the Intel entry would
+have been four edits and a job that tests and then silently uploads nothing
+if you got one wrong.
+
+### The Intel runner is not `macos-13`
+
+That image was **retired on 2025-12-04**, so `runs-on: macos-13` now fails
+outright rather than falling back to anything. The standard replacement is
+`macos-15-intel` (4 CPU / 14GB, so slightly beefier than the 3 CPU / 7GB
+arm64 runner). `macos-26-intel` also exists; 15 is deliberate, on the same
+"build on the oldest system you need to support" reasoning as the glibc note
+for Linux.
+
+**Intel macOS has an expiry date on Actions.** `macos-15-intel` is available
+until **August 2027**, after which GitHub drops x86_64 entirely. When that
+lands, the Intel entry has to come out of the matrix and Intel teammates
+need a local build or a machine of their own.
+
+#### Three things the workflow gets wrong if you rewrite it
+
+Each of these produced a green-looking job that was in fact broken, so they
+are worth keeping in mind.
+
+1. **Install `.[dev,all]`, not `.[all]`.** `all` is the *runtime* extras
+   (playwright, pypdf, PySide6) and carries no test tooling, so the test step
+   dies with `No module named pytest`. Nothing platform-specific about it;
+   it just happened to be the first job to reach that step.
+2. **Do not gate on `doctor`'s exit code.** `doctor` returns 1 when *any*
+   backend is unavailable, and CI has no CrUX key, so under
+   `set -euo pipefail` a healthy bundle fails the job. Assert on the backend
+   lines a bundle is actually responsible for instead.
+3. **Setting `PLAYWRIGHT_BROWSERS_PATH` job-wide changes `build.py`'s path.**
+   It is set so the test step's Chromium download is reused rather than
+   fetched twice, which means `stage_chromium()` finds a browser already
+   there and skips its install. Pruning must therefore sit outside that
+   branch, or the bundle ships the 320MB headless shell that `channel=
+   "chromium"` exists to make unnecessary.
 
 ## What ends up in the folder
 
@@ -157,9 +205,22 @@ rule needs no platform-specific code.
 - **Chromium is a nested `.app`** inside `SALP.app`. Fine unsigned; if you
   ever sign, every nested executable needs signing too, which is the fiddly
   part of notarising this particular bundle.
-- **Apple Silicon only** unless you add a `macos-13` matrix entry. The
-  bundled Chromium and Node are architecture-specific, so an arm64 build
-  genuinely will not run on Intel.
+- **Two separate Mac builds, and they are not interchangeable.** The bundled
+  Chromium and Node are downloaded per architecture, so an arm64 build
+  genuinely will not run on Intel. `build.py` puts the machine architecture
+  in the zip name (`SALP-macos-arm64.zip`, `SALP-macos-x86_64.zip`) so the
+  two cannot be confused once they are off the Actions page.
+- **`LSMinimumSystemVersion` tracks the PySide6 wheel, not our own floor.**
+  PySide6 6.11 ships `macosx_13_0_universal2`, so the plist says 13.0. It
+  said 12.0 for a while, which bought nothing but a launch that dies on
+  `import PySide6`. If PySide6 raises its minimum again, raise this with it.
+- **Both Mac bundles carry Qt twice.** PySide6 ships universal2 wheels and
+  PyInstaller copies the fat binaries through as-is, so the Intel bundle
+  contains arm64 Qt slices it can never execute, and vice versa. Roughly
+  60MB. PyInstaller can thin them with `target_arch` on `EXE`/`BUNDLE`,
+  which shells out to `lipo`; it is left off because any dependency that is
+  *not* universal then fails the build, and that is a new failure mode in
+  exchange for 5% of a 1.1GB folder. Measure before deciding it matters.
 
 ## Linux specifics
 
@@ -229,6 +290,5 @@ has been wrong before:
   small addition if teammates want Start Menu entries.
 - **No auto-update.** New build, new zip.
 - **No code signing.** See the SmartScreen note above.
-- **Not built for macOS or Linux**, though nothing here is Windows-specific;
-  run the same command on that platform. macOS additionally needs signing
-  and notarisation or Gatekeeper blocks it outright.
+- **No notarisation.** macOS builds are unsigned, so Gatekeeper blocks the
+  first launch until someone clears the quarantine attribute. See above.

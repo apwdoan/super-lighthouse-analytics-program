@@ -97,7 +97,11 @@ if sys.platform == "darwin":
         bundle_identifier="ca.salp.app",
         info_plist={
             "NSHighResolutionCapable": True,
-            "LSMinimumSystemVersion": "12.0",
+            # Tracks the PySide6 wheel, not our own floor. PySide6 6.11
+            # ships macosx_13_0_universal2, so a bundle built against it
+            # cannot run on macOS 12 regardless of what this says. Claiming
+            # 12.0 only buys a launch that dies on `import PySide6`.
+            "LSMinimumSystemVersion": "13.0",
             # Not a document-based app, and no reason to show in the dock
             # switcher as anything other than a normal app.
             "LSApplicationCategoryType": "public.app-category.developer-tools",

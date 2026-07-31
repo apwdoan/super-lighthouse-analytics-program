@@ -1,7 +1,7 @@
 name: Build distributables
 
 # Deliberately NOT on every push. Each platform produces a ~400MB artifact
-# and takes 10-15 minutes; building three of those per commit burns Actions
+# and takes 10-15 minutes; building four of those per commit burns Actions
 # minutes and storage for no benefit. Tag a release, or run it by hand.
 on:
   workflow_dispatch:
@@ -10,12 +10,28 @@ on:
         description: Which platforms to build
         type: choice
         default: all
-        options: [all, windows, macos, linux]
+        options:
+          - all
+          - windows
+          - macos          # both Macs
+          - macos-arm64    # Apple Silicon only
+          - macos-x64      # Intel only
+          - linux
   push:
     tags: ["v*"]
 
 permissions:
   contents: read
+
+env:
+  # Point Playwright at the build's staging directory for the WHOLE job, so
+  # the browser is downloaded once and reused. Without this the test step
+  # and packaging/build.py each fetch their own ~170MB copy.
+  #
+  # Consequence worth knowing: stage_chromium() then finds a browser already
+  # present and skips its install branch, which is why pruning the headless
+  # shell sits OUTSIDE that branch in build.py.
+  PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/packaging/staging/browsers
 
 jobs:
   build:
@@ -34,17 +50,68 @@ jobs:
           - os: windows-latest
             label: windows-x64
             wanted: windows
-          # macos-latest is Apple Silicon. An Intel build needs macos-13,
-          # added as another entry here if anyone still runs one.
+            family: windows
+
+          # macos-latest is Apple Silicon (3 CPU / 7GB).
           - os: macos-latest
             label: macos-arm64
-            wanted: macos
+            wanted: macos-arm64
+            family: macos
+
+          # Intel. NOT macos-13: that image was retired on 2025-12-04 and
+          # `runs-on: macos-13` now fails outright. macos-15-intel is the
+          # standard replacement (4 CPU / 14GB, so if anything faster than
+          # the arm64 runner) and is available until August 2027, after
+          # which Actions drops x86_64 entirely. macos-26-intel also exists;
+          # 15 is deliberate, on the same "build on the oldest system you
+          # need to support" reasoning as the glibc note for Linux.
+          - os: macos-15-intel
+            label: macos-x64
+            wanted: macos-x64
+            family: macos
+
           - os: ubuntu-latest
             label: linux-x64
             wanted: linux
+            family: linux
 
     steps:
       - uses: actions/checkout@v4
+
+      # ----------------------------------------------------------------
+      # One place that decides whether this platform is being built.
+      #
+      # The condition was previously repeated on four separate steps, and
+      # adding a matrix entry meant editing all four correctly or getting
+      # a job that tests and then silently uploads nothing.
+      #
+      # Values go through env rather than being interpolated into the
+      # script. `platforms` is a `choice` so GitHub constrains it, but a
+      # workflow that interpolates event data into a shell is the wrong
+      # habit to leave lying around for the next person to copy.
+      # ----------------------------------------------------------------
+      - name: Decide whether to build this platform
+        id: gate
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          PICKED: ${{ inputs.platforms }}
+          WANTED: ${{ matrix.wanted }}
+          FAMILY: ${{ matrix.family }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != "workflow_dispatch" ] \
+             || [ "$PICKED" = "all" ] \
+             || [ "$PICKED" = "$WANTED" ] \
+             || [ "$PICKED" = "$FAMILY" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "Building $WANTED."
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping the build for $WANTED (picked: $PICKED)."
+            echo "The test suite still runs, which is the point of not"
+            echo "gating the whole job."
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -56,87 +123,137 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          # Build-time only. Lighthouse 13 needs >= 22.19; the shipped
-          # runtime is Playwright's bundled Node, checked by build.py.
+          # Build-time only, for `npm install` of the Lighthouse worker.
+          # The SHIPPED runtime is Playwright's bundled Node, version-checked
+          # by build.py.
           node-version: "22"
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[all]"
+          # dev AND all: `all` is the runtime extras (playwright, pypdf,
+          # PySide6) and carries no test tooling. Installing only `all` is
+          # what made the first run die with "No module named pytest".
+          python -m pip install -e ".[dev,all]"
           python -m pip install pyinstaller
 
+      - name: Install browsers and Lighthouse
+        run: |
+          python -m playwright install chromium
+          npm install --omit=dev --no-audit --no-fund --prefix src/salp/node_worker
+
+      # Runs on every platform in the matrix regardless of what is being
+      # built, because "does the test suite pass on Intel macOS" is worth
+      # knowing even on a run that only ships the arm64 zip.
       - name: Run the test suite
         env:
           QT_QPA_PLATFORM: offscreen
-        run: |
-          python -m playwright install chromium
-          python -m pytest -q
+        run: python -m pytest -q
 
       - name: Build the distributable
-        if: >-
-          github.event_name != 'workflow_dispatch' ||
-          inputs.platforms == 'all' ||
-          inputs.platforms == matrix.wanted
+        if: steps.gate.outputs.build == 'true'
         run: python packaging/build.py --zip
 
-      - name: Verify the bundle actually runs
-        if: >-
-          runner.os != 'Windows' && (
-            github.event_name != 'workflow_dispatch' ||
-            inputs.platforms == 'all' ||
-            inputs.platforms == matrix.wanted
-          )
+      # ----------------------------------------------------------------
+      # Run the bundle that was just built.
+      #
+      # `doctor` alone is not enough: it once reported PDF export healthy on
+      # a bundle whose export failed, because it stat-ed a different binary
+      # than Playwright launches. So this runs a real Lighthouse audit and a
+      # real PDF export, against the repo's own offline fixture rather than
+      # a live site, so a network hiccup cannot look like a broken build.
+      # ----------------------------------------------------------------
+      - name: Verify the bundle
+        if: steps.gate.outputs.build == 'true' && runner.os != 'Windows'
         shell: bash
-        env:
-          QT_QPA_PLATFORM: offscreen
         run: |
-          # `doctor` alone has been wrong before: it once reported PDF
-          # export healthy while export failed. Run a real audit and a real
-          # export, with nothing from the build environment leaking in.
+          set -euo pipefail
           if [ "$RUNNER_OS" = "macOS" ]; then
-            APP="dist/SALP.app/Contents/MacOS/SALP"
+            APP="$PWD/dist/SALP.app/Contents/MacOS/SALP"
           else
-            APP="dist/SALP/SALP"
+            APP="$PWD/dist/SALP/SALP"
           fi
-          env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP/clean" \
-                 QT_QPA_PLATFORM=offscreen \
-            "$PWD/$APP" --cli doctor
-          env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP/clean" \
-            "$PWD/$APP" --cli --db "$RUNNER_TEMP/v.sqlite3" \
-            audit example.com
-          env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP/clean" \
-            "$PWD/$APP" --cli --db "$RUNNER_TEMP/v.sqlite3" \
-            report 1 -o "$RUNNER_TEMP/report"
-          test -f "$RUNNER_TEMP"/report/*.pdf && echo "PDF produced"
 
-      - name: Verify the bundle actually runs (Windows)
-        if: >-
-          runner.os == 'Windows' && (
-            github.event_name != 'workflow_dispatch' ||
-            inputs.platforms == 'all' ||
-            inputs.platforms == matrix.wanted
-          )
+          # The arch the bundle actually contains, not the arch the label
+          # claims. A silently-Rosetta'd toolchain would produce an x86_64
+          # bundle from the arm64 job and nothing else here would notice.
+          file "$APP" || true
+
+          python -m tests.fixture_server 8899 > /dev/null 2>&1 &
+          FIXTURE=$!
+          trap 'kill $FIXTURE 2>/dev/null || true' EXIT
+          sleep 3
+
+          OUT="$RUNNER_TEMP/verify"
+          mkdir -p "$OUT" "$RUNNER_TEMP/clean"
+
+          # env -i proves nothing leaks in from the build environment: no
+          # node on PATH, no PLAYWRIGHT_BROWSERS_PATH, no site-packages.
+          CLEAN="env -i PATH=/usr/bin:/bin HOME=$RUNNER_TEMP/clean"
+
+          # `doctor` exits 1 when ANY backend is missing, and CI has no
+          # CrUX key, so its exit code cannot be the gate. Assert on the
+          # backends a BUNDLE is responsible for instead.
+          DOCTOR="$($CLEAN "$APP" --cli doctor || true)"
+          echo "$DOCTOR"
+          echo "$DOCTOR" | grep -q '\[ok \] Lighthouse lab data'
+          echo "$DOCTOR" | grep -q '\[ok \] PDF export'
+
+          # A batch whose Lighthouse is unavailable logs a warning and
+          # completes on the network collectors alone, so a green audit is
+          # not by itself proof the lab runner works. Check it started.
+          AUDIT="$($CLEAN "$APP" --cli --db "$OUT/v.sqlite3" \
+            audit http://127.0.0.1:8899/index.html --lighthouse --lh-runs 1)"
+          echo "$AUDIT"
+          echo "$AUDIT" | grep -q 'run(s) per site'
+
+          $CLEAN "$APP" --cli --db "$OUT/v.sqlite3" report 1 -o "$OUT"
+
+          # A glob inside `test -f` is a syntax error on multiple matches
+          # and silently passes the literal string on zero. Count instead.
+          count=$(find "$OUT" -name '*.pdf' | wc -l)
+          echo "PDFs produced: $count"
+          [ "$count" -ge 1 ]
+
+      - name: Verify the bundle (Windows)
+        if: steps.gate.outputs.build == 'true' && runner.os == 'Windows'
         shell: pwsh
         run: |
-          $app = "dist\SALP\SALP.exe"
-          & $app --cli doctor
-          & $app --cli --db "$env:RUNNER_TEMP\v.sqlite3" audit example.com
-          & $app --cli --db "$env:RUNNER_TEMP\v.sqlite3" report 1 -o "$env:RUNNER_TEMP\report"
-          if (-not (Get-ChildItem "$env:RUNNER_TEMP\report" -Filter *.pdf)) {
-            throw "no PDF produced"
+          $ErrorActionPreference = "Stop"
+          $app = "$PWD\dist\SALP\SALP.exe"
+          $fixture = Start-Process python -ArgumentList "-m","tests.fixture_server","8899" -PassThru
+          Start-Sleep -Seconds 3
+          try {
+            $out = "$env:RUNNER_TEMP\verify"
+            New-Item -ItemType Directory -Force -Path $out | Out-Null
+
+            # doctor exits 1 with no CrUX key, so assert on its output.
+            $doctor = & $app --cli doctor 2>&1 | Out-String
+            Write-Host $doctor
+            if ($doctor -notmatch '\[ok \] Lighthouse lab data') { throw "Lighthouse backend missing" }
+            if ($doctor -notmatch '\[ok \] PDF export') { throw "PDF backend missing" }
+
+            # A batch with Lighthouse unavailable still completes on the
+            # network collectors, so check the lab runner actually started.
+            $audit = & $app --cli --db "$out\v.sqlite3" audit http://127.0.0.1:8899/index.html --lighthouse --lh-runs 1 2>&1 | Out-String
+            Write-Host $audit
+            if ($audit -notmatch 'run\(s\) per site') { throw "Lighthouse did not run" }
+
+            & $app --cli --db "$out\v.sqlite3" report 1 -o $out
+            $pdfs = @(Get-ChildItem $out -Filter *.pdf)
+            Write-Host "PDFs produced: $($pdfs.Count)"
+            if ($pdfs.Count -lt 1) { throw "no PDF produced" }
+          } finally {
+            Stop-Process -Id $fixture.Id -ErrorAction SilentlyContinue
           }
-          Write-Host "PDF produced"
 
       - name: Upload
-        if: >-
-          github.event_name != 'workflow_dispatch' ||
-          inputs.platforms == 'all' ||
-          inputs.platforms == matrix.wanted
+        if: steps.gate.outputs.build == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: SALP-${{ matrix.label }}
           path: dist/*.zip
+          if-no-files-found: error
           # ~400MB each. Default is 90 days, which for a private repo is
           # real storage cost for builds nobody will download after a week.
           retention-days: 14

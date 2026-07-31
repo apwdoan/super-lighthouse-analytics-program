@@ -215,14 +215,21 @@ def stage_chromium(force: bool = False) -> Path:
     self-contained bundle cannot act on.
     """
     target = STAGING / "browsers"
-    if target.exists() and any(target.glob("chromium-*")) and not force:
+    already = target.exists() and any(target.glob("chromium-*"))
+
+    if already and not force:
         log(f"chromium already staged at {target}")
-        return target
+    else:
+        target.mkdir(parents=True, exist_ok=True)
+        environment = {**os.environ, "PLAYWRIGHT_BROWSERS_PATH": str(target)}
+        run([sys.executable, "-m", "playwright", "install", "chromium"],
+            env=environment)
 
-    target.mkdir(parents=True, exist_ok=True)
-    environment = {**os.environ, "PLAYWRIGHT_BROWSERS_PATH": str(target)}
-    run([sys.executable, "-m", "playwright", "install", "chromium"], env=environment)
-
+    # Pruning runs on EVERY call, not only after a fresh install. CI points
+    # PLAYWRIGHT_BROWSERS_PATH here so the test step's browser download is
+    # reused; that path skips the install above, and pruning inside the else
+    # branch would silently ship the 320MB headless shell.
+    #
     # Prune the headless shell and ffmpeg, ~330MB together.
     #
     # This is only safe because report/pdf.py launches with
@@ -335,6 +342,15 @@ def main(argv: list[str] | None = None) -> int:
         "chromium_only": True,
     }
     (dist / "build-manifest.json").write_text(json.dumps(manifest, indent=2))
+
+    if sys.platform == "darwin":
+        # PyInstaller emits BOTH dist/SALP/ (the COLLECT output) and
+        # dist/SALP.app/. Only the .app got runtime/, so leaving the other
+        # behind is a ~400MB copy that looks like the app and does not work.
+        stray = ROOT / "dist" / "SALP"
+        if stray.is_dir():
+            log("removing the redundant non-.app collection")
+            shutil.rmtree(stray, ignore_errors=True)
 
     shippable = shippable_path()
     log(f"built {shippable} ({_size(shippable)})")

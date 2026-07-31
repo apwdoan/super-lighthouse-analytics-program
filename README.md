@@ -82,10 +82,10 @@ the app, Node, Lighthouse and Chromium. A teammate unzips it and runs it;
 they install nothing.
 
 PyInstaller is not a cross-compiler, so build on the platform you are
-shipping to. To get all three without owning all three machines, run the
-**Build distributables** workflow on GitHub: it builds Windows, macOS
-(Apple Silicon) and Linux natively, and each job runs the bundle it just
-built before uploading it.
+shipping to. To get every target without owning every machine, run the
+**Build distributables** workflow on GitHub: it builds Windows, macOS on
+both Apple Silicon and Intel, and Linux natively, and each job runs the
+bundle it just built before uploading it.
 
 See `docs/packaging.md` for the size breakdown, Windows SmartScreen, and
 macOS Gatekeeper.
@@ -185,7 +185,7 @@ docs/reports.md          report pipeline, palette rules, PDF backend
 ## Tests
 
 ```bash
-pytest -q          # 207 tests, no network and no display required
+pytest -q          # 209 tests, no network and no display required
 ```
 
 The suite runs local HTTP servers for the end-to-end paths, so the whole
