@@ -279,8 +279,29 @@ Chromium cannot launch.
 - **Share as a zip over something that preserves it** (a file share, an
   internal release page). Email and some chat tools strip .exe files even
   inside archives.
-- The app is built `console=False`. The CLI still works from an existing
-  terminal: `.\SLAP.exe --cli doctor`.
+- **The app is built `console=False`, and that has a sharp edge on the CLI.**
+  The CLI works from an existing terminal (`.\SLAP.exe --cli doctor`), but
+  because the binary is GUI-subsystem, **PowerShell and cmd do not wait for
+  it**. The prompt returns immediately and output arrives afterwards, so
+  anything that reads the results in the next command sees them missing.
+
+  This cost a CI build. The verify step ran the report and then counted
+  PDFs, found none, and failed. The log gave it away: the report's own
+  output appeared *below* the exception saying it had produced nothing.
+
+  To wait for it, make PowerShell read the output to EOF:
+
+  ```powershell
+  $out = & .\SLAP.exe --cli report 1 -o C:\reports 2>&1 | Out-String
+  # or
+  Start-Process .\SLAP.exe -ArgumentList '--cli','report','1' -Wait -NoNewWindow
+  ```
+
+  Piping is the cheap fix and it is why the `doctor` and `audit` calls in
+  the workflow were fine: they were already captured into variables. Only
+  the one bare invocation was wrong. Scripting the CLI on Windows needs the
+  same care. On macOS and Linux the shell waits for any child regardless,
+  so this is genuinely Windows-only.
 
 ## Rebuilding after a code change
 

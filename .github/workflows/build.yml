@@ -242,6 +242,14 @@ jobs:
           echo "PDFs produced: $count"
           [ "$count" -ge 1 ]
 
+          # Size too, not just existence. A zero-byte file satisfies a
+          # count and is not a PDF. (The shell waits for any child here
+          # regardless of subsystem, so the fire-and-forget problem the
+          # Windows step hit does not arise on this side.)
+          find "$OUT" -name '*.pdf' -printf '  %f: %s bytes\n'
+          [ -z "$(find "$OUT" -name '*.pdf' -size -1k)" ] || {
+            echo "a PDF is under 1KB" >&2; exit 1; }
+
       - name: Verify the bundle (Windows)
         if: steps.gate.outputs.build == 'true' && runner.os == 'Windows'
         shell: pwsh
@@ -292,10 +300,30 @@ jobs:
             Write-Host $audit
             if ($audit -notmatch 'run\(s\) per site') { throw "Lighthouse did not run" }
 
-            & $app --cli --db "$out\v.sqlite3" report 1 -o $out
+            # `| Out-String` is LOAD-BEARING, not tidiness.
+            #
+            # SLAP.exe is built console=False, so it is a GUI-subsystem
+            # binary and PowerShell does NOT block on it. Called bare, this
+            # returned instantly, Get-ChildItem found nothing, and the step
+            # failed with "no PDF produced" while the app was still running.
+            # The log proved it: the report's own output appeared AFTER the
+            # exception that said it had not produced anything.
+            #
+            # Piping forces PowerShell to read stdout to EOF, which happens
+            # when the process exits. The doctor and audit calls above were
+            # already piped and so were already correct, which is exactly
+            # why this was the only one that broke.
+            $report = & $app --cli --db "$out\v.sqlite3" report 1 -o $out 2>&1 | Out-String
+            Write-Host $report
+
             $pdfs = @(Get-ChildItem $out -Filter *.pdf)
             Write-Host "PDFs produced: $($pdfs.Count)"
             if ($pdfs.Count -lt 1) { throw "no PDF produced" }
+            foreach ($pdf in $pdfs) {
+              # A zero-byte file counts for Get-ChildItem and is not a PDF.
+              if ($pdf.Length -lt 1024) { throw "$($pdf.Name) is only $($pdf.Length) bytes" }
+              Write-Host "  $($pdf.Name): $([math]::Round($pdf.Length / 1KB)) KB"
+            }
           } finally {
             Stop-Process -Id $fixture.Id -ErrorAction SilentlyContinue
           }
