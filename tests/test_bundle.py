@@ -13,24 +13,24 @@ import sys
 
 import pytest
 
-from salp import bundle
+from slap import bundle
 
 
 @pytest.fixture
 def fake_bundle(tmp_path, monkeypatch):
     """A directory laid out like a built distributable."""
-    root = tmp_path / "SALP"
+    root = tmp_path / "SLAP"
     (root / "runtime" / "node_worker").mkdir(parents=True)
     (root / "runtime" / "node_worker" / "worker.js").write_text("//")
     (root / "runtime" / "browsers" / "chromium-1194" / "chrome-linux").mkdir(parents=True)
     (root / "runtime" / "browsers" / "chromium-1194" / "chrome-linux" / "chrome").write_text("")
     (root / "_internal" / "playwright" / "driver").mkdir(parents=True)
     (root / "_internal" / "playwright" / "driver" / "node").write_text("")
-    (root / "SALP").write_text("")
+    (root / "SLAP").write_text("")
 
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "_MEIPASS", str(root), raising=False)
-    monkeypatch.setattr(sys, "executable", str(root / "SALP"))
+    monkeypatch.setattr(sys, "executable", str(root / "SLAP"))
     return root
 
 
@@ -86,23 +86,23 @@ def test_a_staged_node_wins_over_playwrights(fake_bundle):
 def test_resolves_a_macos_app_layout(tmp_path, monkeypatch):
     """The only macOS verification possible without a Mac.
 
-    PyInstaller's BUNDLE() puts the executable at Contents/MacOS/SALP, so
+    PyInstaller's BUNDLE() puts the executable at Contents/MacOS/SLAP, so
     runtime/ goes beside it there. Chromium inside a .app has a different
     path shape again. Neither is exercised by the Linux build, so it is
     asserted here rather than discovered on someone's laptop.
     """
-    app = tmp_path / "SALP.app" / "Contents" / "MacOS"
+    app = tmp_path / "SLAP.app" / "Contents" / "MacOS"
     chromium = (app / "runtime" / "browsers" / "chromium-1194" /
                 "chrome-mac" / "Chromium.app" / "Contents" / "MacOS")
     chromium.mkdir(parents=True)
     (chromium / "Chromium").write_text("")
     (app / "runtime" / "node_worker").mkdir(parents=True)
     (app / "runtime" / "node_worker" / "worker.js").write_text("//")
-    (app / "SALP").write_text("")
+    (app / "SLAP").write_text("")
 
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "_MEIPASS", str(app), raising=False)
-    monkeypatch.setattr(sys, "executable", str(app / "SALP"))
+    monkeypatch.setattr(sys, "executable", str(app / "SLAP"))
 
     assert bundle.bundle_root() == app
     assert bundle.bundled_chromium() == chromium / "Chromium"
@@ -110,17 +110,17 @@ def test_resolves_a_macos_app_layout(tmp_path, monkeypatch):
 
 
 def test_resolves_a_windows_layout(tmp_path, monkeypatch):
-    root = tmp_path / "SALP"
+    root = tmp_path / "SLAP"
     chromium = root / "runtime" / "browsers" / "chromium-1194" / "chrome-win"
     chromium.mkdir(parents=True)
     (chromium / "chrome.exe").write_text("")
     (root / "_internal" / "playwright" / "driver").mkdir(parents=True)
     (root / "_internal" / "playwright" / "driver" / "node.exe").write_text("")
-    (root / "SALP.exe").write_text("")
+    (root / "SLAP.exe").write_text("")
 
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "_MEIPASS", str(root), raising=False)
-    monkeypatch.setattr(sys, "executable", str(root / "SALP.exe"))
+    monkeypatch.setattr(sys, "executable", str(root / "SLAP.exe"))
 
     assert bundle.bundled_chromium() == chromium / "chrome.exe"
     assert bundle.bundled_node() == (
@@ -168,7 +168,7 @@ def test_missing_runtime_folder_degrades_quietly(fake_bundle):
 # --------------------------------------------------------------------------
 
 def test_runner_uses_the_bundled_node_and_worker(fake_bundle):
-    from salp.collectors.lighthouse import LighthouseConfig, LighthouseRunner
+    from slap.collectors.lighthouse import LighthouseConfig, LighthouseRunner
 
     runner = LighthouseRunner(LighthouseConfig())
     assert runner.worker_script == fake_bundle / "runtime/node_worker/worker.js"
@@ -176,14 +176,14 @@ def test_runner_uses_the_bundled_node_and_worker(fake_bundle):
 
 
 def test_an_explicit_node_path_still_wins(fake_bundle):
-    from salp.collectors.lighthouse import LighthouseConfig, LighthouseRunner
+    from slap.collectors.lighthouse import LighthouseConfig, LighthouseRunner
 
     runner = LighthouseRunner(LighthouseConfig(node_path="/usr/local/bin/node"))
     assert runner.node_executable == "/usr/local/bin/node"
 
 
 def test_chrome_resolution_prefers_the_bundle(fake_bundle, monkeypatch):
-    from salp.collectors.lighthouse import default_chrome_path
+    from slap.collectors.lighthouse import default_chrome_path
 
     monkeypatch.delenv("CHROME_PATH", raising=False)
     assert default_chrome_path() == str(

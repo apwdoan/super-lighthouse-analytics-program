@@ -1,0 +1,329 @@
+{#- Per-site client report. Page one is the verdict, not the data. -#}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Site audit: {{ m.hostname }}</title>
+<style>{% include "report.css" %}</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <div>
+      {% if m.branding.logo_data_uri %}
+        <img class="logo" src="{{ m.branding.logo_data_uri }}" alt="">
+      {% else %}
+        <div class="brand">{{ m.branding.company_name | default('Site performance and security audit') }}</div>
+      {% endif %}
+      <div class="site">{{ m.hostname }}</div>
+    </div>
+    <div class="meta">
+      {{ m.generated_at }}<br>
+      Audit reference {{ m.run_id }}
+    </div>
+  </header>
+
+  {# ============================== 1. THE VERDICT ======================== #}
+  <section>
+    <div class="verdict">
+      {% set v = m.verdict %}
+      <div class="verdict-flag">
+        <span class="dot {{ 'good' if v.passes else ('unknown' if not v.has_field_data else 'poor') }}"></span>
+        {% if not v.has_field_data %}No real-user data
+        {% elif v.passes %}Passing Core Web Vitals
+        {% else %}Failing Core Web Vitals{% endif %}
+      </div>
+      <div class="headline">{{ v.headline }}</div>
+      <p>{{ v.explanation }}</p>
+    </div>
+
+    {% if v.has_field_data %}
+    <div class="tiles">
+      {% for t in v.tiles %}
+      <div class="tile">
+        <div class="tile-label">{{ t.label }}</div>
+        <div class="tile-caption">{{ t.caption }}</div>
+        <div class="tile-value">{{ t.value_text }}</div>
+        <div class="meter">
+          <div class="fill" style="width: {{ (t.meter_fraction * 100) | round(1) }}%;
+               background: var(--{{ 'good' if t.status == 'good' else ('warning' if t.status == 'needs-improvement' else ('critical' if t.status == 'poor' else 'muted-status')) }});"></div>
+          <div class="tick" style="left: 33%;"></div>
+          <div class="tick" style="left: 66%;"></div>
+        </div>
+        <div class="tile-status">
+          <span class="dot {{ t.status }}"></span>{{ t.status_word }}
+        </div>
+        <div class="threshold">{{ t.threshold_text }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if v.categories %}
+    <div class="scores">
+      {% for c in v.categories %}
+      <div class="score">
+        <div class="score-value">{{ c.value }}</div>
+        <div class="score-label">{{ c.label }}</div>
+        <div class="score-status"><span class="dot {{ c.status }}"></span>{{ c.status_word }}</div>
+      </div>
+      {% endfor %}
+      <div class="score-caption">
+        Lighthouse category scores out of 100, from our own measurement.
+        {{ v.lab_note }}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="lab-strip">
+      {% for s in v.lab_stats %}
+      <div class="lab-stat">
+        <div class="lab-label">{{ s.label }}</div>
+        <div class="lab-value">{{ s.value_text }}</div>
+        <div class="lab-note">{{ s.note }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="caption" style="margin-top:10px;">
+      {% if v.has_field_data %}
+        The three figures above come from Google's record of real visits to this
+        site over the last 28 days. The four below are measured directly by us,
+        which is why they can disagree: a lab test runs once from one location,
+        while field data averages every visitor's device and connection.
+      {% elif v.has_lab_data %}
+        These figures come from our own controlled tests rather than from real
+        visitors. Lighthouse simulates a mid-range phone on a slow connection,
+        which is deliberately harsher than a desktop on office wifi.
+      {% else %}
+        These figures are measured directly by us from a single test. Without
+        real-user data they cannot be compared against what your visitors
+        actually experience.
+      {% endif %}
+    </p>
+  </section>
+
+  {# ========================= 2. WHAT IT IS COSTING YOU =================== #}
+  <section>
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">Section 2</div>
+        <h2>What to fix first</h2>
+      </div>
+      <div class="caption">
+        {{ m.total_findings }} finding{{ '' if m.total_findings == 1 else 's' }} total &middot;
+        {{ m.severity_counts.critical }} critical &middot;
+        {{ m.severity_counts.high }} high &middot;
+        {{ m.severity_counts.medium }} medium
+      </div>
+    </div>
+
+    {% if not m.top_findings %}
+      <p class="secondary">Nothing significant was found. The checks that ran are
+      listed in the appendix.</p>
+    {% endif %}
+
+    {% for f in m.top_findings %}
+    <article class="finding {{ f.status }}">
+      <div class="finding-head">
+        <h3>{{ f.title }}</h3>
+        <span class="badge"><span class="dot {{ f.status }}"></span>{{ f.severity_word }}</span>
+      </div>
+      <p class="detail">{{ f.detail }}</p>
+
+      {% if f.evidence %}
+      <div class="evidence">
+        {% for e in f.evidence %}
+        <span class="chip">{{ e.label }} <strong>{{ e.value_text }}</strong></span>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if f.remediation or f.wp_rocket_setting %}
+      <div class="fix">
+        {% if f.remediation %}
+          <span class="fix-label">Fix</span>{{ f.remediation }}
+        {% endif %}
+        {% if f.wp_rocket_setting %}
+          <div class="wp-rocket">
+            <span class="fix-label">In WP Rocket</span>{{ f.wp_rocket_setting }}
+          </div>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% if f.effort_label or f.impact_text %}
+      <div class="finding-meta">
+        {% if f.effort_label %}<span>{{ f.effort_label }}</span>{% endif %}
+        {% if f.impact_text %}<span>Measured at {{ f.impact_text }}</span>{% endif %}
+      </div>
+      {% endif %}
+    </article>
+    {% endfor %}
+
+    {% if m.other_findings %}
+    <h3 style="margin-top:18px; margin-bottom:6px;">Also worth addressing</h3>
+    {% for f in m.other_findings %}
+    <div class="finding-compact">
+      <span class="badge"><span class="dot {{ f.status }}"></span>{{ f.severity_word }}</span>
+      <span class="title">{{ f.title }}</span>
+    </div>
+    {% endfor %}
+    {% endif %}
+  </section>
+
+  {# =============================== 3. SECURITY ========================== #}
+  <section class="page-break">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">Section 3</div>
+        <h2>Security</h2>
+      </div>
+      <div class="caption">
+        {{ m.security.headers_present }} of {{ m.security.headers_expected }} recommended headers set
+      </div>
+    </div>
+
+    {% if m.security.tls %}
+    <div class="sec-group">
+      <h3>Certificate and encryption</h3>
+      <table>
+        <tbody>
+        {% for r in m.security.tls %}
+        <tr>
+          <td style="width: 40%;">{{ r.label }}</td>
+          <td>{{ r.value_text }}</td>
+          <td style="width: 22%;">
+            {% if r.status_word %}
+            <span class="status-cell"><span class="dot {{ r.status }}"></span>{{ r.status_word }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    <div class="sec-group">
+      <h3>Response headers</h3>
+      <table>
+        <thead><tr><th style="width:32%;">Header</th><th>Value</th><th style="width:22%;">Status</th></tr></thead>
+        <tbody>
+        {% for r in m.security.headers %}
+        <tr>
+          <td>{{ r.label }}</td>
+          <td class="secondary">{{ r.value_text }}</td>
+          <td><span class="status-cell"><span class="dot {{ r.status }}"></span>{{ r.status_word }}</span></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if m.security.cookies %}
+    <div class="sec-group">
+      <h3>Cookies</h3>
+      <table>
+        <tbody>
+        {% for r in m.security.cookies %}
+        <tr>
+          <td style="width: 40%;">{{ r.label }}</td>
+          <td>{{ r.value_text }}</td>
+          <td style="width: 22%;">
+            {% if r.status_word %}
+            <span class="status-cell"><span class="dot {{ r.status }}"></span>{{ r.status_word }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </section>
+
+  {# =============================== 4. APPENDIX ========================== #}
+  <section class="appendix page-break">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">Section 4</div>
+        <h2>Appendix</h2>
+      </div>
+      <div class="caption">{{ m.appendix | length }} measurements</div>
+    </div>
+
+    <div class="methodology">
+      <h3>How this was measured</h3>
+      <ul>
+        <li>Every figure below was collected in a single automated pass and stored
+            unmodified. Nothing here is an estimate.</li>
+        <li>Field data (Core Web Vitals) comes from Google's Chrome UX Report:
+            the 75th percentile of real visits to this origin over a rolling
+            28-day window.</li>
+        <li>Everything else is measured directly against the live site: response
+            headers, the TLS handshake, the redirect chain, and the HTML document.</li>
+        {% if m.provenance.lighthouse_version %}
+        <li>Lab figures come from Google Lighthouse run on a throttled mobile
+            profile. Each measurement is the median of several runs, and the
+            raw result of every run is archived unmodified.</li>
+        {% endif %}
+        <li>Re-running this audit produces a new, separate record. Previous
+            results are never overwritten, so before-and-after comparison is exact.</li>
+      </ul>
+      <h3>Run provenance</h3>
+      <ul>
+        <li>Audit reference {{ m.provenance.run_id }} (batch {{ m.provenance.batch_id }})</li>
+        <li>Collected {{ m.audited_at }}</li>
+        <li>SLAP {{ m.provenance.slap_version }}, observation schema v{{ m.provenance.schema_version }}</li>
+        {% if m.provenance.lighthouse_version %}
+        <li>Lighthouse {{ m.provenance.lighthouse_version }} on Chrome {{ m.provenance.chrome_version }}</li>
+        <li>Throttling profile {{ m.provenance.throttling_profile }},
+            {{ m.provenance.lighthouse_runs | int }} run(s), median reported</li>
+        {% if m.provenance.benchmark_index %}
+        <li>Measuring machine CPU benchmark {{ m.provenance.benchmark_index | int }}</li>
+        {% endif %}
+        {% else %}
+        <li>No lab audit was run; the figures here are network measurements only</li>
+        {% endif %}
+      </ul>
+    </div>
+
+    {% if m.tech.cms or m.tech.cdn or m.tech.wp_rocket %}
+    <h3 style="margin:16px 0 6px;">Detected technology</h3>
+    <div class="techlist">
+      {% if m.tech.cms %}<span class="chip">Platform <strong>{{ m.tech.cms }}</strong></span>{% endif %}
+      {% if m.tech.page_builder %}<span class="chip">Builder <strong>{{ m.tech.page_builder }}</strong></span>{% endif %}
+      {% if m.tech.cdn %}<span class="chip">CDN <strong>{{ m.tech.cdn }}</strong></span>{% endif %}
+      {% if m.tech.server %}<span class="chip">Server <strong>{{ m.tech.server }}</strong></span>{% endif %}
+      {% if m.tech.cache_plugin %}<span class="chip">Caching <strong>{{ m.tech.cache_plugin }}</strong></span>{% endif %}
+      {% if m.tech.wp_rocket %}
+        <span class="chip">WP Rocket <strong>{{ m.tech.wp_rocket_version | default('detected', true) }}{% if m.tech.wp_rocket_cached is not none %}, cache {{ 'hit' if m.tech.wp_rocket_cached else 'miss' }}{% endif %}</strong></span>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <h3 style="margin:16px 0 6px;">All measurements</h3>
+    <table>
+      <thead><tr><th style="width:34%;">Measurement</th><th class="num" style="width:24%;">Value</th><th style="width:20%;">Source</th><th>Key</th></tr></thead>
+      <tbody>
+      {% for row in m.appendix %}
+      <tr>
+        <td>{{ row.label }}</td>
+        <td class="num val">{{ row.value_text }}</td>
+        <td class="secondary">{{ row.source }}</td>
+        <td class="key">{{ row.metric_key }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="footer-note">
+      Generated by SLAP {{ m.provenance.slap_version }} on {{ m.generated_at }}.
+      Audit reference {{ m.run_id }}.
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

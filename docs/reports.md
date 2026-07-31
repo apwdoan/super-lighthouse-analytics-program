@@ -44,7 +44,7 @@ fonts, logos as data URIs. It survives being emailed.
 Cost of the choice: one setup step per machine.
 
 ```bash
-pip install "salp[report]"
+pip install "slap[report]"
 playwright install chromium
 ```
 
@@ -90,7 +90,7 @@ high finding, with no cap.
 The first version took the top 5. On a site with six critical-or-high
 findings that meant an alphabetical rule-id tiebreak decided which one got
 demoted to a one-liner, and in the first real test it demoted
-`wprocket-cache-cold` — the single most actionable thing SALP produces.
+`wprocket-cache-cold` — the single most actionable thing SLAP produces.
 **Never cap by count what you have ranked by severity.** The test
 `test_every_high_and_critical_finding_gets_the_detailed_treatment` guards
 this.

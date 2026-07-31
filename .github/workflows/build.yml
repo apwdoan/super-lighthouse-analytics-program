@@ -140,7 +140,7 @@ jobs:
       - name: Install browsers and Lighthouse
         run: |
           python -m playwright install chromium
-          npm install --omit=dev --no-audit --no-fund --prefix src/salp/node_worker
+          npm install --omit=dev --no-audit --no-fund --prefix src/slap/node_worker
 
       # Runs on every platform in the matrix regardless of what is being
       # built, because "does the test suite pass on Intel macOS" is worth
@@ -169,9 +169,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$RUNNER_OS" = "macOS" ]; then
-            APP="$PWD/dist/SALP.app/Contents/MacOS/SALP"
+            APP="$PWD/dist/SLAP.app/Contents/MacOS/SLAP"
           else
-            APP="$PWD/dist/SALP/SALP"
+            APP="$PWD/dist/SLAP/SLAP"
           fi
 
           # The arch the bundle actually contains, not the arch the label
@@ -220,7 +220,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $app = "$PWD\dist\SALP\SALP.exe"
+          $app = "$PWD\dist\SLAP\SLAP.exe"
           $fixture = Start-Process python -ArgumentList "-m","tests.fixture_server","8899" -PassThru
           Start-Sleep -Seconds 3
           try {
@@ -251,7 +251,7 @@ jobs:
         if: steps.gate.outputs.build == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: SALP-${{ matrix.label }}
+          name: SLAP-${{ matrix.label }}
           path: dist/*.zip
           if-no-files-found: error
           # ~400MB each. Default is 90 days, which for a private repo is

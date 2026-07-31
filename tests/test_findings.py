@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from salp.findings.engine import (
+from slap.findings.engine import (
     FindingsEngine,
     Rule,
     RuleError,
     evaluate,
     render_template,
 )
-from salp.schema import Severity
+from slap.schema import Severity
 
 
 # --------------------------------------------------------------------------
@@ -95,7 +95,7 @@ def test_no_shipped_rule_appends_a_unit_after_a_placeholder():
     """Guards the '412msms' regression across the whole rules file."""
     import re
 
-    from salp.findings.engine import RULES_PATH
+    from slap.findings.engine import RULES_PATH
 
     text = RULES_PATH.read_text(encoding="utf-8")
     offenders = re.findall(r"\{[a-z][\w.]*\}\s*(?:ms|bytes|seconds|days)\b", text)

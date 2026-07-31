@@ -1,7 +1,7 @@
 [project]
-name = "salp"
+name = "slap"
 version = "0.1.0"
-description = "Super Awesome Lighthouse Project: batch website performance and security auditing"
+description = "Super Lighthouse Analytics Project: batch website performance and security auditing"
 requires-python = ">=3.11"
 dependencies = [
     # The http2 extra is NOT optional. Without `h2`, httpx negotiates
@@ -36,18 +36,18 @@ dev = [
 ]
 
 [project.scripts]
-salp = "salp.cli:main"
+slap = "slap.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project.gui-scripts]
-salp-gui = "salp_gui:main"
+slap-gui = "slap_gui:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/salp", "src/salp_gui"]
-# The Node worker source ships with the package so `salp` can find it, but
+packages = ["src/slap", "src/slap_gui"]
+# The Node worker source ships with the package so `slap` can find it, but
 # node_modules must not: it is ~90MB of platform-specific files and is
 # installed per machine with `npm install --prefix <pkg>/node_worker`.
 exclude = ["**/node_modules", "**/package-lock.json"]

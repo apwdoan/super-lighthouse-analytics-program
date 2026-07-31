@@ -23,8 +23,8 @@ pytest.importorskip("PySide6", reason="GUI extra not installed")
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from salp.config import Settings  # noqa: E402
-from salp.events import (  # noqa: E402
+from slap.config import Settings  # noqa: E402
+from slap.events import (  # noqa: E402
     BatchFinished,
     BatchStarted,
     CollectorFinished,
@@ -33,8 +33,8 @@ from salp.events import (  # noqa: E402
     SiteFinished,
     SiteStarted,
 )
-from salp_gui import theme  # noqa: E402
-from salp_gui.models import SiteProgressModel  # noqa: E402
+from slap_gui import theme  # noqa: E402
+from slap_gui.models import SiteProgressModel  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -46,10 +46,10 @@ def qapp():
 
 @pytest.fixture
 def settings(tmp_path):
-    from salp import db
+    from slap import db
 
     s = Settings(
-        db_path=tmp_path / "salp.sqlite3",
+        db_path=tmp_path / "slap.sqlite3",
         report_dir=tmp_path / "reports",
         artifact_dir=tmp_path / "artifacts",
     )
@@ -62,18 +62,18 @@ def settings(tmp_path):
 # Layering
 # --------------------------------------------------------------------------
 
-def test_nothing_under_salp_imports_qt():
-    """The rule the whole salp_gui package exists to respect.
+def test_nothing_under_slap_imports_qt():
+    """The rule the whole slap_gui package exists to respect.
 
-    If ``salp`` ever imports Qt, the core stops being testable without a
+    If ``slap`` ever imports Qt, the core stops being testable without a
     display and the web-UI escape hatch closes.
     """
     import ast
     import pathlib
 
-    import salp
+    import slap
 
-    root = pathlib.Path(salp.__file__).parent
+    root = pathlib.Path(slap.__file__).parent
     offenders = []
     for path in root.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -88,12 +88,12 @@ def test_nothing_under_salp_imports_qt():
                 continue
             if any(n.split(".")[0] in {"PySide6", "PyQt5", "PyQt6"} for n in names):
                 offenders.append(f"{path.relative_to(root)}:{node.lineno}")
-    assert offenders == [], f"Qt imported inside salp/: {offenders}"
+    assert offenders == [], f"Qt imported inside slap/: {offenders}"
 
 
 def test_gui_reuses_the_report_status_vocabulary():
     """Operator view and client PDF must not drift on what 'High' means."""
-    from salp.report.model import SEVERITY_STATUS
+    from slap.report.model import SEVERITY_STATUS
 
     assert theme.SEVERITY_STATUS is SEVERITY_STATUS
     assert theme.severity_status("high") == "serious"
@@ -199,7 +199,7 @@ class _FakeWorker:
 
 
 def test_bridge_translates_events_into_signals(qapp):
-    from salp_gui.bridge import BatchBridge
+    from slap_gui.bridge import BatchBridge
 
     worker = _FakeWorker()
     bridge = BatchBridge(worker)
@@ -224,7 +224,7 @@ def test_bridge_translates_events_into_signals(qapp):
 
 def test_bridge_drains_the_tail_before_reporting_stopped(qapp):
     """Events queued behind the worker's exit must not be dropped."""
-    from salp_gui.bridge import BatchBridge
+    from slap_gui.bridge import BatchBridge
 
     worker = _FakeWorker()
     bridge = BatchBridge(worker)
@@ -243,7 +243,7 @@ def test_bridge_drains_the_tail_before_reporting_stopped(qapp):
 
 
 def test_bridge_cancel_reaches_the_worker(qapp):
-    from salp_gui.bridge import BatchBridge
+    from slap_gui.bridge import BatchBridge
 
     worker = _FakeWorker()
     BatchBridge(worker).cancel()
@@ -252,7 +252,7 @@ def test_bridge_cancel_reaches_the_worker(qapp):
 
 def test_bridge_drain_is_bounded(qapp):
     """One timer tick must not block painting on a huge backlog."""
-    from salp_gui.bridge import BatchBridge
+    from slap_gui.bridge import BatchBridge
 
     worker = _FakeWorker()
     bridge = BatchBridge(worker)
@@ -275,7 +275,7 @@ def test_run_task_keeps_the_task_alive(qapp):
 
     from PySide6.QtCore import QObject, QRunnable, Signal
 
-    from salp_gui.bridge import _ACTIVE_TASKS, run_task
+    from slap_gui.bridge import _ACTIVE_TASKS, run_task
 
     class _Signals(QObject):
         done = Signal(object)
@@ -308,7 +308,7 @@ def test_run_task_keeps_the_task_alive(qapp):
 
 def test_lighthouse_concurrency_is_capped_and_separate(qapp, settings):
     """Two controls, and the dangerous one has a ceiling."""
-    from salp_gui.pages.composer import MAX_LIGHTHOUSE_CONCURRENCY, ComposerPage
+    from slap_gui.pages.composer import MAX_LIGHTHOUSE_CONCURRENCY, ComposerPage
 
     page = ComposerPage(settings)
     assert page.lh_concurrency.maximum() == MAX_LIGHTHOUSE_CONCURRENCY
@@ -317,7 +317,7 @@ def test_lighthouse_concurrency_is_capped_and_separate(qapp, settings):
 
 
 def test_composer_previews_normalization_before_running(qapp, settings):
-    from salp_gui.pages.composer import ComposerPage
+    from slap_gui.pages.composer import ComposerPage
 
     page = ComposerPage(settings)
     page.input.setPlainText(
@@ -332,7 +332,7 @@ def test_composer_previews_normalization_before_running(qapp, settings):
 
 def test_composer_disables_lighthouse_labels_with_their_controls(qapp, settings):
     """Greying only the spinboxes leaves the group looking half-enabled."""
-    from salp_gui.pages.composer import ComposerPage
+    from slap_gui.pages.composer import ComposerPage
 
     page = ComposerPage(settings)
     page.lighthouse.setChecked(False)
@@ -350,7 +350,7 @@ def test_lighthouse_options_live_inside_a_checkable_group(qapp, settings):
     """
     from PySide6.QtWidgets import QGroupBox
 
-    from salp_gui.pages.composer import ComposerPage
+    from slap_gui.pages.composer import ComposerPage
 
     page = ComposerPage(settings)
     assert isinstance(page.lighthouse, QGroupBox)
@@ -364,7 +364,7 @@ def test_desktop_checkbox_responds_to_a_real_click(qapp, settings):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtTest import QTest
 
-    from salp_gui.pages.composer import ComposerPage
+    from slap_gui.pages.composer import ComposerPage
 
     page = ComposerPage(settings)
     page.lighthouse.setChecked(True)
@@ -418,7 +418,7 @@ def test_disabled_controls_are_visibly_different_from_enabled_ones(qapp):
 
 
 def test_composer_writes_both_concurrency_settings(qapp, settings):
-    from salp_gui.pages.composer import ComposerPage
+    from slap_gui.pages.composer import ComposerPage
 
     page = ComposerPage(settings)
     page.http_concurrency.setValue(30)
@@ -437,7 +437,7 @@ def test_findings_table_stretches_the_title_column(qapp, settings):
     """Stretching column 0 truncated every finding title mid-sentence."""
     from PySide6.QtWidgets import QHeaderView
 
-    from salp_gui.pages.history import HistoryPage
+    from slap_gui.pages.history import HistoryPage
 
     page = HistoryPage(settings)
     header = page.findings.horizontalHeader()
@@ -446,10 +446,10 @@ def test_findings_table_stretches_the_title_column(qapp, settings):
 
 
 def test_history_empty_state_clears_once_a_batch_exists(qapp, settings, tmp_path):
-    from salp import SCHEMA_VERSION, db
-    from salp.schema import FormFactor, RunStatus
+    from slap import SCHEMA_VERSION, db
+    from slap.schema import FormFactor, RunStatus
 
-    from salp_gui.pages.history import HistoryPage
+    from slap_gui.pages.history import HistoryPage
 
     page = HistoryPage(settings)
     page.refresh()
@@ -459,7 +459,7 @@ def test_history_empty_state_clears_once_a_batch_exists(qapp, settings, tmp_path
     with db.transaction(conn):
         site_id = db.upsert_site(conn, "x.test")
         run_id = db.create_run(conn, batch_id="b1", site_id=site_id,
-                               salp_version="0.1.0", schema_version=SCHEMA_VERSION)
+                               slap_version="0.1.0", schema_version=SCHEMA_VERSION)
         db.create_page(conn, run_id, "https://x.test", None, FormFactor.NONE)
         db.finish_run(conn, run_id, RunStatus.COMPLETED)
 
@@ -468,7 +468,7 @@ def test_history_empty_state_clears_once_a_batch_exists(qapp, settings, tmp_path
 
 
 def test_main_window_builds_every_page(qapp, settings):
-    from salp_gui.main_window import PAGES, MainWindow
+    from slap_gui.main_window import PAGES, MainWindow
 
     window = MainWindow(settings)
     assert window.stack.count() == len(PAGES)

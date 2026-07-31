@@ -5,9 +5,9 @@
 ## Setup
 
 ```bash
-npm install --prefix src/salp/node_worker    # Lighthouse + chrome-launcher
+npm install --prefix src/slap/node_worker    # Lighthouse + chrome-launcher
 playwright install chromium                  # the pinned browser (shared with PDF export)
-salp doctor                                  # confirm every backend
+slap doctor                                  # confirm every backend
 ```
 
 Node **>= 22.19** is required; Lighthouse 13 declares it in `engines` and
@@ -16,8 +16,8 @@ fails on older LTS in ways that do not obviously point at the Node version.
 Then:
 
 ```bash
-salp audit example.com --lighthouse
-salp audit -f sites.txt --lighthouse --lh-runs 3 --lh-concurrency 3
+slap audit example.com --lighthouse
+slap audit -f sites.txt --lighthouse --lh-runs 3 --lh-concurrency 3
 ```
 
 Off by default. Phase 1 alone takes seconds per site; enabling Lighthouse
@@ -62,10 +62,10 @@ render-blocking 3.0s, unused CSS 2.2s.
 ## Architecture
 
 ```
-salp.core (Python)
+slap.core (Python)
     │  asyncio.create_subprocess_exec
     ▼
-src/salp/node_worker/worker.js         one job on stdin, one LHR on stdout
+src/slap/node_worker/worker.js         one job on stdin, one LHR on stdout
     │  chrome-launcher
     ▼
 Chromium (pinned, via Playwright)
@@ -184,7 +184,7 @@ Every failure degrades rather than aborts, and says so:
   failed run rather than stored, so a run full of zeroes never reaches the
   report looking like real measurements.
 
-`salp doctor` reports on all of it in one place, which exists precisely
+`slap doctor` reports on all of it in one place, which exists precisely
 because every one of these degrades quietly by design.
 
 ## Rules and the WP Rocket mapping

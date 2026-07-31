@@ -3,12 +3,12 @@
 One executable serves both front-ends, because shipping two .exe files that
 differ only in argv confuses more than it helps:
 
-    SALP.exe                 the desktop app
-    SALP.exe --cli audit ... the command line
+    SLAP.exe                 the desktop app
+    SLAP.exe --cli audit ... the command line
 
 The bundle is built with ``console=False``, so on Windows the CLI has no
 console attached when launched from Explorer. Run it from an existing
-terminal (``.\\SALP.exe --cli doctor``) and output goes to that terminal.
+terminal (``.\\SLAP.exe --cli doctor``) and output goes to that terminal.
 """
 
 from __future__ import annotations
@@ -25,11 +25,11 @@ def main() -> int:
 
     argv = sys.argv[1:]
     if argv and argv[0] in ("--cli", "-c"):
-        from salp.cli import main as cli_main
+        from slap.cli import main as cli_main
 
         return cli_main(argv[1:])
 
-    from salp_gui import main as gui_main
+    from slap_gui import main as gui_main
 
     return gui_main()
 

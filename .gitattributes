@@ -1,0 +1,30 @@
+# Normalise line endings in the repository to LF.
+#
+# Added after the SALP -> SLAP rename: copying the working tree flipped
+# every tracked file to CRLF, and `git status` reported all 62 of them as
+# modified with 30,513 insertions and 30,513 deletions. A real one-line
+# change would have been invisible in that. `text=auto` stores LF in the
+# object database regardless of what the working tree does, so the same
+# accident cannot produce a phantom diff again.
+#
+# Working trees are left alone (no `eol=` here), so Windows checkouts keep
+# whatever core.autocrlf says locally.
+* text=auto
+
+# Binaries git must never touch.
+*.png    binary
+*.jpg    binary
+*.ico    binary
+*.pdf    binary
+*.gz     binary
+*.zip    binary
+*.sqlite3 binary
+
+# Shell scripts and anything a Linux runner executes must be LF even if
+# checked out on Windows, or the shebang line carries a CR and the kernel
+# reports "bad interpreter".
+*.sh     text eol=lf
+
+# Batch files are the mirror image: CRLF or cmd.exe can misparse them.
+*.bat    text eol=crlf
+*.cmd    text eol=crlf

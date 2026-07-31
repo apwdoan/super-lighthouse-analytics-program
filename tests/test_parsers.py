@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from salp.collectors.fingerprint import (
+from slap.collectors.fingerprint import (
     detect_cache_plugins,
     detect_cdn,
     detect_cms,
@@ -18,7 +18,7 @@ from salp.collectors.fingerprint import (
     find_generator_meta,
     parse_attrs,
 )
-from salp.collectors.http_probe import (
+from slap.collectors.http_probe import (
     analyze_cookies,
     missing_security_headers,
     normalize_url,
@@ -26,9 +26,9 @@ from salp.collectors.http_probe import (
     parse_max_age,
     upgrades_to_https,
 )
-from salp.collectors.crux import core_web_vitals_pass, parse_crux_record
-from salp.collectors.tls_probe import days_to_expiry, flatten_name
-from salp.schema import Observation, UnknownMetricError, obs
+from slap.collectors.crux import core_web_vitals_pass, parse_crux_record
+from slap.collectors.tls_probe import days_to_expiry, flatten_name
+from slap.schema import Observation, UnknownMetricError, obs
 
 
 # --------------------------------------------------------------------------

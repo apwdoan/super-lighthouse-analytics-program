@@ -1,10 +1,10 @@
-"""Build a self-contained SALP distributable.
+"""Build a self-contained SLAP distributable.
 
     python packaging/build.py
 
-Produces ``dist/SALP/`` containing everything: the Python runtime, the app,
+Produces ``dist/SLAP/`` containing everything: the Python runtime, the app,
 a Node runtime, the Lighthouse worker with its dependencies, and Chromium.
-A teammate unzips it and runs ``SALP.exe``. They install nothing.
+A teammate unzips it and runs ``SLAP.exe``. They install nothing.
 
 **PyInstaller is not a cross-compiler.** Run this on the platform you want
 to ship to: a Windows build must be produced on Windows. The staging steps
@@ -41,7 +41,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGING = ROOT / "packaging"
 STAGING = PACKAGING / "staging"
-WORKER_SRC = ROOT / "src" / "salp" / "node_worker"
+WORKER_SRC = ROOT / "src" / "slap" / "node_worker"
 
 #: Pinned so every teammate's bundle measures on the same runtime. Lighthouse
 #: 13 requires >= 22.19; do not lower this without checking its `engines`.
@@ -253,23 +253,23 @@ def dist_target() -> Path:
     """Where runtime/ has to land, which differs on macOS.
 
     A .app is a directory, and `sys.executable` inside one points at
-    ``Contents/MacOS/SALP``. Putting runtime/ there keeps bundle.py's
+    ``Contents/MacOS/SLAP``. Putting runtime/ there keeps bundle.py's
     "look beside the executable" rule true on every platform.
     """
     if sys.platform == "darwin":
-        return ROOT / "dist" / "SALP.app" / "Contents" / "MacOS"
-    return ROOT / "dist" / "SALP"
+        return ROOT / "dist" / "SLAP.app" / "Contents" / "MacOS"
+    return ROOT / "dist" / "SLAP"
 
 
 def shippable_path() -> Path:
     """What actually gets zipped and handed to someone."""
     if sys.platform == "darwin":
-        return ROOT / "dist" / "SALP.app"
-    return ROOT / "dist" / "SALP"
+        return ROOT / "dist" / "SLAP.app"
+    return ROOT / "dist" / "SLAP"
 
 
 def run_pyinstaller(clean: bool = False) -> Path:
-    spec = PACKAGING / "salp.spec"
+    spec = PACKAGING / "slap.spec"
     command = [sys.executable, "-m", "PyInstaller", str(spec), "--noconfirm"]
     if clean:
         command.append("--clean")
@@ -320,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--clean", action="store_true",
                         help="pass --clean to PyInstaller")
     parser.add_argument("--zip", action="store_true",
-                        help="also produce dist/SALP-<platform>.zip")
+                        help="also produce dist/SLAP-<platform>.zip")
     args = parser.parse_args(argv)
 
     log(f"building on {sys.platform} / {platform.machine()}")
@@ -344,10 +344,10 @@ def main(argv: list[str] | None = None) -> int:
     (dist / "build-manifest.json").write_text(json.dumps(manifest, indent=2))
 
     if sys.platform == "darwin":
-        # PyInstaller emits BOTH dist/SALP/ (the COLLECT output) and
-        # dist/SALP.app/. Only the .app got runtime/, so leaving the other
+        # PyInstaller emits BOTH dist/SLAP/ (the COLLECT output) and
+        # dist/SLAP.app/. Only the .app got runtime/, so leaving the other
         # behind is a ~400MB copy that looks like the app and does not work.
-        stray = ROOT / "dist" / "SALP"
+        stray = ROOT / "dist" / "SLAP"
         if stray.is_dir():
             log("removing the redundant non-.app collection")
             shutil.rmtree(stray, ignore_errors=True)
@@ -356,7 +356,7 @@ def main(argv: list[str] | None = None) -> int:
     log(f"built {shippable} ({_size(shippable)})")
 
     if args.zip:
-        name = f"SALP-{PLATFORM_TAG}-{platform.machine()}"
+        name = f"SLAP-{PLATFORM_TAG}-{platform.machine()}"
         archive = ROOT / "dist" / f"{name}.zip"
         log(f"zipping to {archive.name} (a few minutes)")
         if sys.platform == "darwin":

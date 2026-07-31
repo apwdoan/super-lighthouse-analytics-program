@@ -17,15 +17,15 @@ from pathlib import Path
 
 import pytest
 
-from salp.collectors.lighthouse import (
+from slap.collectors.lighthouse import (
     LighthouseConfig,
     LighthouseRunner,
     _audit_savings,
     aggregate,
     extract_values,
 )
-from salp.findings import FindingsEngine
-from salp.schema import LIGHTHOUSE_OPPORTUNITIES, METRIC_REGISTRY
+from slap.findings import FindingsEngine
+from slap.schema import LIGHTHOUSE_OPPORTUNITIES, METRIC_REGISTRY
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 # Stored gzipped: an LHR is ~850KB of JSON and this one lives in the repo.
@@ -253,7 +253,7 @@ def test_lighthouse_is_off_by_default():
 
 
 def test_lighthouse_concurrency_is_separate_from_http_concurrency():
-    from salp.collectors.base import CollectorConfig
+    from slap.collectors.base import CollectorConfig
 
     assert LighthouseConfig().concurrency == 3
     assert CollectorConfig().http_concurrency == 20
@@ -261,7 +261,7 @@ def test_lighthouse_concurrency_is_separate_from_http_concurrency():
 
 
 def test_pipeline_omits_the_lighthouse_stage_when_no_runner_is_given():
-    from salp.collectors import default_pipeline
+    from slap.collectors import default_pipeline
 
     assert len(default_pipeline()) == 2
     assert len(default_pipeline(None, LighthouseRunner(LighthouseConfig()))) == 3
@@ -305,7 +305,7 @@ def test_report_shows_category_scores_with_status_words(slow_lhr):
     """Same accessibility contract as everywhere else: never colour alone."""
     from datetime import datetime, timezone
 
-    from salp.report.model import build_report_model
+    from slap.report.model import build_report_model
 
     values = extract_values(slow_lhr)
     observations = [
@@ -316,7 +316,7 @@ def test_report_shows_category_scores_with_status_words(slow_lhr):
     ]
     detail = {
         "run": {"id": 1, "batch_id": "b", "hostname": "x.test", "status": "completed",
-                "error": None, "salp_version": "0.1.0", "schema_version": 1,
+                "error": None, "slap_version": "0.1.0", "schema_version": 1,
                 "started_at": "2026-07-31T01:00:00+00:00", "finished_at": None,
                 "lh_version": "13.4.1", "chrome_version": "141.0.7390.37",
                 "throttling_profile": "mobile/simulate/lh13-default"},
@@ -339,12 +339,12 @@ def test_category_banding_matches_lighthouse_own_thresholds():
     """A client comparing against PageSpeed Insights must see the same colour."""
     from datetime import datetime, timezone
 
-    from salp.report.model import build_report_model
+    from slap.report.model import build_report_model
 
     def score_status(value):
         detail = {
             "run": {"id": 1, "batch_id": "b", "hostname": "x.test",
-                    "status": "completed", "error": None, "salp_version": "0.1.0",
+                    "status": "completed", "error": None, "slap_version": "0.1.0",
                     "schema_version": 1, "started_at": "2026-07-31T01:00:00+00:00",
                     "finished_at": None, "lh_version": None, "chrome_version": None,
                     "throttling_profile": None},

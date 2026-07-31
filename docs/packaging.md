@@ -5,14 +5,14 @@ a bundle, in an environment with no Node, no Playwright and no PATH beyond
 `/usr/bin`. Windows and macOS use the same script and spec but have not been
 built yet; run the CI workflow or build locally on each.*
 
-The goal: a teammate unzips a folder, double-clicks `SALP.exe`, and audits a
+The goal: a teammate unzips a folder, double-clicks `SLAP.exe`, and audits a
 site. **No Python, no Node, no browser, no install.**
 
 ```
 python packaging/build.py --zip
 ```
 
-Output lands in `dist/SALP/` (`dist/SALP.app` on macOS). Measured on
+Output lands in `dist/SLAP/` (`dist/SLAP.app` on macOS). Measured on
 Linux: 1.1GB unzipped, 413MB zipped.
 
 ## Run it on the platform you are shipping to
@@ -32,10 +32,10 @@ runners, which is the only way to get them without owning four machines.
 
 | Artifact | Runner | Notes |
 |---|---|---|
-| `SALP-windows-x64` | `windows-latest` | |
-| `SALP-macos-arm64` | `macos-latest` | Apple Silicon |
-| `SALP-macos-x64` | `macos-15-intel` | Intel |
-| `SALP-linux-x64` | `ubuntu-latest` | |
+| `SLAP-windows-x64` | `windows-latest` | |
+| `SLAP-macos-arm64` | `macos-latest` | Apple Silicon |
+| `SLAP-macos-x64` | `macos-15-intel` | Intel |
+| `SLAP-linux-x64` | `ubuntu-latest` | |
 
 - **Manually:** Actions → *Build distributables* → *Run workflow*. The
   picker takes `all`, `windows`, `linux`, `macos` (both Macs), or
@@ -98,8 +98,8 @@ are worth keeping in mind.
 ## What ends up in the folder
 
 ```
-SALP/
-  SALP.exe                        the app
+SLAP/
+  SLAP.exe                        the app
   _internal/                      Python runtime, Qt, Playwright (+ its Node)
   runtime/
     node_worker/                  worker.js + node_modules   (161MB)
@@ -112,7 +112,7 @@ SALP/
 and the result opaque, and Python never imports any of it. As a plain
 folder, a Lighthouse upgrade is a directory swap rather than a rebuild.
 
-`salp/bundle.py` resolves all of this at runtime and returns None from a
+`slap/bundle.py` resolves all of this at runtime and returns None from a
 source checkout, so a development install behaves exactly as before.
 
 ## Two things that make it one browser and one Node
@@ -124,7 +124,7 @@ Both were found by building a bundle and running it, not by reading code.
 Playwright's `chromium.launch()` **defaults to the headless shell**, a
 separate ~320MB download, not the full Chromium that Lighthouse uses. The
 first bundle pruned the headless shell as unused, and the result was a
-distributable whose `salp doctor` reported PDF export healthy and whose
+distributable whose `slap doctor` reported PDF export healthy and whose
 actual export failed with `Executable doesn't exist at
 .../chromium_headless_shell-1194/...`.
 
@@ -154,7 +154,7 @@ different binary than the one being stat-ed.
 It now actually launches the browser and reports the version it got. Slower
 by about a second, and it can no longer disagree with the code path it is
 supposed to be checking. The same reasoning applies to anything else added
-to `salp doctor`: check the thing the real code does, not a proxy for it.
+to `slap doctor`: check the thing the real code does, not a proxy for it.
 
 Related: the PDF error handler used to replace Playwright's message with a
 flat "Chromium is not installed", which was actively false here. The path
@@ -181,7 +181,7 @@ of risk.
 
 ## macOS specifics
 
-The build produces `dist/SALP.app`. PyInstaller's `BUNDLE()` wraps the
+The build produces `dist/SLAP.app`. PyInstaller's `BUNDLE()` wraps the
 collected files, and `runtime/` goes inside `Contents/MacOS/` — which is
 where `sys.executable` lives, so `bundle.py`'s "look beside the executable"
 rule needs no platform-specific code.
@@ -190,11 +190,11 @@ rule needs no platform-specific code.
   symlinks, resource forks and the executable bit inside a `.app`. A plain
   zip loses the exec bit and the result will not open.
 - **Gatekeeper will block an unsigned app** downloaded from anywhere. The
-  first launch shows *"SALP" cannot be opened because the developer cannot
+  first launch shows *"SLAP" cannot be opened because the developer cannot
   be verified*. Two ways past it, and teammates need to be told one of them
   in advance:
 
-      xattr -dr com.apple.quarantine /Applications/SALP.app
+      xattr -dr com.apple.quarantine /Applications/SLAP.app
 
   or right-click the app → *Open* → *Open*. The right-click route only works
   the first time and is easier to talk someone through.
@@ -202,13 +202,13 @@ rule needs no platform-specific code.
 - **Notarisation removes the warning entirely** and needs an Apple Developer
   account ($99/yr) plus `codesign` and `notarytool` steps in the build. Worth
   it if this ever goes outside the team; overkill for three people.
-- **Chromium is a nested `.app`** inside `SALP.app`. Fine unsigned; if you
+- **Chromium is a nested `.app`** inside `SLAP.app`. Fine unsigned; if you
   ever sign, every nested executable needs signing too, which is the fiddly
   part of notarising this particular bundle.
 - **Two separate Mac builds, and they are not interchangeable.** The bundled
   Chromium and Node are downloaded per architecture, so an arm64 build
   genuinely will not run on Intel. `build.py` puts the machine architecture
-  in the zip name (`SALP-macos-arm64.zip`, `SALP-macos-x86_64.zip`) so the
+  in the zip name (`SLAP-macos-arm64.zip`, `SLAP-macos-x86_64.zip`) so the
   two cannot be confused once they are off the Actions page.
 - **`LSMinimumSystemVersion` tracks the PySide6 wheel, not our own floor.**
   PySide6 6.11 ships `macosx_13_0_universal2`, so the plist says 13.0. It
@@ -224,7 +224,7 @@ rule needs no platform-specific code.
 
 ## Linux specifics
 
-The build produces `dist/SALP/` with a `SALP` executable. No signing or
+The build produces `dist/SLAP/` with a `SLAP` executable. No signing or
 quarantine to worry about.
 
 The one real caveat is **glibc**: a bundle built on Ubuntu 24.04 will not
@@ -234,7 +234,7 @@ current distros.
 
 Chromium also needs a handful of system libraries that PyInstaller does not
 collect (`libnss3`, `libatk`, `libgbm` and friends). Most desktops have
-them; a minimal container does not. `SALP --cli doctor` fails clearly if
+them; a minimal container does not. `SLAP --cli doctor` fails clearly if
 Chromium cannot launch.
 
 ## Windows specifics
@@ -252,7 +252,7 @@ Chromium cannot launch.
   internal release page). Email and some chat tools strip .exe files even
   inside archives.
 - The app is built `console=False`. The CLI still works from an existing
-  terminal: `.\SALP.exe --cli doctor`.
+  terminal: `.\SLAP.exe --cli doctor`.
 
 ## Rebuilding after a code change
 
@@ -272,7 +272,7 @@ Run it in an environment with nothing available, which is the state a
 teammate's machine is in:
 
 ```bash
-env -i PATH=/usr/bin:/bin HOME=/tmp/clean ./dist/SALP/SALP --cli doctor
+env -i PATH=/usr/bin:/bin HOME=/tmp/clean ./dist/SLAP/SLAP --cli doctor
 ```
 
 Every backend except CrUX should report `ok`, and the paths should point
@@ -280,8 +280,8 @@ inside the bundle. Then do a real audit and export, because `doctor` alone
 has been wrong before:
 
 ```bash
-./dist/SALP/SALP --cli --db /tmp/t.sqlite3 audit example.com --lighthouse --lh-runs 1
-./dist/SALP/SALP --cli --db /tmp/t.sqlite3 report 1 -o /tmp/t
+./dist/SLAP/SLAP --cli --db /tmp/t.sqlite3 audit example.com --lighthouse --lh-runs 1
+./dist/SLAP/SLAP --cli --db /tmp/t.sqlite3 report 1 -o /tmp/t
 ```
 
 ## What is not done

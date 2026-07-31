@@ -1,4 +1,4 @@
-# SALP: Super Awesome Lighthouse Project
+# SLAP: Super Lighthouse Analytics Project
 
 Batch website performance and security auditing. Retrieves the data, turns
 it into findings a site owner will act on, and renders a client-facing
@@ -24,14 +24,14 @@ same core. See `docs/gui-architecture.md`, `docs/lighthouse.md`, and
 ```bash
 pip install -e ".[dev,all]"
 playwright install chromium                    # PDF export and Lighthouse
-npm install --prefix src/salp/node_worker      # Lighthouse itself
-salp doctor                                    # confirm every backend
+npm install --prefix src/slap/node_worker      # Lighthouse itself
+slap doctor                                    # confirm every backend
 ```
 
 Extras: `report` (PDF), `gui` (desktop app), `all` (both).
 
 Node **>= 22.19** is required for the Lighthouse runner. Everything except
-`pip install` is optional: without them SALP still audits, and the report
+`pip install` is optional: without them SLAP still audits, and the report
 says which engines produced it rather than pretending.
 
 Requires Python 3.11+. The `httpx[http2]` extra is **not** optional: without
@@ -50,25 +50,25 @@ and the report says so rather than pretending lab data is field data.
 ## Use
 
 ```bash
-salp audit example.com another-site.com     # bare hostnames are fine
-salp audit -f sites.txt -c 20               # one URL per line, 20 at a time
-salp audit example.com --lighthouse         # add the lab audit (~90s/site)
-salp doctor                                 # which backends are available
-salp batches                                # what has been run
-salp runs -b <batch-id>                     # runs in a batch
-salp show 42 -v                             # findings, with fixes
-salp show 42 -o                             # plus raw observations
-salp rules                                  # validate and list the rules
+slap audit example.com another-site.com     # bare hostnames are fine
+slap audit -f sites.txt -c 20               # one URL per line, 20 at a time
+slap audit example.com --lighthouse         # add the lab audit (~90s/site)
+slap doctor                                 # which backends are available
+slap batches                                # what has been run
+slap runs -b <batch-id>                     # runs in a batch
+slap show 42 -v                             # findings, with fixes
+slap show 42 -o                             # plus raw observations
+slap rules                                  # validate and list the rules
 
-salp report 42 --open                       # HTML + PDF for one site
-salp report -b <batch-id> --merge           # every site, plus one combined PDF
-salp report --check                         # is the PDF backend installed?
+slap report 42 --open                       # HTML + PDF for one site
+slap report -b <batch-id> --merge           # every site, plus one combined PDF
+slap report --check                         # is the PDF backend installed?
 ```
 
 Or run the desktop app:
 
 ```bash
-salp-gui            # or: python -m salp_gui
+slap-gui            # or: python -m slap_gui
 ```
 
 ## Shipping it to someone
@@ -77,7 +77,7 @@ salp-gui            # or: python -m salp_gui
 python packaging/build.py --zip
 ```
 
-Produces `dist/SALP/` (~1.1GB, ~410MB zipped) containing the Python runtime,
+Produces `dist/SLAP/` (~1.1GB, ~410MB zipped) containing the Python runtime,
 the app, Node, Lighthouse and Chromium. A teammate unzips it and runs it;
 they install nothing.
 
@@ -90,7 +90,7 @@ bundle it just built before uploading it.
 See `docs/packaging.md` for the size breakdown, Windows SmartScreen, and
 macOS Gatekeeper.
 
-Reports land in `report_dir` (per-user, under `%LOCALAPPDATA%\salp` on
+Reports land in `report_dir` (per-user, under `%LOCALAPPDATA%\slap` on
 Windows) unless you pass `-o`. The HTML is the artifact of record and the
 PDF is a rendering of it, so if the PDF backend is missing you still get
 the report and a message saying what to install.
@@ -101,7 +101,7 @@ lands in a terminal state, so history is never left half-written.
 ## Layout
 
 ```
-src/salp/
+src/slap/
   schema.py              Phase 0: the frozen observation contract
   bundle.py              finds Node, Chromium and the worker when frozen
   db.py                  SQLite, WAL, thread-local connections
@@ -126,7 +126,7 @@ src/salp/
     pdf.py               Chromium print-to-PDF, plus pypdf merge
     templates/           report.html.j2, batch.html.j2, report.css
   cli.py                 thin front-end over core
-src/salp_gui/            desktop front-end. Depends on salp.core, never back
+src/slap_gui/            desktop front-end. Depends on slap.core, never back
   bridge.py              the asyncio-to-Qt seam; every threading bug lives here
   models.py              table models; per-row dataChanged, no SQL
   pages/                 composer, monitor, history, settings
@@ -149,8 +149,8 @@ docs/reports.md          report pipeline, palette rules, PDF backend
 4. **Every metric key is registered** in `schema.METRIC_REGISTRY` before a
    collector may emit it. A typo raises at collection time instead of
    producing a column nothing knows how to render.
-5. **Nothing under `src/salp/` imports a GUI toolkit.** Front-ends are
-   clients of `salp.core`. If a front-end needs to reach past it, the core
+5. **Nothing under `src/slap/` imports a GUI toolkit.** Front-ends are
+   clients of `slap.core`. If a front-end needs to reach past it, the core
    is missing a function.
 6. **Provenance on every run.** Version and schema version are recorded per
    run. Reports without provenance get argued with.
@@ -167,9 +167,9 @@ docs/reports.md          report pipeline, palette rules, PDF backend
    benchmark are recorded so the report can say when this happened.
 10. **The Node worker is dumb.** Job on stdin, raw LHR on stdout, exit. No
    thresholds, no storage, no formatting. One language boundary, enforced.
-11. **The GUI is a client, not a layer.** `salp_gui` calls `salp.core` and
+11. **The GUI is a client, not a layer.** `slap_gui` calls `slap.core` and
    nothing below it; no widget opens a database, builds a pipeline, or
-   renders a template. A test walks the AST of every module under `salp/`
+   renders a template. A test walks the AST of every module under `slap/`
    and fails if any of them imports Qt.
 
 ## Adding a collector
@@ -185,7 +185,7 @@ docs/reports.md          report pipeline, palette rules, PDF backend
 ## Tests
 
 ```bash
-pytest -q          # 209 tests, no network and no display required
+pytest -q          # 216 tests, no network and no display required
 ```
 
 The suite runs local HTTP servers for the end-to-end paths, so the whole

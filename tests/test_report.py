@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from salp.report import check_backend, render_batch_html, render_report_html
-from salp.report.model import (
+from slap.report import check_backend, render_batch_html, render_report_html
+from slap.report.model import (
     build_report_model,
     cwv_status,
     format_bytes,
@@ -20,8 +20,8 @@ from salp.report.model import (
     meter_fraction,
     split_findings,
 )
-from salp.report.render import safe_filename
-from salp.schema import format_value
+from slap.report.render import safe_filename
+from slap.schema import format_value
 
 STAMP = datetime(2026, 7, 31, tzinfo=timezone.utc)
 
@@ -50,7 +50,7 @@ def make_detail(observations, findings=(), hostname="example.test"):
         "run": {
             "id": 7, "batch_id": "abc123", "hostname": hostname, "label": None,
             "client": None, "status": "completed", "error": None,
-            "salp_version": "0.1.0", "schema_version": 1,
+            "slap_version": "0.1.0", "schema_version": 1,
             "started_at": "2026-07-31T01:00:00+00:00",
             "finished_at": "2026-07-31T01:00:04+00:00",
             "lh_version": None, "chrome_version": None,
@@ -141,7 +141,7 @@ def test_meter_never_overflows_the_track():
 # --------------------------------------------------------------------------
 
 def _views(*severities):
-    from salp.report.model import build_finding_views
+    from slap.report.model import build_finding_views
 
     return build_finding_views([
         finding_row(f"rule-{i}", sev, f"Title {i}")
@@ -358,7 +358,7 @@ def test_report_html_escapes_hostile_content():
 
 
 def test_a_site_with_no_findings_reads_as_clean_not_info():
-    from salp.report.model import build_batch_model
+    from slap.report.model import build_batch_model
 
     runs = [{"id": 1, "hostname": "clean.test", "status": "completed"}]
     model = build_batch_model(
@@ -369,7 +369,7 @@ def test_a_site_with_no_findings_reads_as_clean_not_info():
 
 
 def test_clean_sites_sort_below_sites_with_findings():
-    from salp.report.model import build_batch_model
+    from slap.report.model import build_batch_model
 
     runs = [
         {"id": 1, "hostname": "clean.test", "status": "completed"},
@@ -417,7 +417,7 @@ pdf_backend = pytest.mark.skipif(
 
 @pdf_backend
 def test_pdf_renders_from_the_html_file(tmp_path):
-    from salp.report import html_file_to_pdf, write_html
+    from slap.report import html_file_to_pdf, write_html
 
     html_path = write_html(
         render_report_html(make_detail(FIELD_OBS), generated_at=STAMP),
@@ -433,7 +433,7 @@ def test_pdf_renders_from_the_html_file(tmp_path):
 def test_merge_concatenates_page_counts(tmp_path):
     from pypdf import PdfReader
 
-    from salp.report import html_file_to_pdf, merge_pdfs, write_html
+    from slap.report import html_file_to_pdf, merge_pdfs, write_html
 
     paths = []
     for i in range(2):
@@ -450,17 +450,17 @@ def test_merge_concatenates_page_counts(tmp_path):
 
 def test_html_survives_when_the_pdf_backend_is_missing(tmp_path, monkeypatch):
     """A teammate who skipped `playwright install` must still get the report."""
-    from salp import core, db
-    from salp.config import Settings
-    from salp.report import PdfError
-    from salp.schema import FormFactor, RunStatus, obs
+    from slap import core, db
+    from slap.config import Settings
+    from slap.report import PdfError
+    from slap.schema import FormFactor, RunStatus, obs
 
     settings = Settings(db_path=tmp_path / "s.sqlite3", report_dir=tmp_path / "out")
     conn = db.init_db(settings.db_path)
     with db.transaction(conn):
         site_id = db.upsert_site(conn, "example.test")
         run_id = db.create_run(conn, batch_id="b1", site_id=site_id,
-                               salp_version="0.1.0", schema_version=1)
+                               slap_version="0.1.0", schema_version=1)
         page_id = db.create_page(conn, run_id, "https://example.test", None,
                                  FormFactor.NONE)
         db.insert_observations(conn, page_id, [obs("http.status", 200)])
@@ -469,7 +469,7 @@ def test_html_survives_when_the_pdf_backend_is_missing(tmp_path, monkeypatch):
     async def boom(*args, **kwargs):
         raise PdfError("Playwright is not installed.")
 
-    monkeypatch.setattr("salp.report.html_file_to_pdf_async", boom)
+    monkeypatch.setattr("slap.report.html_file_to_pdf_async", boom)
 
     result = core.export_report(settings, run_id, pdf=True)
     assert result.html_path.exists()
@@ -483,7 +483,7 @@ def test_sync_pdf_wrapper_refuses_to_run_inside_an_event_loop():
     """Guards the GUI case: calling the sync helper from the worker thread."""
     import asyncio
 
-    from salp.report import PdfError, html_file_to_pdf
+    from slap.report import PdfError, html_file_to_pdf
 
     async def attempt():
         with pytest.raises(PdfError, match="event loop"):

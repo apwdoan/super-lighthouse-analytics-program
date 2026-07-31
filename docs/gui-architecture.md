@@ -1,10 +1,10 @@
-# SALP GUI architecture (PySide6)
+# SLAP GUI architecture (PySide6)
 
 *Decided 2026-07-31, built the same day. Sections 1 to 9 are the design as
 decided; section 10 records what building it actually surfaced.*
 
 The core is Qt-free and stays that way. Every decision that is expensive to
-reverse is here, and `src/salp_gui/` implements it.
+reverse is here, and `src/slap_gui/` implements it.
 
 ---
 
@@ -27,7 +27,7 @@ packaging, and these are the two costs that buys:
    the 150MB QtWebEngine tax on day one.
 
 Nothing about the core forecloses the other path. Everything the GUI needs
-is in `salp.core`, so a web front-end could be added later without touching
+is in `slap.core`, so a web front-end could be added later without touching
 a collector.
 
 ---
@@ -38,7 +38,7 @@ a collector.
 never involved in collection.**
 
 ```
-Qt main thread                      salp-batch thread
+Qt main thread                      slap-batch thread
 --------------                      -----------------
 QApplication event loop             asyncio event loop
   widgets, painting                   httpx, TLS, subprocesses
@@ -65,7 +65,7 @@ collection is a stall in painting. Two loops means a wedged Chrome process
 degrades throughput and nothing else.
 
 **Why not `QThread` with signals emitted from the worker**: to emit a Qt
-signal the worker has to be a `QObject`, which drags Qt into `salp.core`
+signal the worker has to be a `QObject`, which drags Qt into `slap.core`
 and destroys the property that makes the core testable without a display
 server. The queue keeps that boundary intact.
 
@@ -79,12 +79,12 @@ server. The queue keeps that boundary intact.
 ## 3. The asyncio-to-Qt bridge
 
 The entire bridge is about twenty lines. Write it once, in
-`salp_gui/bridge.py`, and never think about threading again.
+`slap_gui/bridge.py`, and never think about threading again.
 
 ```python
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from salp.events import (
+from slap.events import (
     BatchFinished, BatchStarted, Event, SiteFinished, SiteStarted,
 )
 
@@ -146,13 +146,13 @@ Three details that matter:
 
 ## 4. SQLite concurrency
 
-Already handled in `salp.db`, but the rules the GUI must not break:
+Already handled in `slap.db`, but the rules the GUI must not break:
 
 | Rule | Why |
 |---|---|
 | Never share a connection across threads | `sqlite3` connections are thread-affine. `db.connect()` keeps a thread-local handle, so just call it again rather than passing one around. |
 | WAL is on; leave it on | It is what lets the GUI read while the worker writes. Turning it off reintroduces `database is locked` mid-batch. |
-| GUI reads go through `salp.core` | `core.list_runs()`, `core.get_run_detail()`. No SQL in view code, and no `QSqlTableModel`, which would put SQL in the view layer. |
+| GUI reads go through `slap.core` | `core.list_runs()`, `core.get_run_detail()`. No SQL in view code, and no `QSqlTableModel`, which would put SQL in the view layer. |
 | Call `core.close_connections()` in `closeEvent` | Releases the main thread's handle cleanly. |
 
 This is not theoretical. The first version of `core.run_batch` wrapped the
@@ -287,23 +287,23 @@ already a Lighthouse dependency), not through Qt.
   writable copy. The whole reason rules are YAML is that they get tuned;
   burying them read-only inside the bundle defeats that.
 - **Per-user database.** `Settings.db_path` already defaults under
-  `%LOCALAPPDATA%\salp` on Windows. Never write beside the executable.
+  `%LOCALAPPDATA%\slap` on Windows. Never write beside the executable.
 - **CrUX key via `CRUX_API_KEY`**, not a committed config file, so
   teammates use their own quota.
 - **Licensing:** PySide6 is LGPL. Dynamically linked and unmodified, which
   is what PyInstaller produces, is fine for internal tooling. Worth a real
-  look only if SALP is ever sold as a closed product.
+  look only if SLAP is ever sold as a closed product.
 
 ---
 
 ## 9. Things not to do
 
-- **Do not import PySide6 anywhere under `src/salp/`.** The GUI lives in a
-  separate `salp_gui` package that depends on `salp`, never the reverse.
+- **Do not import PySide6 anywhere under `src/slap/`.** The GUI lives in a
+  separate `slap_gui` package that depends on `slap`, never the reverse.
   This is the property that keeps the core testable headlessly and keeps
   the web-UI escape hatch open.
 - **Do not put orchestration in a widget.** If a button handler needs
-  something `salp.core` cannot express, add it to the core. Two divergent
+  something `slap.core` cannot express, add it to the core. Two divergent
   ways to run a batch is the failure mode this layering exists to prevent.
 - **Do not let the GUI write SQL.** Add a read function to `core` instead.
 - **Do not run collection on the Qt loop**, even "just for one quick
@@ -349,7 +349,7 @@ the *last completed* collector, which meant a site sitting in a 90-second
 Lighthouse run displayed `crux` the whole time.
 
 The fix belonged in the core, not the GUI: `CollectorStarted` was added to
-`salp.events`, and the model now tracks the set of in-flight collectors
+`slap.events`, and the model now tracks the set of in-flight collectors
 (a stage runs several concurrently, so it is a set, not a name). This is
 what the "if a front-end needs something the core cannot express, the core
 is missing a function" rule looks like in practice.
@@ -415,6 +415,6 @@ cannot catch a bug about how the widget looks.** Render it and measure.
 ## 12. Packaging, unchanged from section 8
 
 PyInstaller one-dir, rules file shipped writable, per-user database, CrUX
-key from the environment. The one addition: `salp-gui` is registered as a
+key from the environment. The one addition: `slap-gui` is registered as a
 `gui-script` entry point, so on Windows it launches without a console
 window.
