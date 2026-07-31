@@ -1,0 +1,106 @@
+# PyInstaller spec for SALP. Driven by packaging/build.py, not run directly.
+#
+# One-dir, not one-file. One-file unpacks ~1GB to a temp directory on every
+# launch, which is slow and reliably trips Windows antivirus heuristics. The
+# runtime/ folder (Node, Chromium, node_modules) is copied in afterwards by
+# build.py rather than declared here; see copy_runtime() for why.
+
+import sys
+from pathlib import Path
+
+from PyInstaller.utils.hooks import collect_submodules
+
+ROOT = Path(SPECPATH).parent
+SRC = ROOT / "src"
+
+# Files read at runtime via `Path(__file__).parent`. They must land at the
+# same relative path inside the bundle or those lookups miss.
+datas = [
+    (str(SRC / "salp" / "findings" / "rules.yaml"), "salp/findings"),
+    (str(SRC / "salp" / "report" / "templates"), "salp/report/templates"),
+    # worker.js is also shipped in runtime/node_worker/ with its
+    # dependencies; this copy keeps a source-layout fallback working.
+    (str(SRC / "salp" / "node_worker" / "worker.js"), "salp/node_worker"),
+]
+
+hiddenimports = [
+    # Imported lazily inside functions, so PyInstaller's static analysis
+    # does not see them.
+    "playwright",
+    "playwright.sync_api",
+    "playwright.async_api",
+    "pypdf",
+    "h2",
+    "httpx",
+    *collect_submodules("jinja2"),
+]
+
+# Qt modules SALP does not use. WebEngine alone is ~150MB and the app opens
+# reports with the system handler instead.
+excludes = [
+    "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets",
+    "PySide6.QtWebEngineQuick", "PySide6.QtQuick", "PySide6.QtQml",
+    "PySide6.Qt3DCore", "PySide6.QtCharts", "PySide6.QtDataVisualization",
+    "PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets", "PySide6.QtBluetooth",
+    "PySide6.QtDesigner", "PySide6.QtTest", "PySide6.QtSql", "PySide6.QtNetwork",
+    "PySide6.QtPositioning", "PySide6.QtSensors", "PySide6.QtSerialPort",
+    "tkinter", "matplotlib", "numpy", "PIL", "pytest",
+]
+
+analysis = Analysis(
+    [str(ROOT / "packaging" / "entry.py")],
+    pathex=[str(SRC)],
+    binaries=[],
+    datas=datas,
+    hiddenimports=hiddenimports,
+    hookspath=[],
+    runtime_hooks=[],
+    excludes=excludes,
+    noarchive=False,
+)
+
+pyz = PYZ(analysis.pure)
+
+executable = EXE(
+    pyz,
+    analysis.scripts,
+    [],
+    exclude_binaries=True,
+    name="SALP",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,          # UPX-packed binaries are an antivirus magnet
+    console=False,      # GUI app; the CLI is reachable via SALP --cli
+    icon=None,
+)
+
+collection = COLLECT(
+    executable,
+    analysis.binaries,
+    analysis.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="SALP",
+)
+
+if sys.platform == "darwin":
+    # macOS expects a .app, and a bare folder of binaries will not open from
+    # Finder. build.py knows to put runtime/ inside Contents/MacOS/, which
+    # is also where `sys.executable` lives, so bundle.py resolves it with no
+    # platform-specific code.
+    BUNDLE(
+        collection,
+        name="SALP.app",
+        icon=None,
+        bundle_identifier="ca.salp.app",
+        info_plist={
+            "NSHighResolutionCapable": True,
+            "LSMinimumSystemVersion": "12.0",
+            # Not a document-based app, and no reason to show in the dock
+            # switcher as anything other than a normal app.
+            "LSApplicationCategoryType": "public.app-category.developer-tools",
+            "CFBundleShortVersionString": "0.1.0",
+        },
+    )

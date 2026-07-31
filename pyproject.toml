@@ -1,0 +1,58 @@
+[project]
+name = "salp"
+version = "0.1.0"
+description = "Super Awesome Lighthouse Project: batch website performance and security auditing"
+requires-python = ">=3.11"
+dependencies = [
+    # The http2 extra is NOT optional. Without `h2`, httpx negotiates
+    # HTTP/1.1 unconditionally and the no-http2 rule fires against sites
+    # that are actually on HTTP/2. A confidently wrong finding in a client
+    # report is worse than no finding.
+    "httpx[http2]>=0.27",
+    "jinja2>=3.1",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# PDF export. Playwright ships a pinned Chromium so a client-facing document
+# renders identically on every teammate's machine. Needs one setup step:
+#     playwright install chromium
+report = [
+    "playwright>=1.44",
+    "pypdf>=4.2",
+]
+gui = [
+    "PySide6>=6.7",
+]
+all = [
+    "playwright>=1.44",
+    "pypdf>=4.2",
+    "PySide6>=6.7",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "respx>=0.21",
+]
+
+[project.scripts]
+salp = "salp.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.gui-scripts]
+salp-gui = "salp_gui:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/salp", "src/salp_gui"]
+# The Node worker source ships with the package so `salp` can find it, but
+# node_modules must not: it is ~90MB of platform-specific files and is
+# installed per machine with `npm install --prefix <pkg>/node_worker`.
+exclude = ["**/node_modules", "**/package-lock.json"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = ["lighthouse: needs the Node Lighthouse worker installed"]

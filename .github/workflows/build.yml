@@ -1,0 +1,143 @@
+name: Build distributables
+
+# Deliberately NOT on every push. Each platform produces a ~400MB artifact
+# and takes 10-15 minutes; building three of those per commit burns Actions
+# minutes and storage for no benefit. Tag a release, or run it by hand.
+on:
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: Which platforms to build
+        type: choice
+        default: all
+        options: [all, windows, macos, linux]
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    # A Chromium download plus PyInstaller over ~1GB is not fast, and a
+    # hung browser download should not burn a full hour.
+    timeout-minutes: 45
+
+    strategy:
+      # One platform failing should not cancel the others; a Windows-only
+      # break still leaves usable macOS and Linux artifacts.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows-x64
+            wanted: windows
+          # macos-latest is Apple Silicon. An Intel build needs macos-13,
+          # added as another entry here if anyone still runs one.
+          - os: macos-latest
+            label: macos-arm64
+            wanted: macos
+          - os: ubuntu-latest
+            label: linux-x64
+            wanted: linux
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # 3.12 rather than 3.13: widest wheel availability across
+          # PySide6, playwright and pypdf. The app itself supports 3.11+.
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # Build-time only. Lighthouse 13 needs >= 22.19; the shipped
+          # runtime is Playwright's bundled Node, checked by build.py.
+          node-version: "22"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[all]"
+          python -m pip install pyinstaller
+
+      - name: Run the test suite
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m playwright install chromium
+          python -m pytest -q
+
+      - name: Build the distributable
+        if: >-
+          github.event_name != 'workflow_dispatch' ||
+          inputs.platforms == 'all' ||
+          inputs.platforms == matrix.wanted
+        run: python packaging/build.py --zip
+
+      - name: Verify the bundle actually runs
+        if: >-
+          runner.os != 'Windows' && (
+            github.event_name != 'workflow_dispatch' ||
+            inputs.platforms == 'all' ||
+            inputs.platforms == matrix.wanted
+          )
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          # `doctor` alone has been wrong before: it once reported PDF
+          # export healthy while export failed. Run a real audit and a real
+          # export, with nothing from the build environment leaking in.
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            APP="dist/SALP.app/Contents/MacOS/SALP"
+          else
+            APP="dist/SALP/SALP"
+          fi
+          env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP/clean" \
+                 QT_QPA_PLATFORM=offscreen \
+            "$PWD/$APP" --cli doctor
+          env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP/clean" \
+            "$PWD/$APP" --cli --db "$RUNNER_TEMP/v.sqlite3" \
+            audit example.com
+          env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP/clean" \
+            "$PWD/$APP" --cli --db "$RUNNER_TEMP/v.sqlite3" \
+            report 1 -o "$RUNNER_TEMP/report"
+          test -f "$RUNNER_TEMP"/report/*.pdf && echo "PDF produced"
+
+      - name: Verify the bundle actually runs (Windows)
+        if: >-
+          runner.os == 'Windows' && (
+            github.event_name != 'workflow_dispatch' ||
+            inputs.platforms == 'all' ||
+            inputs.platforms == matrix.wanted
+          )
+        shell: pwsh
+        run: |
+          $app = "dist\SALP\SALP.exe"
+          & $app --cli doctor
+          & $app --cli --db "$env:RUNNER_TEMP\v.sqlite3" audit example.com
+          & $app --cli --db "$env:RUNNER_TEMP\v.sqlite3" report 1 -o "$env:RUNNER_TEMP\report"
+          if (-not (Get-ChildItem "$env:RUNNER_TEMP\report" -Filter *.pdf)) {
+            throw "no PDF produced"
+          }
+          Write-Host "PDF produced"
+
+      - name: Upload
+        if: >-
+          github.event_name != 'workflow_dispatch' ||
+          inputs.platforms == 'all' ||
+          inputs.platforms == matrix.wanted
+        uses: actions/upload-artifact@v4
+        with:
+          name: SALP-${{ matrix.label }}
+          path: dist/*.zip
+          # ~400MB each. Default is 90 days, which for a private repo is
+          # real storage cost for builds nobody will download after a week.
+          retention-days: 14
+          compression-level: 0   # already a zip

@@ -1,0 +1,359 @@
+"""SQLite storage. Immutable, append-only runs.
+
+Qt-relevant design notes, decided here so the GUI phase is mechanical:
+
+* **WAL is mandatory.** The GUI thread reads while the worker thread
+  writes. Without ``journal_mode=WAL`` those block each other and the
+  UI stutters, or worse, throws ``database is locked`` mid-batch.
+* **One connection per thread.** ``sqlite3`` connections are not safe to
+  share across threads. :func:`connect` keeps a thread-local handle, so
+  the Qt main thread and the worker thread each get their own without
+  any caller having to think about it.
+* **Run status lives in the database, not in memory.** A front-end can
+  close, crash, or reattach mid-batch and still render the truth.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+import threading
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from .schema import Finding, FormFactor, Observation, RunStatus
+
+DDL = """
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS site (
+    id          INTEGER PRIMARY KEY,
+    hostname    TEXT NOT NULL UNIQUE,
+    label       TEXT,
+    client      TEXT,
+    created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS run (
+    id                  INTEGER PRIMARY KEY,
+    batch_id            TEXT NOT NULL,
+    site_id             INTEGER NOT NULL REFERENCES site(id),
+    started_at          TEXT NOT NULL,
+    finished_at         TEXT,
+    status              TEXT NOT NULL,
+    error               TEXT,
+    salp_version        TEXT NOT NULL,
+    schema_version      INTEGER NOT NULL,
+    lh_version          TEXT,
+    chrome_version      TEXT,
+    throttling_profile  TEXT,
+    git_sha             TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_run_batch ON run(batch_id);
+CREATE INDEX IF NOT EXISTS idx_run_site_started ON run(site_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS page (
+    id           INTEGER PRIMARY KEY,
+    run_id       INTEGER NOT NULL REFERENCES run(id) ON DELETE CASCADE,
+    url          TEXT NOT NULL,
+    final_url    TEXT,
+    form_factor  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_page_run ON page(run_id);
+
+CREATE TABLE IF NOT EXISTS observation (
+    id             INTEGER PRIMARY KEY,
+    page_id        INTEGER NOT NULL REFERENCES page(id) ON DELETE CASCADE,
+    source         TEXT NOT NULL,
+    metric_key     TEXT NOT NULL,
+    numeric_value  REAL,
+    text_value     TEXT,
+    unit           TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_obs_page_key ON observation(page_id, metric_key);
+CREATE INDEX IF NOT EXISTS idx_obs_key ON observation(metric_key);
+
+CREATE TABLE IF NOT EXISTS finding (
+    id            INTEGER PRIMARY KEY,
+    page_id       INTEGER NOT NULL REFERENCES page(id) ON DELETE CASCADE,
+    rule_id       TEXT NOT NULL,
+    severity      TEXT NOT NULL,
+    title         TEXT NOT NULL,
+    detail        TEXT NOT NULL,
+    evidence_json TEXT,
+    impact_ms     REAL,
+    effort        TEXT,
+    remediation   TEXT,
+    wp_rocket_setting TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_finding_page ON finding(page_id);
+
+CREATE TABLE IF NOT EXISTS artifact (
+    id       INTEGER PRIMARY KEY,
+    run_id   INTEGER NOT NULL REFERENCES run(id) ON DELETE CASCADE,
+    page_id  INTEGER REFERENCES page(id) ON DELETE CASCADE,
+    kind     TEXT NOT NULL,
+    path     TEXT NOT NULL,
+    sha256   TEXT,
+    bytes    INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_artifact_run ON artifact(run_id);
+"""
+
+_local = threading.local()
+
+
+def utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def connect(path: str | Path) -> sqlite3.Connection:
+    """Return this thread's connection to ``path``, creating it if needed."""
+    path = str(Path(path).expanduser())
+    cache: dict[str, sqlite3.Connection] = getattr(_local, "conns", None) or {}
+    if not hasattr(_local, "conns"):
+        _local.conns = cache
+    conn = cache.get(path)
+    if conn is not None:
+        return conn
+
+    if path != ":memory:":
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path, timeout=30.0)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=30000")
+    cache[path] = conn
+    return conn
+
+
+def close_thread_connections() -> None:
+    """Close every connection this thread opened. Call on worker shutdown."""
+    for conn in getattr(_local, "conns", {}).values():
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+    _local.conns = {}
+
+
+def init_db(path: str | Path) -> sqlite3.Connection:
+    conn = connect(path)
+    conn.executescript(DDL)
+    conn.commit()
+    return conn
+
+
+@contextmanager
+def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+# --------------------------------------------------------------------------
+# Writes
+# --------------------------------------------------------------------------
+
+def upsert_site(conn: sqlite3.Connection, hostname: str, *,
+                label: str | None = None, client: str | None = None) -> int:
+    row = conn.execute("SELECT id FROM site WHERE hostname = ?", (hostname,)).fetchone()
+    if row:
+        if label or client:
+            conn.execute(
+                "UPDATE site SET label = COALESCE(?, label), client = COALESCE(?, client) "
+                "WHERE id = ?",
+                (label, client, row["id"]),
+            )
+        return int(row["id"])
+    cur = conn.execute(
+        "INSERT INTO site (hostname, label, client, created_at) VALUES (?, ?, ?, ?)",
+        (hostname, label, client, utcnow()),
+    )
+    return int(cur.lastrowid)
+
+
+def create_run(conn: sqlite3.Connection, *, batch_id: str, site_id: int,
+               salp_version: str, schema_version: int,
+               git_sha: str | None = None) -> int:
+    cur = conn.execute(
+        "INSERT INTO run (batch_id, site_id, started_at, status, salp_version, "
+        "schema_version, git_sha) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (batch_id, site_id, utcnow(), RunStatus.RUNNING.value,
+         salp_version, schema_version, git_sha),
+    )
+    return int(cur.lastrowid)
+
+
+def finish_run(conn: sqlite3.Connection, run_id: int, status: RunStatus,
+               error: str | None = None) -> None:
+    conn.execute(
+        "UPDATE run SET status = ?, finished_at = ?, error = ? WHERE id = ?",
+        (status.value, utcnow(), error, run_id),
+    )
+
+
+def set_run_provenance(conn: sqlite3.Connection, run_id: int, *,
+                       lh_version: str | None = None,
+                       chrome_version: str | None = None,
+                       throttling_profile: str | None = None) -> None:
+    """Record which engine produced a run. Reports without this get argued with."""
+    conn.execute(
+        "UPDATE run SET lh_version = COALESCE(?, lh_version), "
+        "chrome_version = COALESCE(?, chrome_version), "
+        "throttling_profile = COALESCE(?, throttling_profile) WHERE id = ?",
+        (lh_version, chrome_version, throttling_profile, run_id),
+    )
+
+
+def insert_artifact(conn: sqlite3.Connection, run_id: int, *, kind: str,
+                    path: str, page_id: int | None = None,
+                    sha256: str | None = None, size: int | None = None) -> int:
+    cur = conn.execute(
+        "INSERT INTO artifact (run_id, page_id, kind, path, sha256, bytes) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (run_id, page_id, kind, path, sha256, size),
+    )
+    return int(cur.lastrowid)
+
+
+def get_artifacts(conn: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT * FROM artifact WHERE run_id = ? ORDER BY id", (run_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def create_page(conn: sqlite3.Connection, run_id: int, url: str,
+                final_url: str | None, form_factor: FormFactor) -> int:
+    cur = conn.execute(
+        "INSERT INTO page (run_id, url, final_url, form_factor) VALUES (?, ?, ?, ?)",
+        (run_id, url, final_url, form_factor.value),
+    )
+    return int(cur.lastrowid)
+
+
+def insert_observations(conn: sqlite3.Connection, page_id: int,
+                        observations: Iterable[Observation]) -> int:
+    rows = [
+        (page_id, o.source.value, o.metric_key, o.numeric_value, o.text_value, o.unit.value)
+        for o in observations
+    ]
+    if not rows:
+        return 0
+    conn.executemany(
+        "INSERT INTO observation (page_id, source, metric_key, numeric_value, "
+        "text_value, unit) VALUES (?, ?, ?, ?, ?, ?)",
+        rows,
+    )
+    return len(rows)
+
+
+def insert_findings(conn: sqlite3.Connection, page_id: int,
+                    findings: Iterable[Finding]) -> int:
+    import json
+
+    rows = [
+        (page_id, f.rule_id, f.severity.value, f.title, f.detail,
+         json.dumps(f.evidence) if f.evidence else None,
+         f.impact_ms, f.effort, f.remediation, f.wp_rocket_setting)
+        for f in findings
+    ]
+    if not rows:
+        return 0
+    conn.executemany(
+        "INSERT INTO finding (page_id, rule_id, severity, title, detail, "
+        "evidence_json, impact_ms, effort, remediation, wp_rocket_setting) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        rows,
+    )
+    return len(rows)
+
+
+# --------------------------------------------------------------------------
+# Reads. The GUI calls these from the main thread; they must stay cheap.
+# --------------------------------------------------------------------------
+
+def get_run(conn: sqlite3.Connection, run_id: int) -> dict[str, Any] | None:
+    row = conn.execute(
+        "SELECT run.*, site.hostname, site.label, site.client "
+        "FROM run JOIN site ON site.id = run.site_id WHERE run.id = ?",
+        (run_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def list_runs(conn: sqlite3.Connection, *, batch_id: str | None = None,
+              limit: int = 200) -> list[dict[str, Any]]:
+    sql = (
+        "SELECT run.*, site.hostname, site.label, site.client, "
+        "  (SELECT COUNT(*) FROM finding f JOIN page p ON p.id = f.page_id "
+        "   WHERE p.run_id = run.id) AS finding_count "
+        "FROM run JOIN site ON site.id = run.site_id "
+    )
+    params: list[Any] = []
+    if batch_id:
+        sql += "WHERE run.batch_id = ? "
+        params.append(batch_id)
+    sql += "ORDER BY run.started_at DESC, run.id DESC LIMIT ?"
+    params.append(limit)
+    return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
+def list_batches(conn: sqlite3.Connection, limit: int = 50) -> list[dict[str, Any]]:
+    sql = (
+        "SELECT batch_id, MIN(started_at) AS started_at, MAX(finished_at) AS finished_at, "
+        "COUNT(*) AS run_count, "
+        "SUM(status = 'completed') AS completed, "
+        "SUM(status = 'failed') AS failed, "
+        "SUM(status = 'cancelled') AS cancelled, "
+        "SUM(status = 'running') AS running "
+        "FROM run GROUP BY batch_id ORDER BY MIN(started_at) DESC LIMIT ?"
+    )
+    return [dict(r) for r in conn.execute(sql, (limit,)).fetchall()]
+
+
+def get_observations(conn: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT o.*, p.url, p.final_url, p.form_factor FROM observation o "
+        "JOIN page p ON p.id = o.page_id WHERE p.run_id = ? ORDER BY o.id",
+        (run_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_findings(conn: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT f.*, p.url FROM finding f JOIN page p ON p.id = f.page_id "
+        "WHERE p.run_id = ? ORDER BY "
+        "CASE f.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 "
+        "WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END, f.id",
+        (run_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def observations_as_dict(conn: sqlite3.Connection, page_id: int) -> dict[str, Any]:
+    """Flatten one page's observations into ``{metric_key: value}``.
+
+    This is what the findings engine and the report templates consume.
+    """
+    out: dict[str, Any] = {}
+    for r in conn.execute(
+        "SELECT metric_key, numeric_value, text_value, unit FROM observation "
+        "WHERE page_id = ?", (page_id,)
+    ):
+        if r["numeric_value"] is not None:
+            out[r["metric_key"]] = (
+                bool(r["numeric_value"]) if r["unit"] == "bool" else r["numeric_value"]
+            )
+        else:
+            out[r["metric_key"]] = r["text_value"]
+    return out
