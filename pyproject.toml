@@ -21,13 +21,20 @@ report = [
     "playwright>=1.44",
     "pypdf>=4.2",
 ]
-gui = [
-    "PySide6>=6.7",
+# The web front-end. Jinja2 is already a hard dependency because the report
+# is rendered with it, which is most of why a browser UI collapses the
+# presentation layer instead of adding a second one.
+web = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "python-multipart>=0.0.9",   # form posts: the audit box and branding
 ]
 all = [
     "playwright>=1.44",
     "pypdf>=4.2",
-    "PySide6>=6.7",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "python-multipart>=0.0.9",
 ]
 dev = [
     "pytest>=8.0",
@@ -37,16 +44,14 @@ dev = [
 
 [project.scripts]
 slap = "slap.cli:main"
+slap-web = "slap_web:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[project.gui-scripts]
-slap-gui = "slap_gui:main"
-
 [tool.hatch.build.targets.wheel]
-packages = ["src/slap", "src/slap_gui"]
+packages = ["src/slap", "src/slap_web"]
 # The Node worker source ships with the package so `slap` can find it, but
 # node_modules must not: it is ~90MB of platform-specific files and is
 # installed per machine with `npm install --prefix <pkg>/node_worker`.

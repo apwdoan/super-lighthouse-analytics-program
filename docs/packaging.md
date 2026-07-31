@@ -1,9 +1,10 @@
 # Building the distributable
 
-*Linux x86_64 built and verified 2026-07-31: full audit and PDF export from
-a bundle, in an environment with no Node, no Playwright and no PATH beyond
-`/usr/bin`. Windows and macOS use the same script and spec but have not been
-built yet; run the CI workflow or build locally on each.*
+*Linux x86_64 built and verified 2026-07-31: the bundled web server started,
+served every route, ran a full Lighthouse audit driven from its own UI, and
+exported a PDF, in an environment with no Node, no Playwright and no PATH
+beyond `/usr/bin`. Windows and macOS use the same script and spec; run the CI
+workflow or build locally on each.*
 
 The goal: a teammate unzips a folder, double-clicks `SLAP.exe`, and audits a
 site. **No Python, no Node, no browser, no install.**
@@ -12,8 +13,8 @@ site. **No Python, no Node, no browser, no install.**
 python packaging/build.py --zip
 ```
 
-Output lands in `dist/SLAP/` (`dist/SLAP.app` on macOS). Measured on
-Linux: 1.1GB unzipped, 413MB zipped.
+Output lands in `dist/SLAP/` (`dist/SLAP.app` on macOS). Measured on Linux:
+**702MB unzipped**, down from 933MB before PySide6 came out.
 
 ## Run it on the platform you are shipping to
 
@@ -81,7 +82,7 @@ Each of these produced a green-looking job that was in fact broken, so they
 are worth keeping in mind.
 
 1. **Install `.[dev,all]`, not `.[all]`.** `all` is the *runtime* extras
-   (playwright, pypdf, PySide6) and carries no test tooling, so the test step
+   (playwright, pypdf, fastapi) and carries no test tooling, so the test step
    dies with `No module named pytest`. Nothing platform-specific about it;
    it just happened to be the first job to reach that step.
 2. **Do not gate on `doctor`'s exit code.** `doctor` returns 1 when *any*
@@ -99,8 +100,9 @@ are worth keeping in mind.
 
 ```
 SLAP/
-  SLAP.exe                        the app
-  _internal/                      Python runtime, Qt, Playwright (+ its Node)
+  SLAP.exe                        starts a local server, opens your browser
+  _internal/                      Python runtime, Playwright (+ its Node)
+    slap_web/templates, static/   the front-end, read at runtime
   runtime/
     node_worker/                  worker.js + node_modules   (161MB)
     browsers/chromium-<rev>/      Chromium                   (597MB)
@@ -114,6 +116,14 @@ folder, a Lighthouse upgrade is a directory swap rather than a rebuild.
 
 `slap/bundle.py` resolves all of this at runtime and returns None from a
 source checkout, so a development install behaves exactly as before.
+
+## uvicorn resolves its own internals by string
+
+`collect_submodules("uvicorn")` is in the spec for a reason PyInstaller
+cannot discover: uvicorn picks its event loop, HTTP protocol and lifespan
+implementations by **importing them by name at runtime**. Static analysis
+sees none of it, so a bundle built without this starts cleanly and then
+fails on the first request, which is the worst place to find out.
 
 ## Two things that make it one browser and one Node
 
@@ -195,7 +205,7 @@ in Playwright's message was the whole diagnosis. It is passed through now.
 | Chromium | 597MB | No. Every approach needs a browser. |
 | `node_modules` | 161MB | ~130MB via esbuild, at real fragility cost. See below. |
 | Playwright (incl. its Node) | 130MB | No, and it doubles as the Lighthouse runtime. |
-| PySide6 / Qt | 117MB | Mostly pruned already; `QtWebEngine` is excluded. |
+| FastAPI + uvicorn | ~6MB | Replaced PySide6, which was 117MB. |
 | Python + everything else | ~150MB | No. |
 
 **Why `node_modules` ships unbundled.** esbuild does produce a single 25MB
@@ -238,17 +248,16 @@ rule needs no platform-specific code.
   genuinely will not run on Intel. `build.py` puts the machine architecture
   in the zip name (`SLAP-macos-arm64.zip`, `SLAP-macos-x86_64.zip`) so the
   two cannot be confused once they are off the Actions page.
-- **`LSMinimumSystemVersion` tracks the PySide6 wheel, not our own floor.**
-  PySide6 6.11 ships `macosx_13_0_universal2`, so the plist says 13.0. It
-  said 12.0 for a while, which bought nothing but a launch that dies on
-  `import PySide6`. If PySide6 raises its minimum again, raise this with it.
-- **Both Mac bundles carry Qt twice.** PySide6 ships universal2 wheels and
-  PyInstaller copies the fat binaries through as-is, so the Intel bundle
-  contains arm64 Qt slices it can never execute, and vice versa. Roughly
-  60MB. PyInstaller can thin them with `target_arch` on `EXE`/`BUNDLE`,
-  which shells out to `lipo`; it is left off because any dependency that is
-  *not* universal then fails the build, and that is a new failure mode in
-  exchange for 5% of a 1.1GB folder. Measure before deciding it matters.
+- **`LSMinimumSystemVersion` was pinned to 13.0 by the PySide6 wheel**
+  (`macosx_13_0_universal2`). PySide6 is gone, so that constraint is gone
+  with it; the floor is now whatever Playwright's Chromium needs. Left at
+  13.0 until someone measures it, because guessing downwards produces an app
+  that launches and then dies.
+- **Universal2 wheels used to cost ~60MB per Mac bundle.** PySide6 shipped
+  fat binaries and PyInstaller passed them through whole, so each Mac bundle
+  carried Qt slices it could never execute. That is gone with PySide6.
+  Playwright still ships a universal2 wheel, but it is small; `target_arch`
+  thinning is not worth its failure modes for what remains.
 
 ## Linux specifics
 

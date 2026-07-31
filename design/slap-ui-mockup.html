@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SLAP: proposed UI</title>
+<style>
+/* ---------------------------------------------------------------------------
+ * Tokens. The status four are FIXED and never themed, and they never carry
+ * meaning alone: every badge prints its word. serious (#ec835a) and warning
+ * (#fab219) sit ΔE 13.6 apart in normal vision and both are sub-3:1 on the
+ * light surface, so the word is the mitigation, not decoration.
+ * ------------------------------------------------------------------------ */
+:root {
+  color-scheme: light;
+  --surface: #fcfcfb;
+  --page: #f4f4f1;
+  --raised: #ffffff;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --ink-muted: #898781;
+  --grid: #e1e0d9;
+  --border: rgba(11,11,11,.10);
+  --series-1: #2a78d6;
+  --de-emphasis: #c3c2b7;
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+  --muted-status: #898781;
+  --success-text: #006300;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface: #1a1a19; --page: #121211; --raised: #232322;
+  --ink: #ffffff; --ink-2: #c3c2b7; --ink-muted: #898781;
+  --grid: #3a3a37; --border: rgba(255,255,255,.12);
+  --series-1: #3987e5; --de-emphasis: #52514e;
+  --success-text: #4ec44e;
+}
+* , *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0; font-family: var(--sans); font-size: 13.5px; line-height: 1.5;
+  color: var(--ink); background: var(--page);
+}
+h1,h2,h3 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
+h1 { font-size: 22px; } h2 { font-size: 15px; } h3 { font-size: 13px; }
+a { color: inherit; }
+button { font: inherit; color: inherit; }
+
+/* --- shell ---------------------------------------------------------------- */
+.shell { display: grid; grid-template-columns: 208px 1fr; min-height: 100vh; }
+.side {
+  background: var(--surface); border-right: 1px solid var(--border);
+  padding: 14px 10px; display: flex; flex-direction: column; gap: 2px;
+}
+.brand {
+  display: flex; align-items: baseline; gap: 7px; padding: 4px 8px 14px;
+}
+.brand b { font-size: 15px; letter-spacing: -.02em; }
+.brand span { font-size: 10.5px; color: var(--ink-muted); }
+.nav {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 7px 9px; border: 0; border-radius: 7px; background: none;
+  cursor: pointer; text-align: left; font-size: 13px; color: var(--ink-2);
+}
+.nav:hover { background: var(--page); }
+.nav[aria-current="page"] { background: var(--page); color: var(--ink); font-weight: 550; }
+.nav .ic { width: 15px; text-align: center; opacity: .75; font-size: 12px; }
+.nav .count {
+  margin-left: auto; font-size: 11px; color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.side-foot { margin-top: auto; padding: 8px; border-top: 1px solid var(--border); }
+.health { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--ink-2); }
+.health .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); flex: none; }
+
+.main { display: flex; flex-direction: column; min-width: 0; }
+.bar {
+  display: flex; align-items: center; gap: 12px; padding: 14px 22px;
+  border-bottom: 1px solid var(--border); background: var(--surface);
+}
+.bar .grow { flex: 1; }
+.crumb { font-size: 11.5px; color: var(--ink-muted); margin-bottom: 2px; }
+.content { padding: 20px 22px 90px; max-width: 1180px; }
+.screen { display: none; } .screen.on { display: block; }
+
+/* --- controls -------------------------------------------------------------- */
+.btn {
+  border: 1px solid var(--border); background: var(--raised); border-radius: 7px;
+  padding: 6px 12px; cursor: pointer; font-size: 12.5px;
+}
+.btn:hover { border-color: var(--ink-muted); }
+.btn.primary { background: var(--series-1); border-color: var(--series-1); color: #fff; font-weight: 550; }
+.btn.primary:hover { filter: brightness(1.07); }
+.btn.ghost { background: none; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px;
+  border-radius: 999px; border: 1px solid var(--border); background: var(--raised);
+  font-size: 11px; color: var(--ink-2);
+}
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; background: var(--raised); padding: 5px 11px; cursor: pointer; font-size: 12px; color: var(--ink-2); }
+.seg button[aria-pressed="true"] { background: var(--page); color: var(--ink); font-weight: 550; }
+
+/* --- status: colour + WORD, always ---------------------------------------- */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px 2px 7px;
+  border-radius: 999px; font-size: 11px; font-weight: 550; white-space: nowrap;
+  background: var(--raised); border: 1px solid var(--border); color: var(--ink);
+}
+.badge .sw { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.sw.good { background: var(--good); } .sw.warning { background: var(--warning); }
+.sw.serious { background: var(--serious); } .sw.critical { background: var(--critical); }
+.sw.muted { background: var(--muted-status); }
+
+/* --- cards / tables -------------------------------------------------------- */
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 11px;
+  padding: 15px 16px; margin-bottom: 14px;
+}
+.card > header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.card > header .grow { flex: 1; }
+.hint { font-size: 11.5px; color: var(--ink-muted); }
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left; font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--ink-muted); font-weight: 600;
+  padding: 0 10px 7px; border-bottom: 1px solid var(--grid);
+}
+td { padding: 9px 10px; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr.click { cursor: pointer; }
+tbody tr.click:hover { background: var(--page); }
+.num { font-variant-numeric: tabular-nums; text-align: right; }
+.host { font-weight: 550; }
+.sub { font-size: 11px; color: var(--ink-muted); }
+.delta { font-size: 11px; font-variant-numeric: tabular-nums; }
+.delta.up { color: var(--success-text); } .delta.down { color: var(--critical); }
+
+/* --- hero / tiles ---------------------------------------------------------- */
+.hero { display: flex; align-items: flex-end; gap: 18px; flex-wrap: wrap; }
+.hero .figure { font-size: 52px; font-weight: 600; line-height: 1; letter-spacing: -.03em; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.tile { background: var(--raised); border: 1px solid var(--border); border-radius: 10px; padding: 12px 13px; }
+.tile .lab { font-size: 11.5px; color: var(--ink-2); }
+.tile .val { font-size: 26px; font-weight: 600; letter-spacing: -.02em; margin: 3px 0 1px; }
+.meter { height: 5px; border-radius: 3px; background: var(--grid); position: relative; margin-top: 9px; overflow: hidden; }
+.meter i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; display: block; }
+.meter b { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--de-emphasis); }
+.tick { display: flex; justify-content: space-between; font-size: 10px; color: var(--ink-muted); margin-top: 4px; }
+
+/* --- findings -------------------------------------------------------------- */
+.f { display: flex; gap: 11px; padding: 11px 2px; border-bottom: 1px solid var(--grid); align-items: flex-start; }
+/* A badge is a flex child here; without this it stretches to the row height
+   and the 999px radius turns it into a lozenge. */
+.f > .badge { flex: none; margin-top: 1px; }
+.f:last-child { border-bottom: 0; }
+.f .body { flex: 1; min-width: 0; }
+.f .t { font-weight: 550; }
+.f .d { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+.f .meta { display: flex; gap: 6px; margin-top: 7px; flex-wrap: wrap; }
+.f.fixed .t { text-decoration: line-through; text-decoration-color: var(--de-emphasis); color: var(--ink-2); }
+.rocket { border-left: 2px solid var(--series-1); padding-left: 9px; margin-top: 8px; font-size: 11.5px; color: var(--ink-2); }
+
+/* --- activity drawer ------------------------------------------------------- */
+.dock {
+  position: fixed; left: 208px; right: 0; bottom: 0; background: var(--surface);
+  border-top: 1px solid var(--border); box-shadow: 0 -8px 24px rgba(0,0,0,.06);
+}
+.dock-bar { display: flex; align-items: center; gap: 12px; padding: 9px 22px; cursor: pointer; }
+.dock-bar .grow { flex: 1; }
+.spinner {
+  width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--grid);
+  border-top-color: var(--series-1); animation: spin 800ms linear infinite; flex: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.track { height: 4px; border-radius: 2px; background: var(--grid); width: 190px; overflow: hidden; }
+.track i { display: block; height: 100%; background: var(--series-1); border-radius: 2px; }
+.dock-body { display: none; padding: 4px 22px 16px; max-height: 260px; overflow: auto; }
+.dock.open .dock-body { display: block; }
+.q { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--grid); font-size: 12.5px; }
+.q .grow { flex: 1; }
+.stage { font-size: 11px; color: var(--ink-2); font-family: var(--mono); }
+
+/* --- report preview --------------------------------------------------------- */
+.preview {
+  background: #fff; color: #0b0b0b; border: 1px solid var(--border); border-radius: 8px;
+  padding: 26px 30px; max-width: 720px; margin: 0 auto; box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+:root[data-theme="dark"] .preview { box-shadow: 0 1px 3px rgba(0,0,0,.5); }
+.preview h1 { font-size: 24px; margin-bottom: 4px; }
+.preview .lede { color: #52514e; font-size: 14px; margin: 0 0 18px; }
+.split { display: grid; grid-template-columns: 1fr 320px; gap: 14px; align-items: start; }
+@media (max-width: 1000px) { .split { grid-template-columns: 1fr; } .tiles { grid-template-columns: 1fr; } }
+
+/* --- chart ------------------------------------------------------------------ */
+.chartwrap { position: relative; }
+.tip {
+  position: absolute; pointer-events: none; background: var(--raised); color: var(--ink);
+  border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; font-size: 11.5px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.10); opacity: 0; transition: opacity .1s; white-space: nowrap;
+}
+.tip.on { opacity: 1; }
+.tip .k { color: var(--ink-muted); }
+.ann {
+  font-size: 10.5px; fill: var(--ink-muted);
+}
+.sr {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ================= sidebar ================= -->
+  <nav class="side">
+    <div class="brand"><b>SLAP</b><span>0.2</span></div>
+    <button class="nav" data-go="sites" aria-current="page"><span class="ic">▦</span>Sites<span class="count">24</span></button>
+    <button class="nav" data-go="findings"><span class="ic">◆</span>Findings<span class="count">61</span></button>
+    <button class="nav" data-go="reports"><span class="ic">▤</span>Reports<span class="count">9</span></button>
+    <button class="nav" data-go="settings"><span class="ic">⚙</span>Settings</button>
+    <div class="side-foot">
+      <div class="health"><span class="dot"></span>All backends ready</div>
+      <div class="hint" style="margin-top:4px">Lighthouse 13.4.1 · Chrome 149</div>
+      <button class="btn ghost" style="margin-top:9px;width:100%;font-size:11.5px" onclick="toggleTheme()">Toggle theme</button>
+    </div>
+  </nav>
+
+  <div class="main">
+
+    <!-- ================= SITES ================= -->
+    <section class="screen on" id="s-sites">
+      <div class="bar">
+        <div><h1>Sites</h1><div class="hint">24 sites · 6 clients · 3 audited today</div></div>
+        <div class="grow"></div>
+        <div class="seg">
+          <button aria-pressed="true">All</button><button>Needs attention</button><button>Stale</button>
+        </div>
+        <button class="btn">Add sites</button>
+        <button class="btn primary" onclick="openDock()">Audit selected (3)</button>
+      </div>
+      <div class="content">
+        <div class="card">
+          <table>
+            <thead><tr>
+              <th style="width:26px"></th><th>Site</th><th>Verdict</th>
+              <th class="num">Perf</th><th class="num">LCP</th>
+              <th style="width:96px">90 days</th><th class="num">Open</th><th>Last audit</th>
+            </tr></thead>
+            <tbody id="sites-body"></tbody>
+          </table>
+        </div>
+        <p class="hint">
+          Selecting rows and hitting audit replaces the old composer. The batch is
+          still recorded, it is just not something you have to think about.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= SITE DETAIL ================= -->
+    <section class="screen" id="s-site">
+      <div class="bar">
+        <div>
+          <div class="crumb"><a href="#" onclick="go('sites');return false">Sites</a> / Northshore Dental</div>
+          <h1>northshoredental.ca</h1>
+        </div>
+        <div class="grow"></div>
+        <button class="btn">Compare runs</button>
+        <button class="btn">Build report</button>
+        <button class="btn primary" onclick="openDock()">Audit now</button>
+      </div>
+      <div class="content">
+
+        <div class="card">
+          <div class="hero">
+            <div>
+              <div class="hint">Performance, latest run</div>
+              <div class="figure">61</div>
+            </div>
+            <div style="padding-bottom:6px">
+              <span class="badge"><span class="sw warning"></span>Needs work</span>
+              <div class="delta up" style="margin-top:6px">▲ 32 points since 4 Jun</div>
+            </div>
+            <div style="flex:1"></div>
+            <div style="padding-bottom:4px;text-align:right">
+              <div class="hint">Field data, last 28 days</div>
+              <div class="sub">CrUX · 3 of 3 metrics reporting</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="split">
+          <div>
+            <div class="card">
+              <header>
+                <div class="grow">
+                  <h2>Performance score over time</h2>
+                  <div class="hint">8 runs · mobile · median of 3</div>
+                </div>
+              </header>
+              <div class="chartwrap" id="cw">
+                <svg id="trend" viewBox="0 0 640 200" width="100%" height="200" role="img"
+                     aria-label="Performance score across eight runs, rising from 28 in March to 61 in July after image compression shipped on 12 June."></svg>
+                <div class="tip" id="tip"></div>
+              </div>
+              <p class="hint" style="margin:10px 0 0">
+                One series, so no legend: the title names it. The marker on 12 June is
+                where image compression shipped, which is the whole reason this screen
+                exists.
+              </p>
+            </div>
+
+            <div class="card">
+              <header>
+                <div class="grow"><h2>Findings</h2></div>
+                <div class="seg">
+                  <button aria-pressed="true" onclick="fTab(this,'open')">Open (6)</button>
+                  <button onclick="fTab(this,'fixed')">Fixed (4)</button>
+                  <button onclick="fTab(this,'all')">All</button>
+                </div>
+              </header>
+              <div id="f-open"></div>
+              <div id="f-fixed" style="display:none"></div>
+            </div>
+          </div>
+
+          <div>
+            <div class="card">
+              <header><div class="grow"><h2>Core Web Vitals</h2></div></header>
+              <div class="tiles" style="grid-template-columns:1fr">
+                <div class="tile">
+                  <div class="lab">Largest Contentful Paint</div>
+                  <div class="val">3.1s</div>
+                  <span class="badge"><span class="sw warning"></span>Needs work</span>
+                  <div class="meter"><i style="width:52%;background:var(--warning)"></i><b style="left:33.3%"></b><b style="left:66.6%"></b></div>
+                  <div class="tick"><span>Good ≤2.5s</span><span>Poor &gt;4s</span></div>
+                </div>
+                <div class="tile">
+                  <div class="lab">Interaction to Next Paint</div>
+                  <div class="val">148ms</div>
+                  <span class="badge"><span class="sw good"></span>Good</span>
+                  <div class="meter"><i style="width:25%;background:var(--good)"></i><b style="left:33.3%"></b><b style="left:66.6%"></b></div>
+                  <div class="tick"><span>Good ≤200ms</span><span>Poor &gt;500ms</span></div>
+                </div>
+                <div class="tile">
+                  <div class="lab">Cumulative Layout Shift</div>
+                  <div class="val">0.18</div>
+                  <span class="badge"><span class="sw warning"></span>Needs work</span>
+                  <div class="meter"><i style="width:53%;background:var(--warning)"></i><b style="left:33.3%"></b><b style="left:66.6%"></b></div>
+                  <div class="tick"><span>Good ≤0.1</span><span>Poor &gt;0.25</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <header><div class="grow"><h2>Runs</h2></div></header>
+              <table>
+                <tbody>
+                  <tr class="click" onclick="go('run')"><td><b>18 Jul</b><div class="sub">mobile · 3 runs</div></td><td class="num">61</td><td><span class="badge"><span class="sw warning"></span>Needs work</span></td></tr>
+                  <tr class="click"><td>26 Jun<div class="sub">mobile · 3 runs</div></td><td class="num">58</td><td><span class="badge"><span class="sw warning"></span>Needs work</span></td></tr>
+                  <tr class="click"><td>12 Jun<div class="sub">after image fix</div></td><td class="num">52</td><td><span class="badge"><span class="sw warning"></span>Needs work</span></td></tr>
+                  <tr class="click"><td>4 Jun<div class="sub">mobile · 3 runs</div></td><td class="num">30</td><td><span class="badge"><span class="sw serious"></span>Poor</span></td></tr>
+                </tbody>
+              </table>
+              <p class="hint" style="margin:10px 0 0">A report is a pure function of a run id, so every row here is permanently reproducible.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= FINDINGS ACROSS SITES ================= -->
+    <section class="screen" id="s-findings">
+      <div class="bar">
+        <div><h1>Findings across every site</h1><div class="hint">61 open findings · 24 sites</div></div>
+        <div class="grow"></div>
+        <div class="seg"><button aria-pressed="true">By rule</button><button>By site</button><button>By client</button></div>
+      </div>
+      <div class="content">
+        <div class="card">
+          <table>
+            <thead><tr><th>Finding</th><th>Severity</th><th class="num">Sites</th><th style="width:220px">Which</th><th class="num">Effort</th></tr></thead>
+            <tbody id="cross-body"></tbody>
+          </table>
+        </div>
+        <p class="hint">
+          This view is one SQL query against data you already store, and it is the
+          screen the current app is missing entirely. One fix, sold across a
+          portfolio, instead of one site at a time.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= REPORT PREVIEW ================= -->
+    <section class="screen" id="s-run">
+      <div class="bar">
+        <div>
+          <div class="crumb"><a href="#" onclick="go('site');return false">northshoredental.ca</a> / Run 218</div>
+          <h1>Report preview</h1>
+        </div>
+        <div class="grow"></div>
+        <span class="chip">6 of 6 findings included</span>
+        <button class="btn">Branding</button>
+        <button class="btn">Export HTML</button>
+        <button class="btn primary">Export PDF</button>
+      </div>
+      <div class="content">
+        <div class="preview">
+          <h1>Website audit</h1>
+          <p class="lede">northshoredental.ca · 18 July 2026</p>
+          <p style="font-size:15px;line-height:1.6;margin:0 0 18px">
+            The site is <b>usable but slow on mobile</b>. Real visitors wait about
+            3.1 seconds for the main content, against a 2.5 second target. Image
+            compression shipped last month already cut that by nearly half; the
+            largest remaining cost is a certificate problem that will make some
+            browsers refuse the site outright.
+          </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+            <span class="badge"><span class="sw critical"></span>1 critical</span>
+            <span class="badge"><span class="sw serious"></span>3 serious</span>
+            <span class="badge"><span class="sw warning"></span>2 warning</span>
+          </div>
+          <h2 style="margin-bottom:8px">What to fix first</h2>
+          <div class="f">
+            <span class="badge"><span class="sw critical"></span>Critical</span>
+            <div class="body">
+              <div class="t">The TLS certificate does not validate</div>
+              <div class="d">Some browsers will show a full-page warning before the site loads.</div>
+            </div>
+          </div>
+          <div class="f">
+            <span class="badge"><span class="sw serious"></span>Serious</span>
+            <div class="body">
+              <div class="t">Images could load 3.9s faster</div>
+              <div class="d">Six images are served at full resolution and in an older format.</div>
+              <div class="rocket"><b>In WP Rocket:</b> Media → Enable WebP caching</div>
+            </div>
+          </div>
+        </div>
+        <p class="hint" style="text-align:center;margin-top:14px">
+          The exact HTML the client receives, rendered in place. Today the only way
+          to see this is to export and open it externally.
+        </p>
+      </div>
+    </section>
+
+    <section class="screen" id="s-reports">
+      <div class="bar"><div><h1>Reports</h1><div class="hint">Exported documents, newest first</div></div></div>
+      <div class="content"><div class="card"><p class="hint">Sketch only. Reports are derived from run ids, so this is a list with filters over the same data.</p></div></div>
+    </section>
+
+    <section class="screen" id="s-settings">
+      <div class="bar"><div><h1>Settings</h1></div></div>
+      <div class="content">
+        <div class="card">
+          <header><div class="grow"><h2>Backends</h2></div></header>
+          <div class="f"><span class="badge"><span class="sw good"></span>Ready</span><div class="body"><div class="t">Lighthouse lab data</div><div class="d">Lighthouse 13.4.1 · Chrome 149.0.7827.55 · Node v24.17.0</div></div></div>
+          <div class="f"><span class="badge"><span class="sw good"></span>Ready</span><div class="body"><div class="t">PDF export</div><div class="d">Chromium 149.0.7827.55</div></div></div>
+          <div class="f"><span class="badge"><span class="sw muted"></span>Not configured</span><div class="body"><div class="t">CrUX field data</div><div class="d">No API key set. Reports will say so rather than passing lab data off as field data.</div></div></div>
+        </div>
+        <div class="card">
+          <header><div class="grow"><h2>Measurement</h2></div></header>
+          <div class="f"><div class="body"><div class="t">Lighthouse concurrency</div><div class="d">3 of a maximum 4. Contended CPU inflates blocking time and produces plausible, irreproducible scores.</div></div></div>
+          <div class="f"><div class="body"><div class="t">Network concurrency</div><div class="d">20. Separate on purpose: the network collectors are not CPU-bound.</div></div></div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<!-- ================= activity dock ================= -->
+<div class="dock" id="dock">
+  <div class="dock-bar" onclick="document.getElementById('dock').classList.toggle('open')">
+    <div class="spinner"></div>
+    <b style="font-size:12.5px">Auditing 3 sites</b>
+    <span class="hint">1 done · 1 running · 1 queued</span>
+    <div class="track"><i style="width:44%"></i></div>
+    <div class="grow"></div>
+    <span class="hint">~4 min left</span>
+    <button class="btn ghost" onclick="event.stopPropagation()">Stop</button>
+    <span class="hint" style="font-size:14px">▲</span>
+  </div>
+  <div class="dock-body">
+    <div class="q"><span class="badge"><span class="sw good"></span>Done</span><span class="grow">coastalroofing.ca</span><span class="stage">48 obs · 4 findings</span></div>
+    <div class="q"><div class="spinner"></div><span class="grow">northshoredental.ca</span><span class="stage">lighthouse · run 2 of 3</span></div>
+    <div class="q"><span class="badge"><span class="sw muted"></span>Queued</span><span class="grow">lakeviewlaw.com</span><span class="stage">waiting for a worker</span></div>
+    <p class="hint" style="margin:10px 0 0">
+      A 24-site batch with Lighthouse on is roughly 40 minutes. That cannot be a
+      screen you are held on, so it is a dock: the app stays fully usable and this
+      is here when you want it.
+    </p>
+  </div>
+</div>
+
+<script>
+/* ---------------------------------------------------------------- data --- */
+const SITES = [
+  {h:"northshoredental.ca", c:"Northshore Dental", s:"warning", w:"Needs work", p:61, lcp:"3.1s", open:6, last:"18 Jul",
+   spark:[28,27,31,29,30,52,58,61], d:"+32"},
+  {h:"coastalroofing.ca",   c:"Coastal Roofing",   s:"good",    w:"Good",       p:88, lcp:"1.9s", open:2, last:"18 Jul",
+   spark:[71,74,79,80,83,84,86,88], d:"+17"},
+  {h:"fraservalleyhvac.ca", c:"Fraser Valley HVAC",s:"serious", w:"Poor",       p:28, lcp:"6.2s", open:11,last:"13 Jul",
+   spark:[34,33,31,30,29,29,28,28], d:"-6"},
+  {h:"lakeviewlaw.com",     c:"Lakeview Law",      s:"warning", w:"Needs work", p:61, lcp:"3.4s", open:7, last:"18 Jul",
+   spark:[55,57,56,58,59,60,60,61], d:"+6"},
+  {h:"summitphysio.ca",     c:"Summit Physio",     s:"warning", w:"Needs work", p:57, lcp:"3.4s", open:8, last:"6 Jul",
+   spark:[60,59,58,58,57,57,57,57], d:"-3"},
+  {h:"harbourcafe.ca",      c:"Harbour Cafe",      s:"good",    w:"Good",       p:82, lcp:"2.1s", open:3, last:"18 Jul",
+   spark:[78,79,77,80,81,80,82,82], d:"+4"},
+];
+
+/* Real finding titles, taken verbatim from an actual SLAP run against the
+   deliberately-awful test fixture. Not invented copy. */
+const OPEN = [
+  {sev:"critical", w:"Critical", t:"The TLS certificate does not validate",
+   d:"Some browsers will show a full-page warning before the site loads.", e:"Low effort"},
+  {sev:"serious", w:"Serious", t:"Images could load 3.9s faster",
+   d:"Six images are served at full resolution in an older format.", e:"Low effort",
+   r:"Media → Enable WebP caching"},
+  {sev:"serious", w:"Serious", t:"Render-blocking requests delay the page by 1.6s",
+   d:"Four stylesheets load before anything can paint.", e:"Medium effort",
+   r:"File Optimization → Optimize CSS delivery"},
+  {sev:"serious", w:"Serious", t:"1 cookie set without the Secure flag",
+   d:"The cookie can be sent over an unencrypted connection.", e:"Low effort"},
+  {sev:"warning", w:"Warning", t:"No Content-Security-Policy header",
+   d:"Nothing constrains which scripts the browser will execute.", e:"Medium effort"},
+  {sev:"warning", w:"Warning", t:"The HTML response sets a very short cache lifetime",
+   d:"Repeat visitors re-download the page every time.", e:"Low effort",
+   r:"Cache → Enable caching for mobile devices"},
+];
+const FIXED = [
+  {sev:"muted", w:"Fixed", t:"HTML is served uncompressed", d:"Resolved between 4 Jun and 12 Jun."},
+  {sev:"muted", w:"Fixed", t:"Plain HTTP requests are not redirected to HTTPS", d:"Resolved between 4 Jun and 12 Jun."},
+  {sev:"muted", w:"Fixed", t:"Unused CSS is costing 2.2s", d:"Resolved between 12 Jun and 26 Jun."},
+  {sev:"muted", w:"Fixed", t:"No HTTP Strict Transport Security header", d:"Resolved between 26 Jun and 18 Jul."},
+];
+const CROSS = [
+  {t:"No Content-Security-Policy header", sev:"warning", w:"Warning", n:19, who:"19 of 24 sites", e:"Medium"},
+  {t:"No HTTP Strict Transport Security header", sev:"warning", w:"Warning", n:14, who:"14 of 24 sites", e:"Low"},
+  {t:"Images could load faster", sev:"serious", w:"Serious", n:11, who:"11 of 24 sites", e:"Low"},
+  {t:"Cookies set without the Secure flag", sev:"serious", w:"Serious", n:8, who:"8 of 24 sites", e:"Low"},
+  {t:"WP Rocket is installed but page caching is cold", sev:"serious", w:"Serious", n:4, who:"4 of 9 WP Rocket sites", e:"Low"},
+  {t:"The TLS certificate does not validate", sev:"critical", w:"Critical", n:1, who:"northshoredental.ca", e:"Low"},
+];
+
+/* ------------------------------------------------------------- rendering --- */
+function spark(vals, w=88, h=22) {
+  const min = Math.min(...vals), max = Math.max(...vals), rng = (max - min) || 1;
+  const pts = vals.map((v,i) => [
+    (i/(vals.length-1))*(w-4)+2,
+    h-2-((v-min)/rng)*(h-6)
+  ]);
+  const d = pts.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
+  const last = pts[pts.length-1];
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+    <path d="${d}" fill="none" stroke="var(--de-emphasis)" stroke-width="1.5"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.6" fill="var(--series-1)"/>
+  </svg>`;
+}
+
+document.getElementById("sites-body").innerHTML = SITES.map(s => `
+  <tr class="click" onclick="go('site')">
+    <td><input type="checkbox" ${s.h==="northshoredental.ca"||s.h==="coastalroofing.ca"||s.h==="lakeviewlaw.com"?"checked":""}></td>
+    <td><div class="host">${s.h}</div><div class="sub">${s.c}</div></td>
+    <td><span class="badge"><span class="sw ${s.s}"></span>${s.w}</span></td>
+    <td class="num">${s.p}<div class="delta ${s.d.startsWith("+")?"up":"down"}">${s.d.startsWith("+")?"▲":"▼"} ${s.d.slice(1)}</div></td>
+    <td class="num">${s.lcp}</td>
+    <td>${spark(s.spark)}</td>
+    <td class="num">${s.open}</td>
+    <td>${s.last}<div class="sub">${s.last==="18 Jul"?"today":""}</div></td>
+  </tr>`).join("");
+
+const fRow = f => `
+  <div class="f ${f.sev==="muted"?"fixed":""}">
+    <span class="badge"><span class="sw ${f.sev}"></span>${f.w}</span>
+    <div class="body">
+      <div class="t">${f.t}</div>
+      <div class="d">${f.d}</div>
+      ${f.r?`<div class="rocket"><b>In WP Rocket:</b> ${f.r}</div>`:""}
+      ${f.e?`<div class="meta"><span class="chip">${f.e}</span></div>`:""}
+    </div>
+  </div>`;
+document.getElementById("f-open").innerHTML  = OPEN.map(fRow).join("");
+document.getElementById("f-fixed").innerHTML = FIXED.map(fRow).join("");
+
+document.getElementById("cross-body").innerHTML = CROSS.map(c => `
+  <tr class="click">
+    <td><div class="host">${c.t}</div></td>
+    <td><span class="badge"><span class="sw ${c.sev}"></span>${c.w}</span></td>
+    <td class="num"><b>${c.n}</b></td>
+    <td class="sub">${c.who}</td>
+    <td class="num sub">${c.e}</td>
+  </tr>`).join("");
+
+/* ------------------------------------------------------------- the chart --- */
+const RUNS = [
+  {d:"6 Mar", v:28}, {d:"20 Mar", v:27}, {d:"10 Apr", v:31}, {d:"8 May", v:29},
+  {d:"4 Jun", v:30}, {d:"12 Jun", v:52}, {d:"26 Jun", v:58}, {d:"18 Jul", v:61},
+];
+(function drawTrend(){
+  const W=640,H=200,L=34,R=14,T=16,B=28;
+  const iw=W-L-R, ih=H-T-B, max=100;
+  const x=i=>L+(i/(RUNS.length-1))*iw, y=v=>T+ih-(v/max)*ih;
+  let g="";
+  [0,25,50,75,100].forEach(v=>{
+    g+=`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)" stroke-width="1"/>`
+     + `<text class="ann" x="${L-7}" y="${y(v)+3.5}" text-anchor="end">${v}</text>`;
+  });
+  const line=RUNS.map((r,i)=>(i?"L":"M")+x(i).toFixed(1)+" "+y(r.v).toFixed(1)).join(" ");
+  const area=`M${x(0)} ${y(0)} `+RUNS.map((r,i)=>"L"+x(i).toFixed(1)+" "+y(r.v).toFixed(1)).join(" ")+` L${x(RUNS.length-1)} ${y(0)} Z`;
+  // The 12 June annotation: the fix landing is the story, so it is marked.
+  const fx=x(5);
+  g+=`<line x1="${fx}" x2="${fx}" y1="${T}" y2="${T+ih}" stroke="var(--de-emphasis)" stroke-width="1" stroke-dasharray="3 3"/>`
+   + `<text class="ann" x="${fx+5}" y="${T+11}">image fix shipped</text>`;
+  g+=`<path d="${area}" fill="var(--series-1)" opacity=".08"/>`
+   + `<path d="${line}" fill="none" stroke="var(--series-1)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
+  RUNS.forEach((r,i)=>{
+    g+=`<circle cx="${x(i)}" cy="${y(r.v)}" r="${i===RUNS.length-1?4.5:3.2}"
+        fill="var(--series-1)" stroke="var(--surface)" stroke-width="2"/>`;
+    g+=`<text class="ann" x="${x(i)}" y="${H-8}" text-anchor="middle">${i%2===0||i===RUNS.length-1?r.d:""}</text>`;
+  });
+  // Direct-label the first and last only, never every point.
+  g+=`<text class="ann" x="${x(RUNS.length-1)}" y="${y(61)-11}" text-anchor="end"
+       style="fill:var(--ink);font-weight:600;font-size:12px">61</text>`;
+  document.getElementById("trend").innerHTML=g;
+
+  const svg=document.getElementById("trend"), tip=document.getElementById("tip"), wrap=document.getElementById("cw");
+  svg.addEventListener("mousemove", e=>{
+    const b=svg.getBoundingClientRect(), sx=(e.clientX-b.left)/b.width*W;
+    let i=Math.round((sx-L)/iw*(RUNS.length-1)); i=Math.max(0,Math.min(RUNS.length-1,i));
+    const r=RUNS[i];
+    tip.innerHTML=`<b>${r.v}</b> <span class="k">performance</span><br><span class="k">${r.d}</span>`;
+    tip.classList.add("on");
+    tip.style.left=(x(i)/W*b.width+12)+"px";
+    tip.style.top=(y(r.v)/H*b.height-8)+"px";
+  });
+  svg.addEventListener("mouseleave", ()=>tip.classList.remove("on"));
+})();
+
+/* ---------------------------------------------------------------- nav ------ */
+function go(name){
+  document.querySelectorAll(".screen").forEach(s=>s.classList.remove("on"));
+  document.getElementById("s-"+name).classList.add("on");
+  document.querySelectorAll(".nav").forEach(n=>n.removeAttribute("aria-current"));
+  const key = name==="site"||name==="run" ? "sites" : name;
+  const btn=document.querySelector(`.nav[data-go="${key}"]`);
+  if(btn) btn.setAttribute("aria-current","page");
+  window.scrollTo(0,0);
+}
+document.querySelectorAll(".nav").forEach(n=>n.onclick=()=>go(n.dataset.go));
+function openDock(){ document.getElementById("dock").classList.add("open"); }
+function fTab(btn,which){
+  btn.parentNode.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed","false"));
+  btn.setAttribute("aria-pressed","true");
+  document.getElementById("f-open").style.display  = which==="fixed" ? "none" : "";
+  document.getElementById("f-fixed").style.display = which==="open"  ? "none" : "";
+}
+function toggleTheme(){
+  const r=document.documentElement;
+  r.dataset.theme = r.dataset.theme==="dark" ? "light" : "dark";
+}
+</script>
+</body>
+</html>

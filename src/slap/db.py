@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -396,3 +396,151 @@ def observations_as_dict(conn: sqlite3.Connection, page_id: int) -> dict[str, An
         else:
             out[r["metric_key"]] = r["text_value"]
     return out
+
+
+# --------------------------------------------------------------------------
+# Site-centric reads
+#
+# The batch is a scheduling detail; the site is what anyone actually asks
+# about. These queries exist because the UI is organised around "how is this
+# site doing" and "did the fix work", and answering that from run rows in the
+# front end would mean the front end knowing the schema.
+# --------------------------------------------------------------------------
+
+#: A run whose observations are empty produced no findings by design, and its
+#: metrics are meaningless. Trend lines and verdicts must skip these or an
+#: unreachable host reads as a score of zero.
+_COMPLETED = "run.status = 'completed'"
+
+
+def list_sites(conn: sqlite3.Connection, limit: int = 500) -> list[dict[str, Any]]:
+    """Every site with its latest completed run summarised onto it.
+
+    One query rather than N+1: a correlated subquery picks each site's newest
+    completed run id, and everything else joins against that.
+    """
+    sql = f"""
+    WITH latest AS (
+        SELECT site_id, MAX(id) AS run_id
+        FROM run WHERE {_COMPLETED} GROUP BY site_id
+    )
+    SELECT
+        site.id, site.hostname, site.label, site.client,
+        r.id            AS latest_run_id,
+        r.started_at    AS last_audited,
+        r.lh_version, r.chrome_version,
+        (SELECT COUNT(*) FROM run WHERE run.site_id = site.id) AS run_count,
+        (SELECT COUNT(*) FROM finding f JOIN page p ON p.id = f.page_id
+          WHERE p.run_id = r.id) AS finding_count,
+        (SELECT COUNT(*) FROM finding f JOIN page p ON p.id = f.page_id
+          WHERE p.run_id = r.id AND f.severity IN ('critical', 'high'))
+                        AS urgent_count
+    FROM site
+    LEFT JOIN latest ON latest.site_id = site.id
+    LEFT JOIN run r ON r.id = latest.run_id
+    ORDER BY site.hostname LIMIT ?
+    """
+    return [dict(r) for r in conn.execute(sql, (limit,)).fetchall()]
+
+
+def site_metric_history(conn: sqlite3.Connection, site_id: int,
+                        metric_keys: Sequence[str],
+                        limit: int = 60) -> list[dict[str, Any]]:
+    """One row per completed run, oldest first, with the named metrics on it.
+
+    Oldest first because it is plotted left to right, and reversing a list in
+    a template is exactly the kind of computation templates must not do.
+    """
+    if not metric_keys:
+        return []
+    marks = ",".join("?" * len(metric_keys))
+    sql = f"""
+    SELECT run.id AS run_id, run.started_at, run.status,
+           o.metric_key, o.numeric_value
+    FROM run
+    JOIN page p ON p.run_id = run.id
+    LEFT JOIN observation o ON o.page_id = p.id AND o.metric_key IN ({marks})
+    WHERE run.site_id = ? AND {_COMPLETED}
+    ORDER BY run.started_at, run.id
+    """
+    rows = conn.execute(sql, (*metric_keys, site_id)).fetchall()
+
+    by_run: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        entry = by_run.setdefault(row["run_id"], {
+            "run_id": row["run_id"], "started_at": row["started_at"],
+        })
+        if row["metric_key"] is not None:
+            entry[row["metric_key"]] = row["numeric_value"]
+    return list(by_run.values())[-limit:]
+
+
+def get_site(conn: sqlite3.Connection, site_id: int) -> dict[str, Any] | None:
+    row = conn.execute("SELECT * FROM site WHERE id = ?", (site_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def find_site_by_hostname(conn: sqlite3.Connection,
+                          hostname: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        "SELECT * FROM site WHERE hostname = ?", (hostname,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def site_runs(conn: sqlite3.Connection, site_id: int,
+              limit: int = 100) -> list[dict[str, Any]]:
+    sql = """
+    SELECT run.*,
+           (SELECT COUNT(*) FROM finding f JOIN page p ON p.id = f.page_id
+             WHERE p.run_id = run.id) AS finding_count
+    FROM run WHERE run.site_id = ?
+    ORDER BY run.started_at DESC, run.id DESC LIMIT ?
+    """
+    return [dict(r) for r in conn.execute(sql, (site_id, limit)).fetchall()]
+
+
+def findings_across_sites(conn: sqlite3.Connection,
+                          limit: int = 200) -> list[dict[str, Any]]:
+    """Open findings grouped by rule, with the sites they affect.
+
+    "Open" means present in each site's most recent completed run, which is
+    the only definition that does not double-count history: a rule that
+    fired six months ago and was fixed is not an open finding.
+
+    Titles carry formatted numbers that differ per site ("Images could load
+    3.9s faster" versus "1.2s faster"), so the rule id is the identity and
+    one title is carried through as a representative label.
+    """
+    sql = f"""
+    WITH latest AS (
+        SELECT site_id, MAX(id) AS run_id
+        FROM run WHERE {_COMPLETED} GROUP BY site_id
+    )
+    SELECT
+        f.rule_id,
+        MIN(f.severity)             AS severity,
+        MIN(f.title)                AS title,
+        MIN(f.effort)               AS effort,
+        MIN(f.wp_rocket_setting)    AS wp_rocket_setting,
+        COUNT(DISTINCT site.id)     AS site_count,
+        GROUP_CONCAT(DISTINCT site.hostname) AS hostnames
+    FROM latest
+    JOIN run   ON run.id = latest.run_id
+    JOIN site  ON site.id = latest.site_id
+    JOIN page p ON p.run_id = run.id
+    JOIN finding f ON f.page_id = p.id
+    GROUP BY f.rule_id
+    ORDER BY
+      CASE MIN(f.severity) WHEN 'critical' THEN 0 WHEN 'high' THEN 1
+           WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END,
+      COUNT(DISTINCT site.id) DESC
+    LIMIT ?
+    """
+    return [dict(r) for r in conn.execute(sql, (limit,)).fetchall()]
+
+
+def count_sites_with_a_completed_run(conn: sqlite3.Connection) -> int:
+    return int(conn.execute(
+        f"SELECT COUNT(DISTINCT site_id) FROM run WHERE {_COMPLETED}"
+    ).fetchone()[0])

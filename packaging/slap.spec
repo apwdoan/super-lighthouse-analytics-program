@@ -21,6 +21,10 @@ datas = [
     # worker.js is also shipped in runtime/node_worker/ with its
     # dependencies; this copy keeps a source-layout fallback working.
     (str(SRC / "slap" / "node_worker" / "worker.js"), "slap/node_worker"),
+    # The web front-end's templates and stylesheet. Read at runtime via
+    # Path(__file__).parent, so they must land at the same relative path.
+    (str(SRC / "slap_web" / "templates"), "slap_web/templates"),
+    (str(SRC / "slap_web" / "static"), "slap_web/static"),
 ]
 
 # Playwright's own files, collected EXPLICITLY rather than trusting whichever
@@ -40,18 +44,21 @@ hiddenimports = [
     "pypdf",
     "h2",
     "httpx",
+    # uvicorn resolves its loop, protocol and lifespan implementations by
+    # STRING at runtime, so PyInstaller's static analysis sees none of them
+    # and the bundle starts, then dies on the first request.
+    *collect_submodules("uvicorn"),
+    "anyio",
     *collect_submodules("jinja2"),
 ]
 
 # Qt modules SLAP does not use. WebEngine alone is ~150MB and the app opens
 # reports with the system handler instead.
+# Qt is gone entirely now that the front-end is a browser. Excluding it by
+# name rather than trusting it not to be imported: a stray `import PySide6`
+# anywhere would otherwise silently put ~117MB back into the bundle.
 excludes = [
-    "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets",
-    "PySide6.QtWebEngineQuick", "PySide6.QtQuick", "PySide6.QtQml",
-    "PySide6.Qt3DCore", "PySide6.QtCharts", "PySide6.QtDataVisualization",
-    "PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets", "PySide6.QtBluetooth",
-    "PySide6.QtDesigner", "PySide6.QtTest", "PySide6.QtSql", "PySide6.QtNetwork",
-    "PySide6.QtPositioning", "PySide6.QtSensors", "PySide6.QtSerialPort",
+    "PySide6", "PyQt5", "PyQt6", "shiboken6",
     "tkinter", "matplotlib", "numpy", "PIL", "pytest",
 ]
 
@@ -79,7 +86,7 @@ executable = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,          # UPX-packed binaries are an antivirus magnet
-    console=False,      # GUI app; the CLI is reachable via SLAP --cli
+    console=False,      # windowless launcher; the CLI is reachable via SLAP --cli
     icon=None,
 )
 

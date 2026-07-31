@@ -13,9 +13,8 @@ collectors  ──►  normalized observations  ──►  findings engine  ─�
 self-contained distributable teammates can run with nothing installed.** Schema frozen, no-browser
 collectors working, Lighthouse runner driving a pinned Chromium, findings
 engine running off 46 YAML rules, client-facing HTML and PDF reports
-rendering, and both front-ends (CLI and PySide6 desktop app) driving the
-same core. See `docs/gui-architecture.md`, `docs/lighthouse.md`, and
-`docs/reports.md`.
+rendering, and both front-ends (CLI and a local web app) driving the same
+core. See `docs/ui-redesign.md`, `docs/lighthouse.md`, and `docs/reports.md`.
 
 ---
 
@@ -42,7 +41,7 @@ does not reproduce on macOS or Linux, which is exactly what makes it easy
 to ship. `packaging/build.py` and the CI workflow both run npm with a
 working directory instead.
 
-Extras: `report` (PDF), `gui` (desktop app), `all` (both).
+Extras: `report` (PDF), `web` (the app), `all` (both).
 
 Node **>= 22.19** is required for the Lighthouse runner. Everything except
 `pip install` is optional: without them SLAP still audits, and the report
@@ -79,10 +78,10 @@ slap report -b <batch-id> --merge           # every site, plus one combined PDF
 slap report --check                         # is the PDF backend installed?
 ```
 
-Or run the desktop app:
+Or run the app:
 
 ```bash
-slap-gui            # or: python -m slap_gui
+slap-web            # starts a local server and opens your browser
 ```
 
 ## Shipping it to someone
@@ -91,8 +90,9 @@ slap-gui            # or: python -m slap_gui
 python packaging/build.py --zip
 ```
 
-Produces `dist/SLAP/` (~1.1GB, ~410MB zipped) containing the Python runtime,
-the app, Node, Lighthouse and Chromium. A teammate unzips it and runs it;
+Produces `dist/SLAP/` (~700MB, ~300MB zipped) containing the Python runtime,
+the app, Node, Lighthouse and Chromium. Double-clicking it starts a local
+server and opens the default browser. A teammate unzips it and runs it;
 they install nothing.
 
 PyInstaller is not a cross-compiler, so build on the platform you are
@@ -120,7 +120,7 @@ src/slap/
   bundle.py              finds Node, Chromium and the worker when frozen
   db.py                  SQLite, WAL, thread-local connections
   events.py              progress events; the front-end seam
-  core.py                THE API. CLI and GUI both call only this
+  core.py                THE API. Both front-ends call only this
   config.py              settings from defaults / TOML / environment
   collectors/
     base.py              Collector protocol, shared fetch context
@@ -140,12 +140,13 @@ src/slap/
     pdf.py               Chromium print-to-PDF, plus pypdf merge
     templates/           report.html.j2, batch.html.j2, report.css
   cli.py                 thin front-end over core
-src/slap_gui/            desktop front-end. Depends on slap.core, never back
-  bridge.py              the asyncio-to-Qt seam; every threading bug lives here
-  models.py              table models; per-row dataChanged, no SQL
-  pages/                 composer, monitor, history, settings
+src/slap_web/            the front-end. Depends on slap.core, never back
+  app.py                 routes only: no SQL, no thresholds
+  viewmodel.py           every number, word and SVG path the templates print
+  activity.py            batches and progress over server-sent events
+  templates/             sites, site, findings, run
 packaging/               build script and PyInstaller spec
-docs/gui-architecture.md PySide6 threading model and screen map
+docs/ui-redesign.md      why the UI is site-centric and browser-based
 docs/packaging.md        building the self-contained distributable
 docs/lighthouse.md       lab runner, concurrency, the LH13 audit-ID trap
 docs/reports.md          report pipeline, palette rules, PDF backend
@@ -163,7 +164,7 @@ docs/reports.md          report pipeline, palette rules, PDF backend
 4. **Every metric key is registered** in `schema.METRIC_REGISTRY` before a
    collector may emit it. A typo raises at collection time instead of
    producing a column nothing knows how to render.
-5. **Nothing under `src/slap/` imports a GUI toolkit.** Front-ends are
+5. **Nothing under `src/slap/` imports a UI framework.** Front-ends are
    clients of `slap.core`. If a front-end needs to reach past it, the core
    is missing a function.
 6. **Provenance on every run.** Version and schema version are recorded per
@@ -199,13 +200,13 @@ docs/reports.md          report pipeline, palette rules, PDF backend
 ## Tests
 
 ```bash
-pytest -q          # 216 tests, no network and no display required
+pytest -q          # 241 tests, no network and no display required
 ```
 
 The suite runs local HTTP servers for the end-to-end paths, so the whole
 thing is offline-safe. Lighthouse extraction is tested against a recorded
 LHR from a deliberately awful fixture page (`tests/fixtures/slowsite/`),
 because a clean page yields zero savings everywhere and cannot tell a
-working extractor from a broken one. GUI tests run under
-`QT_QPA_PLATFORM=offscreen`. Tests needing a real browser, or PySide6, skip
-cleanly when it is absent.
+working extractor from a broken one. Web tests drive the real routes
+against a real temporary database through FastAPI's TestClient. Tests needing
+a real browser skip cleanly when it is absent.

@@ -189,11 +189,13 @@ def cmd_doctor(args: argparse.Namespace, settings: Settings) -> int:
 
     print("SLAP backends\n")
 
-    key = settings.collector.crux_api_key
-    line("CrUX field data", bool(key),
-         "Real-user Core Web Vitals available." if key else
-         "No CRUX_API_KEY set. Reports will say 'no field data' and rely on lab\n"
-         "measurements only. Key is free: https://developer.chrome.com/docs/crux/api")
+    # Actually call CrUX rather than checking a key is set. A key can be
+    # present, well-formed and rejected on every request, and the audit
+    # then records crux.available: false while this line says ok.
+    from .collectors.crux import check_key
+
+    crux_ok, crux_detail = asyncio.run(check_key(settings.collector.crux_api_key))
+    line("CrUX field data", crux_ok, crux_detail)
 
     runner = LighthouseRunner(settings.lighthouse)
     lh_ok, lh_detail = runner.check()

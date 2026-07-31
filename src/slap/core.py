@@ -453,6 +453,98 @@ def get_run_detail(settings: Settings, run_id: int) -> dict[str, Any] | None:
     }
 
 
+# --------------------------------------------------------------------------
+# Site-centric reads
+#
+# The UI is organised around the site, not the batch. These live here rather
+# than in the front end because of the rule that has held all project: if a
+# front-end needs to reach past salp.core, the core is missing a function.
+# The web layer never opens a database or writes SQL.
+# --------------------------------------------------------------------------
+
+#: What a trend line is drawn from. Lab score first because it is the only
+#: one present on every run; the CrUX metrics need field data to exist.
+TREND_METRICS: tuple[str, ...] = (
+    "lh.score.performance", "lh.lcp", "crux.lcp.p75", "crux.inp.p75",
+)
+
+
+def list_sites(settings: Settings, limit: int = 500) -> list[dict[str, Any]]:
+    """Every site with its most recent completed run summarised onto it."""
+    return db.list_sites(_conn(settings), limit)
+
+
+def _rule_ids(findings: Iterable[dict[str, Any]]) -> set[str]:
+    return {f["rule_id"] for f in findings}
+
+
+def get_site_detail(settings: Settings, site_id: int) -> dict[str, Any] | None:
+    """One site over time: trend, runs, and findings split open vs fixed.
+
+    The open/fixed split is a set difference on ``rule_id`` between the
+    latest completed run and the one before it. Deliberately rule ids and
+    not titles: a title carries a formatted number ("Images could load 3.9s
+    faster") that moves between runs, so comparing titles would report every
+    improved finding as simultaneously fixed and newly discovered.
+
+    ``fixed`` is therefore "present last time, absent now", which is the
+    claim a client cares about and the one the immutable-run design can
+    actually support.
+    """
+    conn = _conn(settings)
+    site = db.get_site(conn, site_id)
+    if site is None:
+        return None
+
+    runs = db.site_runs(conn, site_id)
+    completed = [r for r in runs if r["status"] == "completed"]
+    latest = completed[0] if completed else None
+    previous = completed[1] if len(completed) > 1 else None
+
+    current = db.get_findings(conn, latest["id"]) if latest else []
+    prior = db.get_findings(conn, previous["id"]) if previous else []
+
+    current_ids, prior_ids = _rule_ids(current), _rule_ids(prior)
+    return {
+        "site": site,
+        "runs": runs,
+        "latest": latest,
+        "previous": previous,
+        "history": db.site_metric_history(conn, site_id, TREND_METRICS),
+        "observations": (
+            db.observations_as_dict(
+                conn,
+                conn.execute("SELECT id FROM page WHERE run_id = ? LIMIT 1",
+                             (latest["id"],)).fetchone()["id"],
+            ) if latest else {}
+        ),
+        "open": current,
+        "new": [f for f in current if previous and f["rule_id"] not in prior_ids],
+        "fixed": [f for f in prior if f["rule_id"] not in current_ids],
+    }
+
+
+def findings_across_sites(settings: Settings,
+                          limit: int = 200) -> dict[str, Any]:
+    """Every open finding grouped by rule, plus how many sites it affects.
+
+    The screen this feeds turns one fix into a portfolio-wide conversation,
+    and it is a single query against data that has been stored since Phase
+    0. It only looked expensive because the UI was organised around batches.
+    """
+    conn = _conn(settings)
+    rules = db.findings_across_sites(conn, limit)
+    total = db.count_sites_with_a_completed_run(conn)
+    for rule in rules:
+        rule["hosts"] = (rule.pop("hostnames") or "").split(",")
+        rule["share"] = (rule["site_count"] / total) if total else 0.0
+    return {"rules": rules, "total_sites": total}
+
+
+def find_site(settings: Settings, hostname: str) -> dict[str, Any] | None:
+    return db.find_site_by_hostname(_conn(settings), hostname)
+
+
 def close_connections() -> None:
     """Release this thread's SQLite handles. Call from a GUI's closeEvent."""
     db.close_thread_connections()

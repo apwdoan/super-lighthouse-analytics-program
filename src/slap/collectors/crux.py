@@ -156,3 +156,47 @@ class CruxCollector:
         except ValueError as exc:
             ctx.errors.append(f"crux: bad JSON ({exc})")
             return [obs("crux.available", False)]
+
+
+async def check_key(api_key: str | None, *, timeout: float = 15.0) -> tuple[bool, str]:
+    """Does this key actually return field data? Returns (ok, detail).
+
+    `doctor` used to report CrUX healthy whenever a key was merely *set*.
+    That is the same class of lie as the PDF check that stat-ed a file
+    instead of launching the browser: a key can be well-formed, present in
+    the environment, and rejected on every request. This one was, with the
+    API disabled on its Google Cloud project, and every audit would have
+    quietly recorded `crux.available: false` while `doctor` said ok.
+
+    Uses a high-traffic origin so "no data for this origin" cannot be
+    mistaken for "the key does not work".
+    """
+    if not api_key:
+        return False, (
+            "No CRUX_API_KEY set. Reports will say 'no field data' and rely on\n"
+            "lab measurements only. Key is free: "
+            "https://developer.chrome.com/docs/crux/api"
+        )
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                CRUX_ENDPOINT, params={"key": api_key},
+                json={"origin": "https://www.wikipedia.org", "formFactor": "PHONE"},
+            )
+    except httpx.HTTPError as exc:
+        return False, f"could not reach the CrUX API: {exc}"
+
+    if response.status_code == 200:
+        return True, "Real-user Core Web Vitals available."
+    if response.status_code == 403:
+        detail = response.json().get("error", {}).get("message", "")
+        if "has not been used in project" in detail or "is disabled" in detail:
+            return False, (
+                "The key is valid but the Chrome UX Report API is not enabled on\n"
+                "its Google Cloud project. Enable it here, then retry:\n"
+                "https://console.cloud.google.com/apis/library/chromeuxreport.googleapis.com"
+            )
+        return False, f"CrUX rejected the key (403): {detail[:200]}"
+    if response.status_code == 429:
+        return False, "rate limited (429). The key works; try again shortly."
+    return False, f"CrUX returned HTTP {response.status_code}"

@@ -1,0 +1,70 @@
+{% extends "base.html.j2" %}
+{% import "_macros.html.j2" as m %}
+{% block title %}Report &middot; {{ run.hostname }}{% endblock %}
+{% block main %}
+<div class="bar">
+  <div>
+    <div class="crumb"><a href="/site/{{ run.site_id }}">{{ run.hostname }}</a> / Run {{ run.id }}</div>
+    <h1>Report preview</h1>
+  </div>
+  <div class="grow"></div>
+  <span class="chip">{{ findings|length }} findings &middot; {{ observation_count }} observations</span>
+  <button class="btn" onclick="document.getElementById('brand').hidden = !document.getElementById('brand').hidden">Branding</button>
+  <form method="post" action="/run/{{ run.id }}/export" style="display:inline">
+    <button class="btn" type="submit">Export HTML</button>
+  </form>
+  <form method="post" action="/run/{{ run.id }}/export" style="display:inline">
+    <input type="hidden" name="pdf" value="1">
+    <button class="btn primary" type="submit" {{ 'disabled' if not pdf_backend else '' }}>Export PDF</button>
+  </form>
+</div>
+<div class="content">
+
+  {% if request.query_params.get('exported') %}
+    <div class="card notice">
+      <span class="badge"><span class="sw good"></span>Done</span>
+      Written to the report directory.
+    </div>
+  {% endif %}
+
+  {% if not pdf_backend %}
+    <div class="card notice">
+      <span class="badge"><span class="sw muted"></span>Unavailable</span>
+      PDF export is off: {{ pdf_backend.detail }} The HTML is the artifact of
+      record, so the report itself is unaffected.
+    </div>
+  {% endif %}
+
+  <div id="brand" class="card" hidden>
+    <header><div class="grow"><h2>Branding</h2></div></header>
+    <form method="post" action="/branding" class="row">
+      <input type="hidden" name="run_id" value="{{ run.id }}">
+      <label>Company name
+        <input name="company_name" value="{{ branding.get('company_name', '') }}"
+               placeholder="Shown in the report header">
+      </label>
+      <label>Accent
+        <input name="accent" value="{{ branding.get('accent', '') }}" placeholder="#2a78d6">
+      </label>
+      <button class="btn primary" type="submit">Apply</button>
+    </form>
+    <p class="hint">
+      Applied to this session only. Persisting it means round-tripping your
+      config.toml without eating the comments in it, which tomllib cannot do
+      (it is read-only) and which is worth deciding deliberately.
+    </p>
+  </div>
+
+  <div class="card preview-frame">
+    {# An iframe, not inlined. report.css declares its own :root tokens and
+       targets a 190mm print page; sharing a document would have the two
+       stylesheets fight, and a preview that is not byte-identical to the
+       client's file is not a preview. #}
+    <iframe src="/run/{{ run.id }}/report.html" title="Report preview" loading="lazy"></iframe>
+  </div>
+  <p class="hint" style="text-align:center">
+    Exactly the HTML the client receives. The PDF is a rendering of this file,
+    so what is above is what they get.
+  </p>
+</div>
+{% endblock %}

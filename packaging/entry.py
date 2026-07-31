@@ -3,7 +3,7 @@
 One executable serves both front-ends, because shipping two .exe files that
 differ only in argv confuses more than it helps:
 
-    SLAP.exe                 the desktop app
+    SLAP.exe                 starts the local server and opens a browser
     SLAP.exe --cli audit ... the command line
 
 The bundle is built with ``console=False``, so on Windows the CLI has no
@@ -29,9 +29,9 @@ def main() -> int:
 
         return cli_main(argv[1:])
 
-    from slap_gui import main as gui_main
+    from slap_web import main as web_main
 
-    return gui_main()
+    return web_main()
 
 
 if __name__ == "__main__":
