@@ -2,6 +2,39 @@
 
 *Built 2026-07-31, verified against Lighthouse 13.4.1 and Chromium 141.*
 
+## The worker's answer is its first envelope
+
+A Windows build reported `worker_crashed` on a probe that had already
+succeeded. The stdout said so plainly once it was printed:
+
+```
+{"ok":true,"meta":{"lighthouseVersion":"13.4.1",...}}{"ok":false,"code":"worker_crashed","error":"Error: EPERM, Permission denied: ...\Temp\lighthouse.60430772"}
+```
+
+A complete, correct result, immediately followed by a crash. `chrome-launcher`
+deletes its temp profile inside `kill()`, and on Windows that races Chrome's
+own shutdown and throws `EPERM`. The rejection escaped the `finally` block,
+reached `main().catch()`, and emitted a second envelope. **A finished audit
+was reported as a crash because a temp folder could not be deleted.**
+
+Three things were wrong, and all three are worth keeping fixed:
+
+1. **Cleanup could fail a run.** `chrome.kill()` now goes through
+   `killQuietly()`, which retries briefly, because across a 100-site batch
+   each leaked profile is tens of megabytes, and then gives up to stderr.
+   Cleanup is not the job.
+2. **The worker could contradict itself.** `emit()` is write-once. A late
+   failure after a delivered result goes to stderr and exits with the status
+   the result earned. Envelopes are also newline-terminated now, so two can
+   never be concatenated into one unparseable line.
+3. **The Python side preferred the crash.** It took the *last* JSON object it
+   could find. It now decodes objects one at a time with `raw_decode` and
+   takes the *first* envelope. Line splitting could not have separated these
+   two anyway, since there was no separator between them.
+
+The worker being well-behaved is what makes 1 and 2 sufficient. 3 exists
+because trusting that is how this went unnoticed in the first place.
+
 ## Setup
 
 ```bash

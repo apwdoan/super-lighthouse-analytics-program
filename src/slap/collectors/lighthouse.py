@@ -299,24 +299,30 @@ def parse_envelope(stdout: bytes) -> dict[str, Any] | None:
     if not stdout.strip():
         return None
     text = stdout.decode("utf-8", errors="replace")
-    try:
-        loaded = json.loads(text)
-        if isinstance(loaded, dict):
-            return loaded
-    except ValueError:
-        pass
-    # Last match wins: the envelope is the final thing the worker prints.
-    for line in reversed(text.splitlines()):
-        line = line.strip()
-        if not line.startswith("{"):
-            continue
+
+    # FIRST envelope wins, and objects are decoded one at a time rather than
+    # by lines. The worker emitted two, concatenated with no separator:
+    #
+    #   {"ok":true,"meta":{...}}{"ok":false,"code":"worker_crashed",...}
+    #
+    # A completed probe followed by a temp-directory cleanup failure. Line
+    # splitting cannot separate those, and taking the last one would prefer
+    # the cleanup crash over the result it came after. The worker no longer
+    # emits a second envelope, but a client that trusts the worker to be
+    # well-behaved is how this went unnoticed the first time.
+    decoder = json.JSONDecoder()
+    index = 0
+    while True:
+        start = text.find("{", index)
+        if start == -1:
+            return None
         try:
-            loaded = json.loads(line)
+            loaded, index = decoder.raw_decode(text, start)
         except ValueError:
+            index = start + 1
             continue
         if isinstance(loaded, dict) and "ok" in loaded:
             return loaded
-    return None
 
 
 def default_chrome_path() -> str | None:

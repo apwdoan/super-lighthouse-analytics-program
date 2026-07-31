@@ -8,7 +8,7 @@
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 ROOT = Path(SPECPATH).parent
 SRC = ROOT / "src"
@@ -22,6 +22,14 @@ datas = [
     # dependencies; this copy keeps a source-layout fallback working.
     (str(SRC / "slap" / "node_worker" / "worker.js"), "slap/node_worker"),
 ]
+
+# Playwright's own files, collected EXPLICITLY rather than trusting whichever
+# pyinstaller-hooks-contrib version CI happens to resolve. This is what puts
+# `playwright/driver/node(.exe)` in the bundle, and that binary is the Node
+# runtime the Lighthouse worker runs on. If it is ever missing, the bundle
+# has no Node at all and Lighthouse is silently unavailable in a way that
+# looks like a Lighthouse problem.
+datas += collect_data_files("playwright")
 
 hiddenimports = [
     # Imported lazily inside functions, so PyInstaller's static analysis

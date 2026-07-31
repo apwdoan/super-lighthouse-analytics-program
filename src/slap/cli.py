@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from . import __version__, config, core
+from . import __version__, bundle, config, core
 from .config import Settings
 from .events import BatchFinished, CollectorFinished, Event, SiteFinished
 from .findings import FindingsEngine, RuleError
@@ -213,6 +213,18 @@ def cmd_doctor(args: argparse.Namespace, settings: Settings) -> int:
 
     status = core.pdf_backend_status()
     line("PDF export", bool(status), status.detail)
+
+    if bundle.is_frozen():
+        # What the bundle actually resolved, printed unconditionally.
+        #
+        # A frozen build finds Node, the worker and Chromium through three
+        # separate lookups, and a teammate reporting "Lighthouse says
+        # missing" cannot tell you which one came back empty. This is the
+        # first question anyone asks and it costs four lines to answer.
+        print()
+        print("  [bundle]")
+        for key, value in bundle.describe().items():
+            print(f"          {key + ':':<14}{value}")
 
     if config.using_legacy_data_dir():
         # Not a failure, so it does not touch ok_all. But someone wondering

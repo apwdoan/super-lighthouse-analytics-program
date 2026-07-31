@@ -391,9 +391,38 @@ def test_stray_output_after_the_envelope_also_works():
     assert parse_envelope(noisy) == {"ok": True, "meta": {}}
 
 
-def test_the_last_envelope_wins():
-    two = b'{"ok": false, "error": "first"}\n{"ok": true, "meta": {}}\n'
+def test_the_first_envelope_wins_not_the_last():
+    """The worker's answer is its first envelope; later ones are noise."""
+    two = b'{"ok": true, "meta": {}}\n{"ok": false, "error": "later"}\n'
     assert parse_envelope(two)["ok"] is True
+
+
+def test_the_exact_windows_failure_recovers_the_result():
+    """Verbatim shape from the Windows CI log: two envelopes, no separator.
+
+    A finished probe, then chrome-launcher failing to delete its temp
+    profile. Line splitting cannot separate these, and preferring the last
+    one reports a completed audit as a crash.
+    """
+    observed = (
+        b'{"ok":true,"meta":{"lighthouseVersion":"13.4.1",'
+        b'"chromeVersion":"149.0.7827.55","node":"v24.17.0"}}'
+        b'{"ok":false,"code":"worker_crashed","error":'
+        b'"Error: EPERM, Permission denied: '
+        b'\\\\?\\C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\lighthouse.60430772"}'
+    )
+    envelope = parse_envelope(observed)
+    assert envelope["ok"] is True
+    assert envelope["meta"]["lighthouseVersion"] == "13.4.1"
+    assert envelope["meta"]["chromeVersion"] == "149.0.7827.55"
+
+
+def test_a_genuine_failure_is_still_reported_as_one():
+    """Guards the fix above from swallowing real crashes."""
+    only_failure = b'{"ok":false,"code":"chrome_launch_failed","error":"no chrome"}'
+    envelope = parse_envelope(only_failure)
+    assert envelope["ok"] is False
+    assert envelope["code"] == "chrome_launch_failed"
 
 
 def test_empty_output_is_none_not_an_empty_envelope():

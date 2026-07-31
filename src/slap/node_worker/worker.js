@@ -60,13 +60,70 @@ function readStdin() {
   });
 }
 
+// The worker's answer is its FIRST envelope. Everything after it is noise.
+//
+// This is not hypothetical tidiness. On Windows, chrome-launcher's kill()
+// removes its temp user-data-dir and races Chrome's own shutdown, throwing
+// `EPERM ... C:\Users\RUNNER~1\AppData\Local\Temp\lighthouse.60430772`.
+// That rejection escaped the `finally` and hit main()'s catch, so stdout
+// carried a complete, correct result immediately followed by a crash:
+//
+//   {"ok":true,"meta":{...}}{"ok":false,"code":"worker_crashed",...}
+//
+// A finished audit was reported as a crash because deleting a temp folder
+// failed. Cleanup is not the job.
+let delivered = false;
+
 function emit(payload) {
-  process.stdout.write(JSON.stringify(payload));
+  if (delivered) {
+    process.stderr.write(
+      `[worker] suppressed a second envelope: ${JSON.stringify(payload).slice(0, 300)}\n`,
+    );
+    return;
+  }
+  delivered = true;
+  // Newline-terminated so two envelopes can never be concatenated into one
+  // unparseable line, whatever else goes wrong.
+  process.stdout.write(`${JSON.stringify(payload)}\n`);
 }
 
 function fail(code, error, extra = {}) {
+  if (delivered) {
+    // The result already went out. Exiting non-zero here would contradict
+    // it, so record the late failure on stderr and leave with the status
+    // the delivered envelope earned.
+    process.stderr.write(`[worker] ${code} after the result was sent: ${error}\n`);
+    process.exit(0);
+  }
   emit({ ok: false, code, error: String(error), ...extra });
   process.exit(1);
+}
+
+/**
+ * Kill Chrome without letting cleanup failures become run failures.
+ *
+ * chrome-launcher deletes its temp profile inside kill(). On Windows that
+ * frequently fails with EPERM because Chrome still holds handles. Retrying
+ * briefly usually reclaims the directory, which matters across a 100-site
+ * batch where each leak is tens of megabytes, but never at the cost of the
+ * run itself.
+ */
+async function killQuietly(chrome) {
+  if (!chrome) return;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await chrome.kill();
+      return;
+    } catch (err) {
+      if (attempt === 2) {
+        process.stderr.write(
+          `[worker] could not remove Chrome's temp profile: ${err}\n`,
+        );
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
 }
 
 /**
@@ -161,7 +218,7 @@ async function probe() {
   } catch (err) {
     fail("probe_failed", err);
   } finally {
-    await chrome.kill();
+    await killQuietly(chrome);
   }
 }
 
@@ -224,7 +281,7 @@ async function runJob(job) {
   } catch (err) {
     fail("lighthouse_failed", err?.stack || err);
   } finally {
-    await chrome.kill();
+    await killQuietly(chrome);
   }
 }
 
