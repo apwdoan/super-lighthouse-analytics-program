@@ -362,3 +362,72 @@ def test_category_banding_matches_lighthouse_own_thresholds():
     assert score_status(89) == "needs-improvement"
     assert score_status(50) == "needs-improvement"
     assert score_status(49) == "poor"
+
+
+# --------------------------------------------------------------------------
+# Reading the worker's stdout
+#
+# A Windows CI build failed with the entire error message being
+# "probe returned unparseable output:" and nothing after the colon. Every
+# case below either produces a usable envelope or a message that names what
+# actually happened.
+# --------------------------------------------------------------------------
+
+from slap.collectors.lighthouse import parse_envelope
+
+
+def test_a_clean_envelope_parses():
+    assert parse_envelope(b'{"ok": true, "meta": {"node": "v22"}}')["ok"] is True
+
+
+def test_stray_output_before_the_envelope_does_not_lose_the_run():
+    """The observed Windows failure: stdout non-empty and not JSON overall."""
+    noisy = b'Some launcher banner\n{"ok": true, "meta": {"node": "v22"}}\n'
+    assert parse_envelope(noisy) == {"ok": True, "meta": {"node": "v22"}}
+
+
+def test_stray_output_after_the_envelope_also_works():
+    noisy = b'{"ok": true, "meta": {}}\nWarning: something\n'
+    assert parse_envelope(noisy) == {"ok": True, "meta": {}}
+
+
+def test_the_last_envelope_wins():
+    two = b'{"ok": false, "error": "first"}\n{"ok": true, "meta": {}}\n'
+    assert parse_envelope(two)["ok"] is True
+
+
+def test_empty_output_is_none_not_an_empty_envelope():
+    """`json.loads(stdout or b"{}")` turned this into a valid {} and lost it."""
+    assert parse_envelope(b"") is None
+    assert parse_envelope(b"   \n") is None
+
+
+def test_output_with_no_envelope_at_all_is_none():
+    assert parse_envelope(b"MSVCP140.dll not found\n") is None
+
+
+def test_a_json_array_is_not_an_envelope():
+    assert parse_envelope(b"[1, 2, 3]") is None
+
+
+def test_probe_failure_names_every_lookup(tmp_path):
+    """The message has to say which node, worker and browser were used.
+
+    On a frozen bundle those come from three separate lookups, any of which
+    can miss, and the old message named none of them.
+    """
+    from slap.collectors.lighthouse import LighthouseConfig, LighthouseRunner
+
+    worker = tmp_path / "worker.js"
+    worker.write_text("//")
+    runner = LighthouseRunner(LighthouseConfig(worker_path=worker,
+                                               node_path="/usr/bin/node"))
+    runner._chrome_path = "/somewhere/chrome"
+    message = runner._probe_failure(3, b"", b"")
+
+    assert "exit code 3" in message
+    assert "stdout: (empty)" in message
+    assert "stderr: (empty)" in message
+    assert "/usr/bin/node" in message
+    assert str(worker) in message
+    assert "/somewhere/chrome" in message

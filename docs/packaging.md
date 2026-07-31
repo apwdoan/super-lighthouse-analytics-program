@@ -145,6 +145,34 @@ This is **verified, not assumed**: `driver_node_is_new_enough()` runs
 if Playwright ever ships an older one. A silent downgrade would otherwise
 surface as a cryptic Lighthouse crash in a teammate's bundle.
 
+## Playwright renames its browser directories
+
+`playwright>=1.44` is an open range, so CI installs whatever is current. It
+moved from 1.56 to 1.61 on its own, and **every platform's Chromium
+directory was renamed** between browser revisions 1194 and 1228:
+
+| | 1194 | 1228 |
+|---|---|---|
+| Linux | `chrome-linux/chrome` | `chrome-linux64/chrome` |
+| Windows | `chrome-win/chrome.exe` | `chrome-win64/chrome.exe` |
+| macOS | `chrome-mac/Chromium.app/.../Chromium` | `chrome-mac-{arm64,x64}/Google Chrome for Testing.app/.../Google Chrome for Testing` |
+
+The macOS binary is not even called Chromium any more. `bundle.py` and
+`collectors/lighthouse.py` each held a hardcoded copy of that table, so both
+started returning None after a routine upgrade, on all four build targets at
+once. The layout knowledge now lives in `bundle.CHROMIUM_GLOBS`, once, as
+globs, and a parametrised test asserts every layout above still resolves.
+
+Two lessons worth keeping:
+
+- **This was invisible from a source checkout.** `default_chrome_path()`
+  falls through to Playwright's own API, which of course knows where its
+  browser is, so a developer machine keeps working while the bundle, which
+  must resolve the path itself, does not.
+- **Pinning is not the fix.** The report records `chrome_version` on every
+  run precisely so a browser upgrade is visible rather than prevented. What
+  had to change was code that assumed a layout would hold.
+
 ## A status check that can lie is worse than none
 
 `check_backend()` originally confirmed that Chromium's executable *file

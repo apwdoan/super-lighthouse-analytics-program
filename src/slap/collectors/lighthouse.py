@@ -266,21 +266,56 @@ def _playwright_browsers_dir() -> Path | None:
 
 
 def _scan_for_chromium() -> str | None:
-    """Find Playwright's Chromium on disk, without starting its driver."""
+    """Find Playwright's Chromium on disk, without starting its driver.
+
+    Delegates the layout knowledge to :mod:`slap.bundle` rather than keeping
+    a second copy. The two lists were duplicated and drifted out of date
+    together when Playwright renamed the directories, which is the usual
+    fate of a table written down twice.
+    """
     root = _playwright_browsers_dir()
     if root is None:
         return None
-    relative = (
-        "chrome-linux/chrome",
-        "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
-        "chrome-win/chrome.exe",
-    )
-    # Newest install wins, so an upgrade is picked up without config changes.
-    for directory in sorted(root.glob("chromium-*"), reverse=True):
-        for suffix in relative:
-            candidate = directory / suffix
-            if candidate.exists():
-                return str(candidate)
+    found = bundle.find_chromium_under(root)
+    return str(found) if found is not None else None
+
+
+def parse_envelope(stdout: bytes) -> dict[str, Any] | None:
+    """The worker's JSON envelope from its stdout, or None if there isn't one.
+
+    Tolerant of stray output on the same stream. The worker's contract is
+    "one JSON object on stdout", and it holds when the only thing writing
+    there is the worker. It is not guaranteed: a Windows CI build produced
+    stdout that was non-empty and not JSON, with nothing at all on stderr,
+    which under the old whole-buffer parse surfaced as
+
+        probe returned unparseable output:
+
+    and no way to tell whether the worker had run. Scanning for the
+    envelope line means a Node warning or a launcher banner degrades to a
+    working audit instead of a dead one. Anything unparseable still returns
+    None, and the caller prints the raw streams.
+    """
+    if not stdout.strip():
+        return None
+    text = stdout.decode("utf-8", errors="replace")
+    try:
+        loaded = json.loads(text)
+        if isinstance(loaded, dict):
+            return loaded
+    except ValueError:
+        pass
+    # Last match wins: the envelope is the final thing the worker prints.
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            loaded = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(loaded, dict) and "ok" in loaded:
+            return loaded
     return None
 
 
@@ -368,16 +403,31 @@ class LighthouseRunner:
             return False, f"worker script missing at {self.worker_script}"
         node = self.node_executable
         if not (Path(node).exists() or shutil.which(node)):
+            if not bundle.is_frozen():
+                return False, f"'{node}' not found. Lighthouse 13 needs Node >= 22.19."
+            # Frozen and still falling back to a bare name means
+            # bundle.bundled_node() found nothing, which is a different
+            # fault from "the path it found is gone". Saying "bundled Node
+            # missing at node" described neither.
+            if bundle.bundled_node() is None:
+                return False, (
+                    "no Node in the bundle. Expected Playwright's driver "
+                    f"node under {bundle.bundle_root()}, or runtime/node/. "
+                    "The distributable is incomplete."
+                )
             return False, (
-                f"'{node}' not found. Lighthouse 13 needs Node >= 22.19."
-                if not bundle.is_frozen() else
                 f"bundled Node missing at {node}. The distributable is incomplete."
             )
         modules = self.worker_script.parent / "node_modules" / "lighthouse"
         if not modules.exists():
+            # NOT `npm install --prefix <dir>`: on Windows npm ignores the
+            # prefix and reads the current directory's package.json
+            # (npm/cli#7722). Telling someone to run a command that fails on
+            # their platform is worse than saying nothing.
             return False, (
                 "Lighthouse is not installed. Run:\n"
-                f"    npm install --prefix {self.worker_script.parent}"
+                f"    cd {self.worker_script.parent}\n"
+                "    npm install"
             )
         return True, f"worker at {self.worker_script}"
 
@@ -416,6 +466,35 @@ class LighthouseRunner:
             raise LighthouseError(f"timed out after {timeout:.0f}s") from None
         return process.returncode or 0, stdout, stderr
 
+    def _probe_failure(self, code: int, stdout: bytes, stderr: bytes) -> str:
+        """Everything needed to diagnose a dead worker, in one message.
+
+        The previous version printed only stderr. When the worker died
+        producing NO output on either stream, which is what a Windows CI
+        build did, the entire error read:
+
+            probe returned unparseable output:
+
+        That is worse than useless: it says something failed and withholds
+        every fact about it. An empty stream is itself a finding, so say so
+        rather than interpolating nothing, and name the exact node, script
+        and browser that were used, because on a frozen bundle those are
+        resolved by three different lookups any of which can miss.
+        """
+        def stream(name: str, raw: bytes) -> str:
+            text = raw.decode(errors="replace").strip()
+            return f"  {name}: {text[:600]}" if text else f"  {name}: (empty)"
+
+        return "\n".join([
+            f"probe failed with exit code {code}.",
+            stream("stdout", stdout),
+            stream("stderr", stderr),
+            f"  node: {self.node_executable}",
+            f"  worker: {self.worker_script}",
+            f"  CHROME_PATH: {self._chrome_path or '(unresolved)'}",
+            f"  frozen: {bundle.is_frozen()}",
+        ])
+
     async def probe(self) -> dict[str, Any]:
         """Lighthouse, Chrome, and Node versions. Cached per runner."""
         if self._probed is not None:
@@ -424,14 +503,21 @@ class LighthouseRunner:
         if not ok:
             raise LighthouseError(detail)
         code, stdout, stderr = await self._spawn(["--probe"], None, 60.0)
-        try:
-            envelope = json.loads(stdout or b"{}")
-        except ValueError as exc:
-            raise LighthouseError(
-                f"probe returned unparseable output: {stderr.decode(errors='replace')[:400]}"
-            ) from exc
+        envelope = parse_envelope(stdout)
+        if envelope is None:
+            # `json.loads(stdout or b"{}")` used to turn EMPTY output into a
+            # valid empty envelope, which then failed the `ok` check below
+            # and reported the bare string "probe failed". A worker that
+            # died without printing anything is the single most useful
+            # thing to describe in detail, and it was the one case that
+            # described nothing.
+            raise LighthouseError(self._probe_failure(code, stdout, stderr))
         if not envelope.get("ok"):
-            raise LighthouseError(envelope.get("error", "probe failed"))
+            detail = envelope.get("error")
+            raise LighthouseError(
+                f"{envelope.get('code', 'probe failed')}: {detail}" if detail
+                else self._probe_failure(code, stdout, stderr)
+            )
         self._probed = envelope.get("meta", {})
         return self._probed
 
@@ -456,12 +542,16 @@ class LighthouseRunner:
                 ok=False, code="no_output",
                 error=f"worker exited {code} with no output. {tail}",
             )
-        try:
-            payload = json.loads(stdout)
-        except ValueError:
+        # Same tolerant parse as the probe. An audit is 90 seconds of work;
+        # throwing it away because something else wrote a line to stdout is
+        # an expensive way to be strict.
+        payload = parse_envelope(stdout)
+        if payload is None:
             return RunEnvelope(
                 ok=False, code="bad_output",
-                error=f"worker output was not JSON: {stdout[:300]!r}",
+                error=(f"worker output was not JSON: {stdout[:300]!r} "
+                       f"(exit {code}, stderr: "
+                       f"{stderr.decode(errors='replace').strip()[-300:] or 'empty'})"),
             )
         return RunEnvelope(
             ok=bool(payload.get("ok")),

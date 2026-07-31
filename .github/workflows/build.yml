@@ -217,6 +217,15 @@ jobs:
           echo "$DOCTOR" | grep -q '\[ok \] Lighthouse lab data'
           echo "$DOCTOR" | grep -q '\[ok \] PDF export'
 
+          # Every path doctor prints must be inside the bundle. `env -i`
+          # should already make borrowing the build machine's browser
+          # impossible; assert it rather than trust it, because the Windows
+          # step made exactly that mistake and still reported success.
+          if echo "$DOCTOR" | grep -q 'packaging/staging'; then
+            echo "doctor resolved a path in packaging/staging: not self-contained" >&2
+            exit 1
+          fi
+
           # A batch whose Lighthouse is unavailable logs a warning and
           # completes on the network collectors alone, so a green audit is
           # not by itself proof the lab runner works. Check it started.
@@ -245,11 +254,37 @@ jobs:
             $out = "$env:RUNNER_TEMP\verify"
             New-Item -ItemType Directory -Force -Path $out | Out-Null
 
+            # ------------------------------------------------------------
+            # The Windows equivalent of the `env -i` used on the other
+            # platforms. Without this the job-wide PLAYWRIGHT_BROWSERS_PATH
+            # leaks in and the bundle happily uses the STAGING browser, so
+            # the step reported success while proving nothing about whether
+            # the bundle ships a working one. It printed the staging path
+            # right there in the log and nobody had to notice.
+            #
+            # PATH is cut to the system directories so the runner's Node
+            # and Python cannot stand in for the bundled ones either.
+            # ------------------------------------------------------------
+            Remove-Item Env:PLAYWRIGHT_BROWSERS_PATH -ErrorAction SilentlyContinue
+            Remove-Item Env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD -ErrorAction SilentlyContinue
+            Remove-Item Env:CHROME_PATH -ErrorAction SilentlyContinue
+            Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+            Remove-Item Env:NODE_PATH -ErrorAction SilentlyContinue
+            $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot"
+
             # doctor exits 1 with no CrUX key, so assert on its output.
             $doctor = & $app --cli doctor 2>&1 | Out-String
             Write-Host $doctor
             if ($doctor -notmatch '\[ok \] Lighthouse lab data') { throw "Lighthouse backend missing" }
             if ($doctor -notmatch '\[ok \] PDF export') { throw "PDF backend missing" }
+
+            # Every path doctor prints must live inside the bundle. Without
+            # this the step passes on a bundle that quietly borrowed the
+            # build machine's browser, which is the exact failure the
+            # environment scrub above is meant to expose.
+            if ($doctor -match 'packaging.staging') {
+              throw "doctor resolved a path in packaging/staging: the bundle is not self-contained"
+            }
 
             # A batch with Lighthouse unavailable still completes on the
             # network collectors, so check the lab runner actually started.

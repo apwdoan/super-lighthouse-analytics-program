@@ -129,25 +129,80 @@ def browsers_dir() -> Path | None:
     return directory if directory.is_dir() else None
 
 
-def bundled_chromium() -> Path | None:
-    """The bundled Chromium executable, if there is one.
+#: Where the Chromium executable sits inside one ``chromium-<rev>`` folder.
+#:
+#: These are GLOBS, not fixed paths, because Playwright renames these
+#: directories and Chromium itself gets renamed inside them. Between
+#: revisions 1194 and 1228 alone, every single platform moved:
+#:
+#:     chrome-linux/chrome   ->  chrome-linux64/chrome
+#:     chrome-win/chrome.exe ->  chrome-win64/chrome.exe
+#:     chrome-mac/Chromium.app/Contents/MacOS/Chromium
+#:         -> chrome-mac-{arm64,x64}/Google Chrome for Testing.app/
+#:            Contents/MacOS/Google Chrome for Testing
+#:
+#: A hardcoded table silently returned None everywhere after a routine
+#: Playwright upgrade, which in a bundle means "no browser shipped".
+CHROMIUM_GLOBS = (
+    "chrome-win*/chrome.exe",
+    "chrome-linux*/chrome",
+    "chrome-mac*/*.app/Contents/MacOS/*",
+)
+
+
+def find_chromium_in(revision_dir: Path) -> Path | None:
+    """The Chromium executable inside one ``chromium-<rev>`` directory."""
+    for pattern in CHROMIUM_GLOBS:
+        for candidate in sorted(revision_dir.glob(pattern)):
+            if not candidate.is_file():
+                continue
+            # The macOS pattern ends in `*` because the binary is named
+            # after the app, and that name changed too ("Chromium" ->
+            # "Google Chrome for Testing"). A .app's MacOS/ directory can
+            # hold helpers, so match the one binary macOS itself would
+            # launch: the one sharing the bundle's name. Checking the
+            # executable bit instead would be wrong on Windows and would
+            # break on any unzip that drops permissions.
+            if candidate.suffix != ".exe" and candidate.name != "chrome":
+                app = candidate.parents[2]
+                if app.suffix == ".app" and candidate.name != app.stem:
+                    continue
+            return candidate
+    return None
+
+
+def find_chromium_under(browsers: Path) -> Path | None:
+    """Newest Chromium under a Playwright browsers directory, or None.
 
     Newest revision wins, so dropping in an upgraded browser directory does
-    not need a config change.
+    not need a config change. ``chromium_headless_shell-*`` is deliberately
+    not matched: the glob is ``chromium-*`` and the shell directory does not
+    start with that.
     """
-    browsers = browsers_dir()
-    if browsers is None:
-        return None
-    relative = (
-        "chrome-win/chrome.exe",
-        "chrome-linux/chrome",
-        "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
+    revisions = sorted(
+        browsers.glob("chromium-*"),
+        key=lambda p: (_revision_number(p), p.name),
+        reverse=True,
     )
-    for directory in sorted(browsers.glob("chromium-*"), reverse=True):
-        found = _first_existing(*(directory / suffix for suffix in relative))
+    for directory in revisions:
+        found = find_chromium_in(directory)
         if found is not None:
             return found
     return None
+
+
+def _revision_number(path: Path) -> int:
+    """Sort revisions numerically: chromium-1228 is newer than chromium-999."""
+    tail = path.name.rsplit("-", 1)[-1]
+    return int(tail) if tail.isdigit() else -1
+
+
+def bundled_chromium() -> Path | None:
+    """The bundled Chromium executable, if there is one."""
+    browsers = browsers_dir()
+    if browsers is None:
+        return None
+    return find_chromium_under(browsers)
 
 
 def configure_environment() -> None:
