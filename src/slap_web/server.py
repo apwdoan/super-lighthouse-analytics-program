@@ -15,6 +15,7 @@ import argparse
 import socket
 import threading
 import webbrowser
+from pathlib import Path
 
 
 def free_port(preferred: int = 8765) -> int:
@@ -45,14 +46,26 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--config", default=None)
+    # Mirrors the CLI's --db. Without it the only way to point the server at
+    # a database is SLAP_DB, which is awkward under `env -i` and is exactly
+    # what a verification script needs to do.
+    parser.add_argument("--db", default=None)
     args = parser.parse_args()
+
+    settings = Settings.load(args.config)
+    if args.db:
+        settings.db_path = Path(args.db).expanduser()
 
     port = free_port(args.port)
     url = f"http://127.0.0.1:{port}/"
     if not args.no_browser:
         threading.Timer(0.7, lambda: webbrowser.open(url)).start()
 
-    print(f"SLAP is at {url}   (ctrl-c to stop)")
-    uvicorn.run(create_app(Settings.load(args.config)),
+    # flush=True is load-bearing. Python block-buffers stdout when it is
+    # not a terminal, so a script that redirects this server's output to a
+    # file and waits for the URL waits forever. The CI verification does
+    # exactly that, and hung on it.
+    print(f"SLAP is at {url}   (ctrl-c to stop)", flush=True)
+    uvicorn.run(create_app(settings),
                 host="127.0.0.1", port=port, log_level="warning")
     return 0
