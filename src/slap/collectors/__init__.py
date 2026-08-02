@@ -21,6 +21,7 @@ from .lighthouse import (
 )
 from .fingerprint import FingerprintCollector
 from .http_probe import HttpCollector, normalize_url
+from .subresources import SubresourceCollector
 from .tls_probe import TlsCollector
 
 __all__ = [
@@ -28,7 +29,7 @@ __all__ = [
     "PageContext", "HttpCollector", "TlsCollector", "FingerprintCollector",
     "CruxCollector", "TokenBucket", "normalize_url", "default_pipeline",
     "Pipeline", "LighthouseCollector", "LighthouseConfig", "LighthouseError",
-    "LighthouseRunner",
+    "LighthouseRunner", "SubresourceCollector",
 ]
 
 #: A pipeline is a list of stages; collectors within a stage run concurrently,
@@ -54,7 +55,8 @@ def default_pipeline(crux_bucket: TokenBucket | None = None,
         # Stage 1 fetches the document and stashes it on the context.
         [HttpCollector()],
         # Stage 2 is independent given that document.
-        [FingerprintCollector(), TlsCollector(), CruxCollector(crux_bucket)],
+        [FingerprintCollector(), TlsCollector(), CruxCollector(crux_bucket),
+         SubresourceCollector()],
     ]
     if lighthouse_runner is not None:
         pipeline.append([LighthouseCollector(lighthouse_runner)])

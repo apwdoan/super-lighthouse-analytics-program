@@ -377,6 +377,49 @@ td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--grid); vertical-alig
 td.num, th.num { text-align: right; padding-left: 14px; font-variant-numeric: tabular-nums; }
 tr { break-inside: avoid; }
 
+/* ------------------------------------------------- page inventory & scope */
+
+/* A path is data the reader compares character by character (/shop/widget vs
+ * /shop/gadget), so it gets a monospace face and does not wrap: a wrapped
+ * path in a narrow column reads as two pages. */
+td.path {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Which pages a finding affects. Indented under the finding rather than
+ * beside it, because "1 of 12 pages" is a qualifier on the finding and a
+ * reader who skips it must not lose the finding itself. */
+.scope {
+  margin: 8px 0 2px;
+  font-size: 11px;
+  color: var(--ink-secondary);
+}
+.scope-label {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin-right: 6px;
+}
+.scope-pages {
+  margin: 4px 0 0;
+  padding-left: 0;
+  list-style: none;
+  columns: 2;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 10px;
+}
+.scope-pages li { break-inside: avoid; padding: 1px 0; }
+
+.finding-compact .secondary { margin-left: auto; font-size: 10px; }
+
 .sec-group { margin-bottom: 16px; break-inside: avoid; }
 .sec-group h3 { font-size: 13px; margin-bottom: 6px; }
 .status-cell { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 11px; }

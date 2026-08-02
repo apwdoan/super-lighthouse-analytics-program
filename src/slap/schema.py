@@ -52,6 +52,38 @@ class FormFactor(str, Enum):
     NONE = "none"  # collectors that are not form-factor sensitive
 
 
+class PageRole(str, Enum):
+    """What a page is to the site audit.
+
+    HOME is the anchor: it is the page a site trend line follows across runs,
+    and the row origin-scoped observations attach to. Exactly one page per run
+    carries it, which is what keeps run-to-run comparison arithmetic rather
+    than a join over a page set that changes whenever the site does.
+    """
+
+    HOME = "home"
+    TEMPLATE = "template"      # a representative of a template class
+    DISCOVERED = "discovered"  # found, audited, not chosen as a representative
+
+
+class DiscoveredVia(str, Enum):
+    MANUAL = "manual"
+    SITEMAP = "sitemap"
+    CRAWL = "crawl"
+
+
+class AuditDepth(str, Enum):
+    """What was *attempted* on a page, not what succeeded.
+
+    Stored rather than derived from artifact presence, because deriving it
+    conflates "Lighthouse was never asked to run here" with "Lighthouse ran
+    and failed", and the report needs a different sentence for each.
+    """
+
+    FULL = "full"    # the browser audit was attempted
+    LIGHT = "light"  # no-browser collectors only, by design
+
+
 class Severity(str, Enum):
     CRITICAL = "critical"
     HIGH = "high"
@@ -72,6 +104,19 @@ class RunStatus(str, Enum):
         return self in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED)
 
 
+class Scope(str, Enum):
+    """Whether a metric describes one page or the whole origin.
+
+    Storage is page-keyed, so an origin-scoped fact still lands on a page row
+    (the home page). Scope is what stops the report reprinting "certificate
+    expires in 40 days" once per page, and what stops an origin-scoped
+    collector running twenty times against the same host.
+    """
+
+    PAGE = "page"
+    ORIGIN = "origin"
+
+
 @dataclass(frozen=True, slots=True)
 class Metric:
     """Registry entry describing one metric key."""
@@ -81,11 +126,23 @@ class Metric:
     source: Source
     label: str
     higher_is_better: bool | None = None
+    #: Defaulted, because every one of the ~180 existing entries is built
+    #: positionally through `_m()` and a required field would break the
+    #: registry at import time. Most metrics really are page-scoped; only
+    #: the handful that describe the origin need to say so.
+    scope: Scope = Scope.PAGE
 
 
 def _m(key: str, unit: Unit, source: Source, label: str,
-       higher_is_better: bool | None = None) -> Metric:
-    return Metric(key, unit, source, label, higher_is_better)
+       higher_is_better: bool | None = None,
+       scope: Scope = Scope.PAGE) -> Metric:
+    return Metric(key, unit, source, label, higher_is_better, scope)
+
+
+def origin_scoped_keys() -> frozenset[str]:
+    """Metric keys that describe the origin rather than an individual page."""
+    return frozenset(k for k, m in METRIC_REGISTRY.items()
+                     if m.scope is Scope.ORIGIN)
 
 
 #: The authoritative list of metric keys. Collectors validate against this.
@@ -121,14 +178,17 @@ METRIC_REGISTRY: dict[str, Metric] = {
         _m("redirect.chain", Unit.NONE, Source.REDIRECT, "Redirect chain"),
         _m("redirect.upgrades_to_https", Unit.BOOL, Source.REDIRECT, "HTTP upgrades to HTTPS", True),
         _m("redirect.final_url", Unit.NONE, Source.REDIRECT, "Final URL after redirects"),
-        # --- TLS ------------------------------------------------------------
-        _m("tls.protocol", Unit.NONE, Source.TLS, "Negotiated TLS version"),
-        _m("tls.cipher", Unit.NONE, Source.TLS, "Negotiated cipher"),
-        _m("tls.issuer", Unit.NONE, Source.TLS, "Certificate issuer"),
-        _m("tls.subject", Unit.NONE, Source.TLS, "Certificate subject"),
-        _m("tls.days_to_expiry", Unit.DAYS, Source.TLS, "Days until certificate expiry", True),
-        _m("tls.valid", Unit.BOOL, Source.TLS, "Certificate chain validates", True),
-        _m("tls.error", Unit.NONE, Source.TLS, "TLS handshake error"),
+        # --- TLS --------------------------------------------------------------
+        # Origin-scoped: one certificate serves every page on the host. Running
+        # the probe per page is N identical results and N wasted handshakes,
+        # and printing it per page is the same sentence twenty times.
+        _m("tls.protocol", Unit.NONE, Source.TLS, "Negotiated TLS version", None, Scope.ORIGIN),
+        _m("tls.cipher", Unit.NONE, Source.TLS, "Negotiated cipher", None, Scope.ORIGIN),
+        _m("tls.issuer", Unit.NONE, Source.TLS, "Certificate issuer", None, Scope.ORIGIN),
+        _m("tls.subject", Unit.NONE, Source.TLS, "Certificate subject", None, Scope.ORIGIN),
+        _m("tls.days_to_expiry", Unit.DAYS, Source.TLS, "Days until certificate expiry", True, Scope.ORIGIN),
+        _m("tls.valid", Unit.BOOL, Source.TLS, "Certificate chain validates", True, Scope.ORIGIN),
+        _m("tls.error", Unit.NONE, Source.TLS, "TLS handshake error", None, Scope.ORIGIN),
         # --- Tech fingerprint -------------------------------------------------
         _m("tech.cms", Unit.NONE, Source.FINGERPRINT, "Detected CMS"),
         _m("tech.generator", Unit.NONE, Source.FINGERPRINT, "Generator meta tag"),
@@ -141,18 +201,23 @@ METRIC_REGISTRY: dict[str, Metric] = {
         _m("wprocket.page_cached", Unit.BOOL, Source.FINGERPRINT, "Page served from WP Rocket cache", True),
         _m("wprocket.cached_at", Unit.NONE, Source.FINGERPRINT, "WP Rocket cache timestamp"),
         # --- CrUX field data ---------------------------------------------------
-        _m("crux.available", Unit.BOOL, Source.CRUX, "CrUX record exists", True),
-        _m("crux.lcp.p75", Unit.MS, Source.CRUX, "LCP (field, 75th pct)", False),
-        _m("crux.inp.p75", Unit.MS, Source.CRUX, "INP (field, 75th pct)", False),
+        # Origin-scoped as collected: the CruxCollector queries the origin, so
+        # every page of a site would receive an identical answer. Querying it
+        # per page is 20x the quota for the same numbers. The API does accept a
+        # url parameter, but most individual pages lack the traffic to have a
+        # record, so per-URL field data is an enhancement, not the default.
+        _m("crux.available", Unit.BOOL, Source.CRUX, "CrUX record exists", True, Scope.ORIGIN),
+        _m("crux.lcp.p75", Unit.MS, Source.CRUX, "LCP (field, 75th pct)", False, Scope.ORIGIN),
+        _m("crux.inp.p75", Unit.MS, Source.CRUX, "INP (field, 75th pct)", False, Scope.ORIGIN),
         # CLS is a unitless score, NOT a ratio. Declaring it RATIO makes every
         # formatter render 0.06 as "6%", which is wrong and reads as a
         # percentage of something.
-        _m("crux.cls.p75", Unit.SCORE, Source.CRUX, "CLS (field, 75th pct)", False),
-        _m("crux.ttfb.p75", Unit.MS, Source.CRUX, "TTFB (field, 75th pct)", False),
-        _m("crux.lcp.good", Unit.RATIO, Source.CRUX, "Share of LCP visits rated good", True),
-        _m("crux.inp.good", Unit.RATIO, Source.CRUX, "Share of INP visits rated good", True),
-        _m("crux.cls.good", Unit.RATIO, Source.CRUX, "Share of CLS visits rated good", True),
-        _m("crux.cwv_pass", Unit.BOOL, Source.CRUX, "Passes Core Web Vitals", True),
+        _m("crux.cls.p75", Unit.SCORE, Source.CRUX, "CLS (field, 75th pct)", False, Scope.ORIGIN),
+        _m("crux.ttfb.p75", Unit.MS, Source.CRUX, "TTFB (field, 75th pct)", False, Scope.ORIGIN),
+        _m("crux.lcp.good", Unit.RATIO, Source.CRUX, "Share of LCP visits rated good", True, Scope.ORIGIN),
+        _m("crux.inp.good", Unit.RATIO, Source.CRUX, "Share of INP visits rated good", True, Scope.ORIGIN),
+        _m("crux.cls.good", Unit.RATIO, Source.CRUX, "Share of CLS visits rated good", True, Scope.ORIGIN),
+        _m("crux.cwv_pass", Unit.BOOL, Source.CRUX, "Passes Core Web Vitals", True, Scope.ORIGIN),
         # --- Lighthouse: category scores (0-100) --------------------------
         _m("lh.score.performance", Unit.SCORE, Source.LIGHTHOUSE, "Performance score", True),
         _m("lh.score.accessibility", Unit.SCORE, Source.LIGHTHOUSE, "Accessibility score", True),
@@ -185,6 +250,42 @@ METRIC_REGISTRY: dict[str, Metric] = {
            "CPU benchmark spread across runs", False),
         _m("lh.throttling_profile", Unit.NONE, Source.LIGHTHOUSE, "Throttling profile"),
         _m("lh.form_factor", Unit.NONE, Source.LIGHTHOUSE, "Form factor measured"),
+        # --- Mixed content and third-party subresources --------------------
+        # Page-scoped by nature: this is the whole reason per-page exists. A
+        # marketing landing page loads trackers the homepage does not.
+        _m("mixed.insecure_count", Unit.COUNT, Source.HTTP,
+           "Insecure subresources on an HTTPS page", False),
+        _m("mixed.insecure_urls", Unit.NONE, Source.HTTP, "Insecure subresource URLs"),
+        # "How the answer was reached" is an observation in its own right,
+        # because "no mixed content found" means two different things
+        # depending on whether a browser or a regex looked.
+        _m("mixed.method", Unit.NONE, Source.HTTP, "How subresources were inspected"),
+        # A form action is not a subresource: nothing is fetched until the
+        # user submits, and what leaks is what they typed.
+        _m("mixed.insecure_forms", Unit.COUNT, Source.HTTP,
+           "Forms submitting over plain HTTP", False),
+        _m("mixed.insecure_form_urls", Unit.NONE, Source.HTTP, "Insecure form actions"),
+        _m("thirdparty.origin_count", Unit.COUNT, Source.HTTP,
+           "Distinct third-party origins", False),
+        _m("thirdparty.origins", Unit.NONE, Source.HTTP, "Third-party origins"),
+        # --- Page inventory -------------------------------------------------
+        _m("page.role", Unit.NONE, Source.HTTP, "Role of this page in the audit"),
+        _m("page.template_class", Unit.NONE, Source.HTTP, "Detected page template"),
+        _m("page.discovered_via", Unit.NONE, Source.HTTP, "How this page was found"),
+        _m("page.audit_depth", Unit.NONE, Source.HTTP, "Depth of audit attempted"),
+        # --- Discovery, origin-scoped ---------------------------------------
+        _m("discovery.method", Unit.NONE, Source.HTTP, "How pages were discovered",
+           None, Scope.ORIGIN),
+        _m("discovery.found", Unit.COUNT, Source.HTTP, "Pages discovered",
+           None, Scope.ORIGIN),
+        _m("discovery.audited", Unit.COUNT, Source.HTTP, "Pages audited",
+           None, Scope.ORIGIN),
+        # A cap that is applied and not stated reads as full coverage. This is
+        # the observation that lets the report say "12 of 3,400".
+        _m("discovery.dropped", Unit.COUNT, Source.HTTP,
+           "Pages discovered but not audited (cap)", False, Scope.ORIGIN),
+        _m("discovery.sitemap_urls", Unit.NONE, Source.HTTP, "Sitemaps read",
+           None, Scope.ORIGIN),
     ]
 }
 
@@ -376,6 +477,13 @@ class PageResult:
     #: Anything a collector produced that is not an observation: Lighthouse
     #: artifacts and run provenance, for example. Keyed by collector name.
     extras: dict[str, Any] = field(default_factory=dict)
+    #: How this page came to be audited, and how deeply. Defaults describe a
+    #: single manually supplied page, which is what a one-URL audit is, so
+    #: every existing caller keeps its old meaning without saying anything.
+    role: PageRole = PageRole.HOME
+    discovered_via: DiscoveredVia = DiscoveredVia.MANUAL
+    audit_depth: AuditDepth = AuditDepth.LIGHT
+    template_class: str | None = None
 
     def add(self, metric_key: str, value: Any, *, source: Source | None = None) -> None:
         if value is None:

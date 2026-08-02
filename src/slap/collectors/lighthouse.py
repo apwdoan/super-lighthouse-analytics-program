@@ -640,6 +640,11 @@ class LighthouseCollector:
     """
 
     name = "lighthouse"
+    #: Marks this collector as the expensive pass. `core.split_pipeline`
+    #: reads it to run every page cheaply first and only then measure the
+    #: sampled representatives, because the sampling decision is made from
+    #: template classes that only the cheap pass can produce.
+    needs_browser = True
 
     def __init__(self, runner: LighthouseRunner) -> None:
         self.runner = runner

@@ -21,7 +21,7 @@ from typing import Any
 
 import httpx
 
-from ..schema import CWV_GOOD_THRESHOLDS, Observation, obs
+from ..schema import CWV_GOOD_THRESHOLDS, Observation, Scope, obs
 from .base import PageContext
 
 CRUX_ENDPOINT = "https://chromeuxreport.googleapis.com/v1/records:queryRecord"
@@ -118,6 +118,11 @@ class CruxCollector:
     """Queries the CrUX API for origin-level field data."""
 
     name = "crux"
+    #: The API is queried by origin, so every page of a site receives an
+    #: identical answer. Running it per page is N times the quota for one
+    #: row of data. (The API does accept a url parameter, but most
+    #: individual pages lack the traffic to have a record at all.)
+    scope = Scope.ORIGIN
 
     def __init__(self, bucket: TokenBucket | None = None) -> None:
         self._bucket = bucket

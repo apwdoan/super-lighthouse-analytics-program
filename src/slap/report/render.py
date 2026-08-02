@@ -20,6 +20,7 @@ from .model import (
     ReportModel,
     build_batch_model,
     build_report_model,
+    short_path,
 )
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -32,6 +33,12 @@ def _environment() -> Environment:
         trim_blocks=True,
         lstrip_blocks=True,
     )
+    # Shortening a URL to its path is presentation, but it is presentation the
+    # model already owns: `short_path` is the same function the page inventory
+    # uses, exposed as a filter rather than reimplemented in the template.
+    # Two implementations would let the inventory and the affected-pages list
+    # disagree about what a page is called.
+    env.filters["short_path"] = short_path
     return env
 
 

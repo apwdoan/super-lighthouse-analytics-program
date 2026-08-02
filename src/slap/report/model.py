@@ -20,6 +20,7 @@ from ..schema import (
     METRIC_REGISTRY,
     Severity,
     format_value,
+    origin_scoped_keys,
 )
 
 # --------------------------------------------------------------------------
@@ -120,6 +121,22 @@ STATUS_WORDS = {
 }
 
 
+def score_status(score: float | None) -> str:
+    """Lighthouse's own 0-100 banding.
+
+    Named and shared rather than inlined, so the page inventory and the
+    category tiles cannot drift: a page shown amber in the inventory and green
+    in the summary is the kind of contradiction a client notices first.
+    """
+    if score is None:
+        return "unknown"
+    if score >= 90:
+        return "good"
+    if score >= 50:
+        return "needs-improvement"
+    return "poor"
+
+
 def meter_fraction(metric_key: str, value: float | None) -> float:
     """Where the value sits on a 0..1 track whose 'poor' edge is at 0.66.
 
@@ -203,6 +220,70 @@ class FindingView:
     effort_label: str | None
     impact_text: str | None
     evidence: list[EvidenceItem] = field(default_factory=list)
+    #: Every page this rule fired on, shortest path first. One finding with
+    #: twelve pages, never twelve findings: a report that repeats "no HSTS
+    #: header" once per page is a two-hundred-page PDF that gets skimmed and
+    #: binned, and it buries the three findings that only affect checkout.
+    pages: list[str] = field(default_factory=list)
+    #: Total pages in the run, so the template can say "9 of 12" without
+    #: computing anything.
+    pages_total: int = 0
+    #: True when every metric this rule read describes the ORIGIN rather than
+    #: a page: the certificate, the negotiated TLS version, the field data.
+    #: Those observations are collected once and stored on the home page, so
+    #: a naive page count reports "1 of 10 pages" for an expired certificate
+    #: that takes down all ten. Understating a critical finding by a factor of
+    #: ten is worse than not scoping it at all.
+    origin_scoped: bool = False
+
+    @property
+    def page_count(self) -> int:
+        return len(self.pages)
+
+    @property
+    def is_sitewide(self) -> bool:
+        if self.origin_scoped:
+            return True
+        return self.pages_total > 1 and self.page_count >= self.pages_total
+
+    @property
+    def scope_text(self) -> str:
+        """Where this fired, in words. Never a bare number.
+
+        "1 of 12 pages" is the sentence that makes a per-page report worth
+        reading: it is the difference between a site-wide misconfiguration
+        and a single broken template.
+        """
+        if self.origin_scoped:
+            return "Site-wide"
+        if self.pages_total <= 1 or not self.pages:
+            return ""
+        if self.is_sitewide:
+            return f"All {self.pages_total} pages"
+        # The noun agrees with the total, not the count: "1 of 10 pages".
+        return f"{self.page_count} of {self.pages_total} pages"
+
+
+@dataclass(slots=True)
+class PageRow:
+    """One line of the page inventory."""
+
+    url: str
+    path: str
+    template: str
+    role: str
+    depth: str
+    #: The performance score, or None when the page was never measured. The
+    #: template must print `depth_note` rather than an empty cell: a blank
+    #: reads as a zero or as a pass, and neither is true.
+    score: float | None
+    score_text: str
+    status: str
+    status_word: str
+    findings: int
+    urgent: int
+    measured: bool
+    depth_note: str
 
 
 @dataclass(slots=True)
@@ -231,6 +312,51 @@ class AppendixRow:
 
 
 @dataclass(slots=True)
+class Coverage:
+    """What the audit actually covered, stated rather than implied.
+
+    Exists because every number on the rest of the page is read against it. A
+    report that says "12 pages audited" on a 3,400-page site is not wrong in
+    any individual figure and is still misleading, and a client who notices
+    stops trusting the parts that were right.
+    """
+
+    pages_audited: int = 1
+    pages_found: int = 1
+    pages_dropped: int = 0
+    pages_measured: int = 0
+    method: str = "manual"
+    method_text: str = "the URL supplied"
+    sitemaps: str | None = None
+
+    @property
+    def capped(self) -> bool:
+        return self.pages_dropped > 0
+
+    @property
+    def summary(self) -> str:
+        if self.pages_audited <= 1:
+            return "One page audited."
+        if self.capped:
+            return (f"{self.pages_audited} of {self.pages_found} pages audited, "
+                    f"found via {self.method_text}.")
+        return (f"{self.pages_audited} pages audited, "
+                f"found via {self.method_text}.")
+
+    @property
+    def measurement_note(self) -> str:
+        """Why most pages have no performance score."""
+        if self.pages_audited <= 1 or self.pages_measured >= self.pages_audited:
+            return ""
+        if self.pages_measured == 0:
+            return ("No page received the browser performance audit, so this "
+                    "report covers security and delivery only.")
+        return (f"{self.pages_measured} of {self.pages_audited} pages received "
+                "the full browser performance audit, one per page template. "
+                "The rest were checked for security and delivery only.")
+
+
+@dataclass(slots=True)
 class ReportModel:
     hostname: str
     url: str
@@ -247,10 +373,16 @@ class ReportModel:
     tech: dict[str, Any]
     severity_counts: dict[str, int]
     branding: dict[str, Any] = field(default_factory=dict)
+    pages: list[PageRow] = field(default_factory=list)
+    coverage: Coverage = field(default_factory=Coverage)
 
     @property
     def total_findings(self) -> int:
         return len(self.top_findings) + len(self.other_findings)
+
+    @property
+    def is_multipage(self) -> bool:
+        return len(self.pages) > 1
 
 
 # --------------------------------------------------------------------------
@@ -374,13 +506,9 @@ def build_verdict(values: dict[str, Any]) -> Verdict:
             continue
         # Lighthouse's own banding, so a client comparing against
         # PageSpeed Insights sees the same colour they saw there.
-        if score >= 90:
-            status, word = "good", "Good"
-        elif score >= 50:
-            status, word = "needs-improvement", "Needs work"
-        else:
-            status, word = "poor", "Poor"
-        categories.append(CategoryScore(label, int(score), status, word))
+        status = score_status(score)
+        categories.append(CategoryScore(label, int(score), status,
+                                        STATUS_WORDS[status]))
 
     has_lab = bool(categories) or values.get("lh.lcp") is not None
     runs = values.get("lh.runs")
@@ -407,15 +535,49 @@ def build_verdict(values: dict[str, Any]) -> Verdict:
     )
 
 
-def build_finding_views(findings: Iterable[dict[str, Any]]) -> list[FindingView]:
+def short_path(url: str) -> str:
+    """The path, for a table cell. `/` for the home page."""
+    from urllib.parse import urlsplit
+
+    path = urlsplit(url).path or "/"
+    query = urlsplit(url).query
+    return f"{path}?{query}" if query else path
+
+
+def build_finding_views(findings: Iterable[dict[str, Any]], *,
+                        pages_total: int = 1) -> list[FindingView]:
+    """One view per RULE, carrying the pages it fired on.
+
+    Grouping happens here rather than in SQL or in the findings engine, and
+    that placement is deliberate. The engine evaluates one page's flat
+    ``{metric_key: value}`` dict and cannot express "3 of 12 pages"; teaching
+    it to would turn a small declarative interpreter into code, which is the
+    thing rule 3 exists to prevent. So rules fire per page, stay dumb, and the
+    aggregation lives here with every other presentation decision.
+
+    Findings arrive severity-ordered from the database, so the first row for a
+    rule is the representative: highest severity wins, and its title carries
+    whichever page's formatted numbers came first.
+    """
     import json
 
-    views: list[FindingView] = []
+    grouped: dict[str, FindingView] = {}
     for row in findings:
+        rule_id = row["rule_id"]
+        page_url = row.get("url")
+
+        existing = grouped.get(rule_id)
+        if existing is not None:
+            if page_url and page_url not in existing.pages:
+                existing.pages.append(page_url)
+            continue
+
         evidence: list[EvidenceItem] = []
+        evidence_keys: list[str] = []
         if row.get("evidence_json"):
             try:
                 for key, value in json.loads(row["evidence_json"]).items():
+                    evidence_keys.append(key)
                     metric = METRIC_REGISTRY.get(key)
                     evidence.append(EvidenceItem(
                         label=metric.label if metric else key,
@@ -424,9 +586,16 @@ def build_finding_views(findings: Iterable[dict[str, Any]]) -> list[FindingView]
             except (ValueError, AttributeError):
                 pass
 
+        # A rule that read only origin-scoped metrics is describing the
+        # origin. Its observations live on the home page because storage is
+        # page-keyed, not because the problem stops at the home page.
+        origin_keys = origin_scoped_keys()
+        origin_scoped = bool(evidence_keys) and all(
+            key in origin_keys for key in evidence_keys)
+
         impact = row.get("impact_ms")
-        views.append(FindingView(
-            rule_id=row["rule_id"],
+        grouped[rule_id] = FindingView(
+            rule_id=rule_id,
             severity=row["severity"],
             severity_word=row["severity"].capitalize(),
             status=SEVERITY_STATUS.get(row["severity"], "muted"),
@@ -437,8 +606,78 @@ def build_finding_views(findings: Iterable[dict[str, Any]]) -> list[FindingView]
             effort_label=EFFORT_LABELS.get(row.get("effort") or "", None),
             impact_text=format_ms(impact) if impact else None,
             evidence=evidence,
-        ))
+            pages=[page_url] if page_url else [],
+            pages_total=pages_total,
+            origin_scoped=origin_scoped,
+        )
+
+    views = list(grouped.values())
+    for view in views:
+        # Shortest path first: "/" before "/shop/gizmo". A reader scanning the
+        # affected-pages list wants the shallow, high-traffic pages first.
+        view.pages.sort(key=lambda u: (len(short_path(u)), u))
     return views
+
+
+def build_page_rows(pages: Iterable[dict[str, Any]],
+                    scores: dict[int, float | None] | None = None) -> list[PageRow]:
+    """The page inventory. One row per audited page.
+
+    A page with no performance score prints why, never a blank cell: an empty
+    cell in a score column reads as a zero to some people and as a pass to
+    others, and the honest answer ("not measured") is neither.
+    """
+    scores = scores or {}
+    rows: list[PageRow] = []
+    for page in pages:
+        depth = page.get("audit_depth") or "light"
+        score = scores.get(page["id"])
+        measured = score is not None
+        if measured:
+            status = score_status(score)
+            score_text = f"{round(score)}"
+            status_word = STATUS_WORDS.get(status, "")
+            note = ""
+        else:
+            status, status_word, score_text = "muted", "", "—"
+            note = ("Measured pages only" if depth == "light"
+                    else "Browser audit did not complete")
+        rows.append(PageRow(
+            url=page["url"],
+            path=short_path(page["url"]),
+            template=(page.get("template_class") or "page").replace("-", " "),
+            role=page.get("role") or "discovered",
+            depth=depth,
+            score=score,
+            score_text=score_text,
+            status=status,
+            status_word=status_word,
+            findings=int(page.get("finding_count") or 0),
+            urgent=int(page.get("urgent_count") or 0),
+            measured=measured,
+            depth_note=note,
+        ))
+    return rows
+
+
+def build_coverage(values: dict[str, Any], *, pages_audited: int,
+                   pages_measured: int) -> Coverage:
+    method = str(values.get("discovery.method") or "manual")
+    method_text = {
+        "sitemap": "the site's sitemap",
+        "crawl": "a crawl of the site's own links",
+        "manual": "the URL supplied",
+    }.get(method, method)
+    found = values.get("discovery.found")
+    return Coverage(
+        pages_audited=pages_audited,
+        pages_found=int(found) if found else pages_audited,
+        pages_dropped=int(values.get("discovery.dropped") or 0),
+        pages_measured=pages_measured,
+        method=method,
+        method_text=method_text,
+        sitemaps=values.get("discovery.sitemap_urls"),
+    )
 
 
 def build_security_section(values: dict[str, Any]) -> SecuritySection:
@@ -569,10 +808,37 @@ def build_report_model(detail: dict[str, Any], *,
     """Turn `core.get_run_detail()` output into a renderable model."""
     run = detail["run"]
     observations = detail["observations"]
-    values = flatten_observations(observations)
+    pages = detail.get("pages") or []
 
-    # Findings arrive already sorted by severity from the database.
-    findings = build_finding_views(detail["findings"])
+    # The verdict, the TLS section and the technology fingerprint describe the
+    # SITE, so they read the home page's values alone. Flattening every page's
+    # observations into one dict renders perfectly and reports whichever page
+    # was written last, so a site's headline score would change depending on
+    # which product page sorted highest. `home_values` is precomputed by the
+    # core; falling back to the flat version keeps single-page callers and the
+    # existing tests working unchanged.
+    values = detail.get("home_values") or flatten_observations(observations)
+
+    home_id = detail.get("home_page_id")
+    page_scores: dict[int, float | None] = {}
+    if pages:
+        by_page: dict[int, dict[str, Any]] = {}
+        for row in observations:
+            by_page.setdefault(row["page_id"], {})[row["metric_key"]] = row
+        for page in pages:
+            row = by_page.get(page["id"], {}).get("lh.score.performance")
+            page_scores[page["id"]] = row["numeric_value"] if row else None
+
+    page_rows = build_page_rows(pages, page_scores)
+    measured = sum(1 for r in page_rows if r.measured)
+    coverage = build_coverage(values, pages_audited=max(1, len(page_rows)),
+                              pages_measured=measured)
+
+    # Findings arrive already sorted by severity from the database, and are
+    # grouped by rule here: one finding carrying twelve pages, never twelve
+    # findings saying the same thing.
+    findings = build_finding_views(detail["findings"],
+                                   pages_total=max(1, len(page_rows)))
     top, other = split_findings(findings, min_top=min_top)
 
     counts = {s: 0 for s in SEVERITY_ORDER}
@@ -619,6 +885,8 @@ def build_report_model(detail: dict[str, Any], *,
         },
         severity_counts=counts,
         branding=branding or {},
+        pages=page_rows,
+        coverage=coverage,
     )
 
 

@@ -23,7 +23,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .schema import Finding, FormFactor, Observation, RunStatus
+from .schema import (
+    AuditDepth,
+    DiscoveredVia,
+    Finding,
+    FormFactor,
+    Observation,
+    PageRole,
+    RunStatus,
+)
 
 DDL = """
 PRAGMA foreign_keys = ON;
@@ -55,13 +63,21 @@ CREATE INDEX IF NOT EXISTS idx_run_batch ON run(batch_id);
 CREATE INDEX IF NOT EXISTS idx_run_site_started ON run(site_id, started_at DESC);
 
 CREATE TABLE IF NOT EXISTS page (
-    id           INTEGER PRIMARY KEY,
-    run_id       INTEGER NOT NULL REFERENCES run(id) ON DELETE CASCADE,
-    url          TEXT NOT NULL,
-    final_url    TEXT,
-    form_factor  TEXT NOT NULL
+    id             INTEGER PRIMARY KEY,
+    run_id         INTEGER NOT NULL REFERENCES run(id) ON DELETE CASCADE,
+    url            TEXT NOT NULL,
+    final_url      TEXT,
+    form_factor    TEXT NOT NULL,
+    role           TEXT NOT NULL DEFAULT 'home',
+    discovered_via TEXT NOT NULL DEFAULT 'manual',
+    audit_depth    TEXT NOT NULL DEFAULT 'light',
+    template_class TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_page_run ON page(run_id);
+-- The home page of a run is looked up on every read path that needs a single
+-- representative row: the trend line, the verdict, the origin-scoped
+-- observations. Worth its own index once a run holds tens of pages.
+CREATE INDEX IF NOT EXISTS idx_page_run_role ON page(run_id, role);
 
 CREATE TABLE IF NOT EXISTS observation (
     id             INTEGER PRIMARY KEY,
@@ -173,6 +189,42 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
             )
         conn.execute("ALTER TABLE run RENAME COLUMN salp_version TO slap_version")
         applied.append("run.salp_version -> run.slap_version")
+
+    # Per-page analysis: a run gained the ability to hold more than one page,
+    # and each page needs to say what it is and how deeply it was audited.
+    #
+    # These go here rather than in the DDL body for the same reason the rename
+    # does: `CREATE TABLE IF NOT EXISTS` is a no-op against a table that
+    # already exists, so a database created before this release would keep a
+    # four-column `page` and fail on the first insert partway through a batch.
+    # The DDL above carries them too, for databases created fresh.
+    if "page" in tables:
+        page_columns = {row[1] for row in conn.execute("PRAGMA table_info(page)")}
+        # Every existing row is a single manually supplied page that had
+        # whatever depth the run used. Defaulting `role` to 'home' is what
+        # keeps old runs on the trend line: the queries that follow select the
+        # home page, and a NULL role would silently drop all of history.
+        for column, ddl in (
+            ("role", "TEXT NOT NULL DEFAULT 'home'"),
+            ("discovered_via", "TEXT NOT NULL DEFAULT 'manual'"),
+            ("audit_depth", "TEXT NOT NULL DEFAULT 'light'"),
+            ("template_class", "TEXT"),
+        ):
+            if column not in page_columns:
+                conn.execute(f"ALTER TABLE page ADD COLUMN {column} {ddl}")
+                applied.append(f"page.{column} added")
+
+        # A pre-existing run whose page ran Lighthouse should say so, or its
+        # report will claim the browser audit was never attempted. The
+        # artifact table is the only record of that for historical rows.
+        if any(a.endswith("page.audit_depth added") or a == "page.audit_depth added"
+               for a in applied):
+            cur = conn.execute(
+                "UPDATE page SET audit_depth = 'full' WHERE id IN ("
+                "  SELECT DISTINCT page_id FROM artifact WHERE page_id IS NOT NULL)"
+            )
+            if cur.rowcount > 0:
+                applied.append(f"page.audit_depth = full for {cur.rowcount} historical rows")
     return applied
 
 
@@ -271,10 +323,23 @@ def get_artifacts(conn: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]
 
 
 def create_page(conn: sqlite3.Connection, run_id: int, url: str,
-                final_url: str | None, form_factor: FormFactor) -> int:
+                final_url: str | None, form_factor: FormFactor,
+                *, role: PageRole = PageRole.HOME,
+                discovered_via: DiscoveredVia = DiscoveredVia.MANUAL,
+                audit_depth: AuditDepth = AuditDepth.LIGHT,
+                template_class: str | None = None) -> int:
+    """Insert one page of a run.
+
+    The keyword defaults describe a single manually supplied page, which is
+    what a one-URL audit is, so callers that predate per-page keep working
+    and keep meaning the same thing.
+    """
     cur = conn.execute(
-        "INSERT INTO page (run_id, url, final_url, form_factor) VALUES (?, ?, ?, ?)",
-        (run_id, url, final_url, form_factor.value),
+        "INSERT INTO page (run_id, url, final_url, form_factor, role, "
+        "discovered_via, audit_depth, template_class) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (run_id, url, final_url, form_factor.value, role.value,
+         discovered_via.value, audit_depth.value, template_class),
     )
     return int(cur.lastrowid)
 
@@ -333,8 +398,9 @@ def list_runs(conn: sqlite3.Connection, *, batch_id: str | None = None,
               limit: int = 200) -> list[dict[str, Any]]:
     sql = (
         "SELECT run.*, site.hostname, site.label, site.client, "
-        "  (SELECT COUNT(*) FROM finding f JOIN page p ON p.id = f.page_id "
-        "   WHERE p.run_id = run.id) AS finding_count "
+        "  (SELECT COUNT(DISTINCT f.rule_id) FROM finding f JOIN page p ON p.id = f.page_id "
+        "   WHERE p.run_id = run.id) AS finding_count, "
+        "  (SELECT COUNT(*) FROM page p WHERE p.run_id = run.id) AS page_count "
         "FROM run JOIN site ON site.id = run.site_id "
     )
     params: list[Any] = []
@@ -379,6 +445,40 @@ def get_findings(conn: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def run_pages(conn: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]:
+    """Every page of a run, home first, with its finding counts.
+
+    Home first because it is the page the verdict speaks about and the one a
+    reader looks for; the rest follow in discovery order.
+    """
+    sql = """
+    SELECT p.*,
+           (SELECT COUNT(*) FROM finding f WHERE f.page_id = p.id) AS finding_count,
+           (SELECT COUNT(*) FROM finding f WHERE f.page_id = p.id
+             AND f.severity IN ('critical', 'high')) AS urgent_count,
+           (SELECT COUNT(*) FROM observation o WHERE o.page_id = p.id) AS observation_count
+    FROM page p WHERE p.run_id = ?
+    ORDER BY CASE p.role WHEN 'home' THEN 0 WHEN 'template' THEN 1 ELSE 2 END, p.id
+    """
+    return [dict(r) for r in conn.execute(sql, (run_id,)).fetchall()]
+
+
+def home_page_id(conn: sqlite3.Connection, run_id: int) -> int | None:
+    """The run's anchor page.
+
+    Falls back to the lowest page id, because a database migrated from before
+    per-page has every row defaulted to 'home' and a run written by a future
+    bug might have none. Returning None here would blank a report that has
+    perfectly good data in it.
+    """
+    row = conn.execute(
+        "SELECT id FROM page WHERE run_id = ? "
+        "ORDER BY CASE role WHEN 'home' THEN 0 ELSE 1 END, id LIMIT 1",
+        (run_id,),
+    ).fetchone()
+    return int(row["id"]) if row else None
+
+
 def observations_as_dict(conn: sqlite3.Connection, page_id: int) -> dict[str, Any]:
     """Flatten one page's observations into ``{metric_key: value}``.
 
@@ -418,6 +518,13 @@ def list_sites(conn: sqlite3.Connection, limit: int = 500) -> list[dict[str, Any
 
     One query rather than N+1: a correlated subquery picks each site's newest
     completed run id, and everything else joins against that.
+
+    ``finding_count`` counts DISTINCT rule ids, not finding rows. Once a run
+    holds twenty pages, "no HSTS header" is twenty rows describing one
+    problem, and a site list reporting 240 open findings against a site with
+    twelve real problems is worse than useless: it is plausible, it renders
+    perfectly, and it is wrong. ``finding_instances`` keeps the raw total for
+    anywhere that genuinely wants pages-affected volume.
     """
     sql = f"""
     WITH latest AS (
@@ -430,11 +537,14 @@ def list_sites(conn: sqlite3.Connection, limit: int = 500) -> list[dict[str, Any
         r.started_at    AS last_audited,
         r.lh_version, r.chrome_version,
         (SELECT COUNT(*) FROM run WHERE run.site_id = site.id) AS run_count,
-        (SELECT COUNT(*) FROM finding f JOIN page p ON p.id = f.page_id
+        (SELECT COUNT(*) FROM page p WHERE p.run_id = r.id) AS page_count,
+        (SELECT COUNT(DISTINCT f.rule_id) FROM finding f JOIN page p ON p.id = f.page_id
           WHERE p.run_id = r.id) AS finding_count,
-        (SELECT COUNT(*) FROM finding f JOIN page p ON p.id = f.page_id
+        (SELECT COUNT(DISTINCT f.rule_id) FROM finding f JOIN page p ON p.id = f.page_id
           WHERE p.run_id = r.id AND f.severity IN ('critical', 'high'))
-                        AS urgent_count
+                        AS urgent_count,
+        (SELECT COUNT(*) FROM finding f JOIN page p ON p.id = f.page_id
+          WHERE p.run_id = r.id) AS finding_instances
     FROM site
     LEFT JOIN latest ON latest.site_id = site.id
     LEFT JOIN run r ON r.id = latest.run_id
@@ -450,15 +560,28 @@ def site_metric_history(conn: sqlite3.Connection, site_id: int,
 
     Oldest first because it is plotted left to right, and reversing a list in
     a template is exactly the kind of computation templates must not do.
+
+    **The trend follows the home page and only the home page.** Joining every
+    page of a run produces one row per page per metric, and the dict below
+    keeps whichever arrived last, so the chart would plot an arbitrary page's
+    LCP and change which page that is between runs. A trend line has to track
+    a stable subject or it is noise rendered as a line, and the home page is
+    the one page every run of every site is guaranteed to have.
     """
     if not metric_keys:
         return []
     marks = ",".join("?" * len(metric_keys))
     sql = f"""
+    WITH anchor AS (
+        SELECT run_id, MIN(CASE WHEN role = 'home' THEN id END) AS home_id,
+               MIN(id) AS first_id
+        FROM page GROUP BY run_id
+    )
     SELECT run.id AS run_id, run.started_at, run.status,
            o.metric_key, o.numeric_value
     FROM run
-    JOIN page p ON p.run_id = run.id
+    JOIN anchor a ON a.run_id = run.id
+    JOIN page p ON p.id = COALESCE(a.home_id, a.first_id)
     LEFT JOIN observation o ON o.page_id = p.id AND o.metric_key IN ({marks})
     WHERE run.site_id = ? AND {_COMPLETED}
     ORDER BY run.started_at, run.id
@@ -492,8 +615,9 @@ def site_runs(conn: sqlite3.Connection, site_id: int,
               limit: int = 100) -> list[dict[str, Any]]:
     sql = """
     SELECT run.*,
-           (SELECT COUNT(*) FROM finding f JOIN page p ON p.id = f.page_id
-             WHERE p.run_id = run.id) AS finding_count
+           (SELECT COUNT(DISTINCT f.rule_id) FROM finding f JOIN page p ON p.id = f.page_id
+             WHERE p.run_id = run.id) AS finding_count,
+           (SELECT COUNT(*) FROM page p WHERE p.run_id = run.id) AS page_count
     FROM run WHERE run.site_id = ?
     ORDER BY run.started_at DESC, run.id DESC LIMIT ?
     """
@@ -524,6 +648,11 @@ def findings_across_sites(conn: sqlite3.Connection,
         MIN(f.effort)               AS effort,
         MIN(f.wp_rocket_setting)    AS wp_rocket_setting,
         COUNT(DISTINCT site.id)     AS site_count,
+        -- Pages, not finding rows. Both aggregates are DISTINCT on purpose:
+        -- the join fans out to one row per page per finding, so a plain
+        -- COUNT(*) would report a rule affecting 3 sites of 20 pages each as
+        -- affecting 60 of something, without saying 60 of what.
+        COUNT(DISTINCT p.id)        AS page_count,
         GROUP_CONCAT(DISTINCT site.hostname) AS hostnames
     FROM latest
     JOIN run   ON run.id = latest.run_id

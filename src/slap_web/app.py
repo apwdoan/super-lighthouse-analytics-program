@@ -69,8 +69,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         latest = detail["latest"]
         score = detail["observations"].get("lh.score.performance")
         status, word = vm.score_status(score)
+        # Group the operator's finding lists by rule for the same reason the
+        # client report does: twenty pages produce a few hundred rows
+        # describing a dozen problems.
+        pages_total = max(1, len(detail.get("pages") or []))
         return page(
             request, "site.html.j2",
+            pages=detail.get("pages") or [],
+            pages_total=pages_total,
             site=detail["site"],
             latest=latest,
             runs=detail["runs"],
@@ -79,9 +85,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             score_word=word,
             tiles=vm.build_tiles(detail["observations"]),
             trend=vm.build_trend(detail["history"]),
-            open_findings=vm.decorate_findings(detail["open"]),
-            fixed_findings=vm.decorate_findings(detail["fixed"]),
-            new_findings=vm.decorate_findings(detail["new"]),
+            open_findings=vm.decorate_findings(detail["open"], pages_total=pages_total),
+            fixed_findings=vm.decorate_findings(detail["fixed"], pages_total=pages_total),
+            new_findings=vm.decorate_findings(detail["new"], pages_total=pages_total),
             humanise=vm.humanise,
         )
 
@@ -107,11 +113,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         detail = core.get_run_detail(settings, run_id)
         if detail is None:
             raise HTTPException(status_code=404, detail="No such run")
+        pages = detail.get("pages") or []
+        scores = {
+            row["page_id"]: row["numeric_value"]
+            for row in detail["observations"]
+            if row["metric_key"] == "lh.score.performance"
+        }
+        page_rows = vm.build_page_rows(pages, scores)
         return page(
             request, "run.html.j2",
             run=detail["run"],
-            findings=vm.decorate_findings(detail["findings"]),
+            findings=vm.decorate_findings(detail["findings"],
+                                          pages_total=max(1, len(page_rows))),
             observation_count=len(detail["observations"]),
+            pages=page_rows,
+            measured=sum(1 for r in page_rows if r["measured"]),
             pdf_backend=core.pdf_backend_status(),
             branding=settings.branding,
             humanise=vm.humanise,

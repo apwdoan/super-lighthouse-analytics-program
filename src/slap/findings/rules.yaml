@@ -709,3 +709,70 @@ rules:
         - {metric: lh.benchmark_index.spread, gt: 500}
     effort: none
     evidence: [lh.benchmark_index, lh.benchmark_index.spread, lh.runs]
+
+  # --- Per-page subresources -------------------------------------------
+  #
+  # These are the rules per-page analysis exists for. A site's home page is
+  # usually the one page anyone has looked at since the TLS migration; the
+  # old blog post still pulling a hero image over http:// is the one nobody
+  # has opened in three years.
+  #
+  # Note the unit discipline: `mixed.insecure_count` is a COUNT, so the
+  # title interpolates it bare. Appending "resources" inside the title text
+  # would be fine, but appending a unit the registry also renders gives you
+  # "3 resourcesresources". A test scans this file for exactly that.
+
+  - id: mixed-content
+    severity: high
+    title: "{mixed.insecure_count} resource(s) loaded over plain HTTP"
+    detail: >-
+      This page is served over HTTPS but pulls {mixed.insecure_count}
+      subresource(s) over http://. Browsers block active mixed content
+      outright, so a script or stylesheet loaded this way simply does not
+      run, and passive mixed content strips the padlock. The URLs are
+      {mixed.insecure_urls}.
+    when:
+      all:
+        - {metric: mixed.insecure_count, gt: 0}
+    effort: low
+    remediation: >-
+      Change each URL to https://, or to a protocol-relative path if the
+      host supports TLS. If the third-party host has no certificate, find a
+      replacement: there is no way to load it securely.
+    evidence: [mixed.insecure_count, mixed.insecure_urls, mixed.method]
+
+  - id: many-third-party-origins
+    severity: low
+    title: "Page loads from {thirdparty.origin_count} third-party origins"
+    detail: >-
+      Each additional origin costs a DNS lookup, a TCP connection and a TLS
+      handshake before its first byte arrives, and each one is code you do
+      not control running on your page. The origins are
+      {thirdparty.origins}.
+    when:
+      all:
+        - {metric: thirdparty.origin_count, gt: 8}
+    effort: medium
+    remediation: >-
+      Audit what each origin is for. Self-host fonts and small scripts, and
+      remove tags for tools nobody reads any more.
+    wp_rocket_setting: >-
+      Under File Optimization, self-hosting Google Fonts removes one origin
+      outright. WP Rocket's "Delay JavaScript execution" also defers
+      third-party scripts until interaction.
+    evidence: [thirdparty.origin_count, thirdparty.origins]
+
+  - id: form-posts-over-http
+    severity: critical
+    title: "A form on this page submits over plain HTTP"
+    detail: >-
+      The page is served over HTTPS but a form's action is an http:// URL,
+      so everything typed into it, including passwords and card details, is
+      sent across the network in the clear. Browsers show a full-page
+      warning on submission.
+    when:
+      all:
+        - {metric: mixed.insecure_forms, gt: 0}
+    effort: low
+    remediation: Point the form action at https://.
+    evidence: [mixed.insecure_forms, mixed.insecure_form_urls]

@@ -137,6 +137,28 @@ def test_sparkline_skips_runs_with_no_score():
     assert path.count("L") == 1
 
 
+def test_stamp_stays_distinct_however_old_the_runs_are():
+    """The first fix only held for a day.
+
+    It appended the time when a run was less than 24 hours old and fell back
+    to "%-d %b" after that, so its own test passed on the day it was written
+    and failed from the next morning onwards. This version pins a date far
+    enough in the past that no clock can rescue it.
+    """
+    a = vm.stamp("2020-03-04T20:39:00+00:00")
+    b = vm.stamp("2020-03-04T20:41:00+00:00")
+    assert a != b
+    assert a.startswith("4 Mar") or a.startswith("5 Mar")   # local tz may shift
+
+
+def test_stamp_drops_the_date_only_for_today():
+    """Today is the one case where the reader already has the date."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    assert ":" in vm.stamp(now)
+    assert len(vm.stamp(now)) == 5          # HH:MM, no date
+
+
 def test_stamp_distinguishes_runs_on_the_same_day():
     """`humanise` says 'today' for all of them, which made every axis tick
     on the first real render read 'today'."""

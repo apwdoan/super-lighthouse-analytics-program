@@ -14,6 +14,7 @@ from typing import Any
 
 from .collectors.base import CollectorConfig
 from .collectors.lighthouse import LighthouseConfig
+from .discovery import DiscoveryConfig
 
 
 #: The directory this app used before it was renamed from SALP to SLAP.
@@ -88,6 +89,7 @@ class Settings:
     rules_path: Path | None = None
     collector: CollectorConfig = field(default_factory=CollectorConfig)
     lighthouse: LighthouseConfig = field(default_factory=LighthouseConfig)
+    discovery: DiscoveryConfig = field(default_factory=DiscoveryConfig)
     #: Report branding. Keys: company_name, accent (hex), logo_data_uri.
     #: Deliberately a plain dict so a Qt preferences dialog and a TOML file
     #: can both populate it without a schema change.
@@ -106,6 +108,8 @@ class Settings:
             collector_raw = raw.get("collector", {})
             if collector_raw:
                 settings.collector = replace(settings.collector, **collector_raw)
+            if discovery_raw := raw.get("discovery"):
+                settings.discovery = replace(settings.discovery, **discovery_raw)
             if lighthouse_raw := raw.get("lighthouse"):
                 for key, value in lighthouse_raw.items():
                     if hasattr(settings.lighthouse, key):

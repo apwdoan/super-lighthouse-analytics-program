@@ -111,12 +111,19 @@
         <h2>What to fix first</h2>
       </div>
       <div class="caption">
-        {{ m.total_findings }} finding{{ '' if m.total_findings == 1 else 's' }} total &middot;
+        {{ m.total_findings }} issue{{ '' if m.total_findings == 1 else 's' }} &middot;
         {{ m.severity_counts.critical }} critical &middot;
         {{ m.severity_counts.high }} high &middot;
         {{ m.severity_counts.medium }} medium
       </div>
     </div>
+
+    {% if m.is_multipage %}
+    <p class="secondary" style="margin-top:0;">
+      Each issue below is listed once, with the pages it affects. An issue on
+      every page is one misconfiguration to fix, not {{ m.coverage.pages_audited }}.
+    </p>
+    {% endif %}
 
     {% if not m.top_findings %}
       <p class="secondary">Nothing significant was found. The checks that ran are
@@ -130,6 +137,21 @@
         <span class="badge"><span class="dot {{ f.status }}"></span>{{ f.severity_word }}</span>
       </div>
       <p class="detail">{{ f.detail }}</p>
+
+      {% if f.scope_text %}
+      <div class="scope">
+        <span class="scope-label">Affects</span>
+        <strong>{{ f.scope_text }}</strong>
+        {% if not f.is_sitewide %}
+        <ul class="scope-pages">
+          {% for p in f.pages[:8] %}<li>{{ p | short_path }}</li>{% endfor %}
+          {% if f.page_count > 8 %}
+          <li class="secondary">and {{ f.page_count - 8 }} more</li>
+          {% endif %}
+        </ul>
+        {% endif %}
+      </div>
+      {% endif %}
 
       {% if f.evidence %}
       <div class="evidence">
@@ -167,10 +189,64 @@
     <div class="finding-compact">
       <span class="badge"><span class="dot {{ f.status }}"></span>{{ f.severity_word }}</span>
       <span class="title">{{ f.title }}</span>
+      {% if f.scope_text %}<span class="secondary">{{ f.scope_text }}</span>{% endif %}
     </div>
     {% endfor %}
     {% endif %}
   </section>
+
+  {# ============================ 2b. PAGE INVENTORY ======================= #}
+  {% if m.is_multipage %}
+  <section class="page-break">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">Section 2b</div>
+        <h2>Pages audited</h2>
+      </div>
+      <div class="caption">{{ m.coverage.summary }}</div>
+    </div>
+
+    {% if m.coverage.measurement_note %}
+    <p class="secondary" style="margin-top:0;">{{ m.coverage.measurement_note }}</p>
+    {% endif %}
+
+    <table class="grid">
+      <thead>
+        <tr>
+          <th>Page</th><th>Template</th><th class="num">Performance</th>
+          <th class="num">Issues</th><th class="num">Critical or high</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in m.pages %}
+        <tr>
+          <td class="path">{{ p.path }}</td>
+          <td>{{ p.template }}</td>
+          {# Never a blank cell: an empty score reads as a zero to some
+             readers and as a pass to others, and neither is true. #}
+          <td class="num">
+            {% if p.measured %}
+              <span class="badge"><span class="dot {{ p.status }}"></span>{{ p.score_text }}</span>
+            {% else %}
+              <span class="secondary">Not measured</span>
+            {% endif %}
+          </td>
+          <td class="num">{{ p.findings }}</td>
+          <td class="num">{{ p.urgent }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if m.coverage.capped %}
+    <p class="secondary">
+      This site publishes {{ m.coverage.pages_found }} pages and
+      {{ m.coverage.pages_audited }} were audited. The rest were not examined,
+      so this report does not speak to them.
+    </p>
+    {% endif %}
+  </section>
+  {% endif %}
 
   {# =============================== 3. SECURITY ========================== #}
   <section class="page-break">

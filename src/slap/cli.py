@@ -63,6 +63,17 @@ def cmd_audit(args: argparse.Namespace, settings: Settings) -> int:
         settings.lighthouse.concurrency = args.lh_concurrency
     if args.lh_desktop:
         settings.lighthouse.form_factors = ("mobile", "desktop")
+    if args.no_discover:
+        settings.discovery.enabled = False
+    if args.pages:
+        settings.discovery.pages_per_site = args.pages
+    if args.lh_pages:
+        settings.discovery.lighthouse_pages_per_site = args.lh_pages
+    if args.page_concurrency:
+        # Separate from -c for the same reason --lh-concurrency is: sites and
+        # pages are two dimensions of fan-out and they multiply. Twenty sites
+        # of twenty pages under one shared cap is 400 requests in flight.
+        settings.discovery.page_concurrency = args.page_concurrency
 
     targets = core.prepare_urls(urls)
     if not targets:
@@ -89,6 +100,17 @@ def cmd_audit(args: argparse.Namespace, settings: Settings) -> int:
         worker.wait(30)
 
     result = worker.result()
+    total_pages = sum(o.pages for o in result.outcomes)
+    if total_pages > len(result.outcomes):
+        measured = sum(o.lighthouse_pages for o in result.outcomes)
+        dropped = sum(o.pages_dropped for o in result.outcomes)
+        line = f"\n{total_pages} pages audited across {len(result.outcomes)} site(s)"
+        if measured:
+            line += f", {measured} measured with Lighthouse"
+        # A cap applied and not stated reads as full coverage.
+        if dropped:
+            line += f"; {dropped} discovered page(s) not audited (--pages cap)"
+        print(line)
     if result.run_ids:
         print(f"\nBatch {result.batch_id}: "
               f"run ids {result.run_ids[0]}-{result.run_ids[-1]}")
@@ -143,19 +165,45 @@ def cmd_show(args: argparse.Namespace, settings: Settings) -> int:
     if run["error"]:
         print(f"  errors     {run['error']}")
 
-    findings = detail["findings"]
-    print(f"\nFindings ({len(findings)})")
-    if not findings:
+    pages = detail.get("pages") or []
+    if len(pages) > 1:
+        measured = sum(1 for p in pages if p["audit_depth"] == "full")
+        print(f"\nPages ({len(pages)}, {measured} measured)")
+        for p in pages:
+            path = p["url"].split("/", 3)[-1] if p["url"].count("/") > 2 else ""
+            note = "" if p["audit_depth"] == "full" else "  not measured"
+            print(f"  /{path:<40} {p['template_class'] or 'page':<12}"
+                  f" {p['finding_count']:>3} issue(s){note}")
+
+    # Grouped by rule, with the pages each affects. Ungrouped, a twenty-page
+    # site prints a few hundred lines describing a dozen problems.
+    #
+    # `build_finding_views` rather than a grouping loop here, because the
+    # first version of this WAS a grouping loop and it immediately drifted:
+    # it printed "1 of 8 pages" for an invalid TLS certificate, which lives on
+    # the home page only because storage is page-keyed and actually takes down
+    # all eight. The model already knows that. Rule 7 again: the presentation
+    # layer decides nothing the model can decide.
+    from .report.model import build_finding_views
+
+    total_pages = max(1, len(pages))
+    views = build_finding_views(detail["findings"], pages_total=total_pages)
+    print(f"\nIssues ({len(views)})")
+    if not views:
         print("  Nothing fired. Either the site is clean or the rules need work.")
-    for f in findings:
-        tag = _paint(f"[{f['severity'].upper()}]", f["severity"], colour)
-        print(f"  {tag} {f['title']}")
+    for f in views:
+        tag = _paint(f"[{f.severity.upper()}]", f.severity, colour)
+        scope = f"  {f.scope_text.lower()}" if f.scope_text else ""
+        print(f"  {tag} {f.title}{scope}")
         if args.verbose:
-            print(f"      {' '.join(f['detail'].split())}")
-            if f["remediation"]:
-                print(f"      Fix: {' '.join(f['remediation'].split())}")
-            if f["wp_rocket_setting"]:
-                print(f"      WP Rocket: {f['wp_rocket_setting']}")
+            print(f"      {f.detail}")
+            if f.remediation:
+                print(f"      Fix: {f.remediation}")
+            if f.wp_rocket_setting:
+                print(f"      WP Rocket: {f.wp_rocket_setting}")
+            if not f.is_sitewide and total_pages > 1:
+                for url in f.pages[:5]:
+                    print(f"      on {url}")
 
     if args.observations:
         print(f"\nObservations ({len(detail['observations'])})")
@@ -340,6 +388,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--lh-concurrency", type=int, metavar="N",
                    help="concurrent Lighthouse runs (default 3; raising this "
                         "inflates TBT and TTI and makes scores irreproducible)")
+    p.add_argument("--pages", type=int, metavar="N",
+                   help="max pages to audit per site (default 20)")
+    p.add_argument("--no-discover", action="store_true",
+                   help="audit only the URL given, as before per-page analysis")
+    p.add_argument("--lh-pages", type=int, metavar="N",
+                   help="pages per site given the browser audit (default 5). "
+                        "One per page template; ~90s each at concurrency 3")
+    p.add_argument("--page-concurrency", type=int, metavar="N",
+                   help="concurrent pages WITHIN one site (default 5). "
+                        "Separate from -c: the two multiply")
     p.add_argument("--lh-desktop", action="store_true",
                    help="also measure the desktop form factor")
     p.set_defaults(func=cmd_audit)

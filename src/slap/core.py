@@ -54,8 +54,23 @@ from .events import (
     SiteFinished,
     SiteStarted,
 )
+from .discovery import (
+    DiscoveryResult,
+    canonical_url,
+    choose_lighthouse_pages,
+    classify_template,
+    discover,
+)
 from .findings import FindingsEngine
-from .schema import FormFactor, PageResult, RunStatus
+from .schema import (
+    AuditDepth,
+    DiscoveredVia,
+    FormFactor,
+    PageResult,
+    PageRole,
+    RunStatus,
+    Scope,
+)
 
 
 @dataclass(slots=True)
@@ -66,6 +81,14 @@ class SiteOutcome:
     observations: int = 0
     findings: int = 0
     error: str | None = None
+    #: Pages audited, and how many of them got the browser audit. Reported so
+    #: a caller can say "12 pages, 4 measured" rather than implying that a
+    #: number exists for every page.
+    pages: int = 1
+    lighthouse_pages: int = 0
+    #: Discovered but not audited, because the cap bit. A cap that is applied
+    #: and not stated reads as full coverage.
+    pages_dropped: int = 0
 
 
 @dataclass(slots=True)
@@ -122,14 +145,62 @@ def prepare_urls(raw: Iterable[str]) -> list[str]:
 # Collection
 # --------------------------------------------------------------------------
 
+def split_pipeline(pipeline: Pipeline) -> tuple[Pipeline, Pipeline]:
+    """Separate the browser stage from the no-browser stages.
+
+    Per-page collection runs in two passes and the split is what makes that
+    possible: the template class of a page is read from its fetched HTML, and
+    the decision about which pages are worth a 90-second browser audit is made
+    from the template classes. So every page gets the cheap pass first, and
+    only the chosen representatives get the second.
+
+    A collector belongs to the browser stage if it declares ``needs_browser``.
+    Asking the collector is better than assuming it is the last stage: the
+    pipeline is a caller-supplied list and a test that appends a stage would
+    silently turn its collector into the Lighthouse pass.
+    """
+    light: Pipeline = []
+    heavy: Pipeline = []
+    for stage in pipeline:
+        browser = [c for c in stage if getattr(c, "needs_browser", False)]
+        cheap = [c for c in stage if not getattr(c, "needs_browser", False)]
+        if cheap:
+            light.append(cheap)
+        if browser:
+            heavy.append(browser)
+    return light, heavy
+
+
+def _applies_to(collector: Any, is_home: bool) -> bool:
+    """Origin-scoped collectors run once per site, on the home page.
+
+    One certificate serves every page and the CrUX collector queries the
+    origin, so running them per page is N identical results, N handshakes and
+    N times the API quota. Filtering the *observations* afterwards would be
+    the same data at the same cost; filtering the collector is the point.
+    """
+    return is_home or getattr(collector, "scope", Scope.PAGE) is not Scope.ORIGIN
+
+
 async def collect_page(ctx: PageContext, pipeline: Pipeline, *,
                        bus: EventBus, batch_id: str,
-                       cancel: CancelToken) -> PageResult:
-    """Run every stage of the pipeline against one URL."""
-    result = PageResult(url=ctx.url, form_factor=FormFactor.NONE)
+                       cancel: CancelToken,
+                       is_home: bool = True,
+                       result: PageResult | None = None) -> PageResult:
+    """Run every stage of the pipeline against one URL.
 
-    for stage in pipeline:
+    ``result`` lets a second pass accumulate into the page built by the first,
+    so the Lighthouse observations land on the same PageResult as the HTTP
+    ones instead of arriving as a separate page.
+    """
+    if result is None:
+        result = PageResult(url=ctx.url, form_factor=FormFactor.NONE)
+
+    for stage_index, stage in enumerate(pipeline):
         cancel.raise_if_cancelled()
+        stage = [c for c in stage if _applies_to(c, is_home)]
+        if not stage:
+            continue
 
         async def run_one(collector: Any) -> None:
             bus.emit(CollectorStarted(
@@ -155,7 +226,13 @@ async def collect_page(ctx: PageContext, pipeline: Pipeline, *,
 
         # The first stage is what establishes the document. If it produced
         # nothing at all, later stages have nothing to work with.
-        if ctx.document is None and stage is pipeline[0]:
+        #
+        # `stage` is rebound above by the scope filter, so identity against
+        # pipeline[0] no longer holds; compare the index instead. Getting this
+        # wrong does not raise, it just stops skipping the rest of a failed
+        # page's collectors, which is how "no HSTS header" ends up on a host
+        # that never answered.
+        if ctx.document is None and stage_index == 0:
             result.errors.append("fetch failed; skipping remaining collectors")
             break
 
@@ -167,58 +244,133 @@ async def collect_page(ctx: PageContext, pipeline: Pipeline, *,
 
 
 def _persist(conn: sqlite3.Connection, *, batch_id: str, url: str,
-             result: PageResult, engine: FindingsEngine) -> SiteOutcome:
-    """Write one page's run, observations, and findings in a single transaction."""
+             results: list[PageResult], engine: FindingsEngine,
+             discovery: DiscoveryResult | None = None) -> SiteOutcome:
+    """Write one site's run and every page under it, in a single transaction.
+
+    One transaction for the whole site, not one per page. A site audit is
+    atomic history: a batch cancelled halfway through a twelve-page site
+    should leave no run at all rather than a run that silently covers four
+    pages and reads as complete.
+    """
     hostname = httpx.URL(url).host
+    n_obs = 0
+    n_findings = 0
+    lighthouse_pages = 0
+
     with db.transaction(conn):
         site_id = db.upsert_site(conn, hostname)
         run_id = db.create_run(
             conn, batch_id=batch_id, site_id=site_id,
             slap_version=__version__, schema_version=SCHEMA_VERSION,
         )
-        page_id = db.create_page(conn, run_id, url, result.final_url, result.form_factor)
-        n_obs = db.insert_observations(conn, page_id, result.observations)
 
-        # Lighthouse hands back things observations cannot carry: the gzipped
-        # LHR blobs and the engine versions that make a run reproducible.
-        lighthouse = result.extras.get("lighthouse")
-        if lighthouse is not None:
-            for artifact in lighthouse.artifacts:
-                db.insert_artifact(
-                    conn, run_id, kind=artifact.kind, path=str(artifact.path),
-                    page_id=page_id, sha256=artifact.sha256, size=artifact.bytes,
-                )
-            meta = lighthouse.meta or {}
+        provenance: dict[str, Any] = {}
+        for result in results:
+            page_id = db.create_page(
+                conn, run_id, result.url, result.final_url, result.form_factor,
+                role=result.role, discovered_via=result.discovered_via,
+                audit_depth=result.audit_depth,
+                template_class=result.template_class,
+            )
+            n_obs += db.insert_observations(conn, page_id, result.observations)
+
+            # Lighthouse hands back things observations cannot carry: the
+            # gzipped LHR blobs and the engine versions that make a run
+            # reproducible.
+            lighthouse = result.extras.get("lighthouse")
+            if lighthouse is not None:
+                lighthouse_pages += 1
+                for artifact in lighthouse.artifacts:
+                    db.insert_artifact(
+                        conn, run_id, kind=artifact.kind, path=str(artifact.path),
+                        page_id=page_id, sha256=artifact.sha256, size=artifact.bytes,
+                    )
+                # Engine versions are a property of the machine and the
+                # session, so every page of a run agrees on them and the first
+                # page to report them wins. The CPU benchmark does NOT agree
+                # across pages, which is why it is a per-page observation and
+                # not run provenance.
+                meta = lighthouse.meta or {}
+                for key in ("lighthouseVersion", "chromeVersion", "throttlingProfile"):
+                    if meta.get(key) and key not in provenance:
+                        provenance[key] = meta[key]
+
+            # Do NOT derive findings from an empty observation set. Many rules
+            # fire on `missing: true`, so a page we could not fetch would
+            # otherwise report "No HSTS header", "No Content-Security-Policy",
+            # and so on. Confidently describing a page we never reached is the
+            # fastest way to get an entire report dismissed. Per page now, so
+            # one unreachable page in twelve does not poison the other eleven.
+            if result.observations:
+                values = {o.metric_key: o.value for o in result.observations}
+                n_findings += db.insert_findings(conn, page_id, engine.run(values))
+
+        if provenance:
             db.set_run_provenance(
                 conn, run_id,
-                lh_version=meta.get("lighthouseVersion"),
-                chrome_version=meta.get("chromeVersion"),
-                throttling_profile=meta.get("throttlingProfile"),
+                lh_version=provenance.get("lighthouseVersion"),
+                chrome_version=provenance.get("chromeVersion"),
+                throttling_profile=provenance.get("throttlingProfile"),
             )
 
-        failed = not result.observations
+        # A run failed when it learned nothing at all. One page of twelve
+        # failing is a finding about that page, not a failed audit.
+        #
+        # Counted BEFORE the discovery metadata is written, and that ordering
+        # is load-bearing. Attaching "discovery.method = manual" to an
+        # unreachable host puts a row in `observation` and makes `n_obs`
+        # non-zero, so the run reports completed, the findings engine runs
+        # against an empty value set, and the report tells a client that a
+        # host we never reached has no HSTS header. That is the failure this
+        # project's oldest guard exists to prevent, and metadata is exactly
+        # the shape of thing that walks around it.
+        failed = n_obs == 0
 
-        # Do NOT derive findings from an empty observation set. Many rules
-        # fire on `missing: true`, so a site we could not connect to would
-        # otherwise report "No HSTS header", "No Content-Security-Policy",
-        # and so on. Confidently describing a site we never reached is the
-        # fastest way to get an entire report dismissed.
-        n_findings = 0
-        if not failed:
-            values = {o.metric_key: o.value for o in result.observations}
-            n_findings = db.insert_findings(conn, page_id, engine.run(values))
+        if discovery is not None and results and not failed:
+            home_id = db.home_page_id(conn, run_id)
+            if home_id is not None:
+                db.insert_observations(
+                    conn, home_id,
+                    _discovery_observations(discovery, len(results)),
+                )
 
+        errors = [e for r in results for e in r.errors]
         db.finish_run(
             conn, run_id,
             RunStatus.FAILED if failed else RunStatus.COMPLETED,
-            error="; ".join(result.errors) if result.errors else None,
+            error="; ".join(errors) if errors else None,
         )
 
     return SiteOutcome(
         url=url, run_id=run_id, ok=not failed,
         observations=n_obs, findings=n_findings,
-        error="; ".join(result.errors) if result.errors else None,
+        error="; ".join(errors) if errors else None,
+        pages=len(results), lighthouse_pages=lighthouse_pages,
+        pages_dropped=discovery.dropped if discovery else 0,
     )
+
+
+def _discovery_observations(found: DiscoveryResult,
+                            audited: int) -> list["Observation"]:
+    """Record how the page list was arrived at, and what it left out.
+
+    These ride on the home page because observations are page-keyed and the
+    facts are origin-scoped. They exist so the report can print "12 of 3,400
+    pages audited" instead of "12 pages audited", which is the difference
+    between a stated cap and an implied claim of full coverage.
+    """
+    from .schema import obs
+
+    out = [
+        obs("discovery.method", found.method.value),
+        obs("discovery.found", found.found),
+        obs("discovery.audited", audited),
+        obs("discovery.dropped", found.dropped),
+    ]
+    if found.sitemaps:
+        out.append(obs("discovery.sitemap_urls", ", ".join(found.sitemaps[:10])))
+    return out
 
 
 async def run_batch(urls: Iterable[str], settings: Settings, *,
@@ -272,14 +424,28 @@ async def run_batch(urls: Iterable[str], settings: Settings, *,
                 runner = None
 
     pipeline = pipeline or default_pipeline(bucket, runner)
+    light_pipeline, heavy_pipeline = split_pipeline(pipeline)
 
+    disc_cfg = settings.discovery
+
+    # Concurrency is two-dimensional now, and both dimensions have to be
+    # bounded explicitly. `http_concurrency` used to bound sites and pages at
+    # once because a site was one page; with twenty pages per site the naive
+    # version is 20 x 20 = 400 concurrent requests. The connection pool would
+    # cap that at `http_concurrency * 2` and the batch would not fall over, it
+    # would just serialise unpredictably behind the pool, which is worse than
+    # failing because it looks like it works.
     semaphore = asyncio.Semaphore(max(1, cfg.http_concurrency))
+    page_semaphore = asyncio.Semaphore(max(1, disc_cfg.page_concurrency))
     counter = {"done": 0}
     total = len(targets)
 
+    # Sized for the real ceiling: sites x pages in flight, not sites alone.
+    # An undersized pool is invisible in tests and shows up as a slow batch.
+    peak = max(1, cfg.http_concurrency * max(1, disc_cfg.page_concurrency))
     limits = httpx.Limits(
-        max_connections=cfg.http_concurrency * 2,
-        max_keepalive_connections=cfg.http_concurrency,
+        max_connections=peak * 2,
+        max_keepalive_connections=peak,
     )
 
     async with httpx.AsyncClient(
@@ -288,20 +454,115 @@ async def run_batch(urls: Iterable[str], settings: Settings, *,
         http2=http2_available(),
     ) as client:
 
+        async def collect_site(url: str) -> tuple[list[PageResult], DiscoveryResult | None]:
+            """Discover, audit every page cheaply, then measure a sample.
+
+            Two passes, because the decision the second pass needs is made
+            from data only the first pass has: a page's template class is read
+            from its fetched HTML, and the template classes are what decide
+            which pages are worth ninety seconds of browser time.
+            """
+            home_url = canonical_url(url)
+            found: DiscoveryResult | None = None
+            urls = [home_url]
+
+            if disc_cfg.enabled and disc_cfg.pages_per_site > 1:
+                found = await discover(
+                    client, url, cfg,
+                    limit=disc_cfg.pages_per_site,
+                    crawl_depth=disc_cfg.crawl_depth,
+                    allow_crawl=disc_cfg.allow_crawl,
+                )
+                urls = found.urls or [home_url]
+                for message in found.errors:
+                    bus.log(batch_id, f"{home_url}: discovery {message}", "warning")
+                if found.dropped:
+                    bus.log(batch_id, "{}: {} pages found, auditing {}".format(
+                        home_url, found.found, len(urls)), "warning")
+
+            contexts: dict[str, PageContext] = {}
+            results: dict[str, PageResult] = {}
+
+            async def light(page_url: str) -> None:
+                async with page_semaphore:
+                    cancel.raise_if_cancelled()
+                    is_home = page_url == home_url
+                    ctx = PageContext(url=page_url, client=client, config=cfg)
+                    contexts[page_url] = ctx
+                    result = PageResult(url=page_url, form_factor=FormFactor.NONE)
+                    result.role = PageRole.HOME if is_home else PageRole.DISCOVERED
+                    result.discovered_via = (
+                        DiscoveredVia.MANUAL if is_home or found is None
+                        else found.method
+                    )
+                    result.audit_depth = AuditDepth.LIGHT
+                    results[page_url] = result
+                    try:
+                        await collect_page(ctx, light_pipeline, bus=bus,
+                                           batch_id=batch_id, cancel=cancel,
+                                           is_home=is_home, result=result)
+                    except BatchCancelled:
+                        raise
+                    except Exception as exc:      # noqa: BLE001
+                        result.errors.append(f"{type(exc).__name__}: {exc}")
+                    document = ctx.document
+                    result.template_class = classify_template(
+                        page_url, document.text if document else None,
+                        is_home=is_home,
+                    )
+
+            await asyncio.gather(*(light(u) for u in urls))
+
+            ordered = [results[u] for u in urls if u in results]
+            if not heavy_pipeline:
+                return ordered, found
+
+            # Only pages that were actually fetched can be measured, and only
+            # one representative per template class is worth measuring.
+            fetched = {r.url: r.template_class or "unknown"
+                       for r in ordered
+                       if r.observations and contexts.get(r.url, None)
+                       and contexts[r.url].document is not None}
+            chosen = choose_lighthouse_pages(
+                fetched, limit=disc_cfg.lighthouse_pages_per_site,
+                home_url=home_url if home_url in fetched else None,
+            )
+
+            async def heavy(page_url: str) -> None:
+                async with page_semaphore:
+                    cancel.raise_if_cancelled()
+                    result = results[page_url]
+                    result.audit_depth = AuditDepth.FULL
+                    if result.role is not PageRole.HOME:
+                        result.role = PageRole.TEMPLATE
+                    try:
+                        await collect_page(contexts[page_url], heavy_pipeline,
+                                           bus=bus, batch_id=batch_id,
+                                           cancel=cancel,
+                                           is_home=page_url == home_url,
+                                           result=result)
+                    except BatchCancelled:
+                        raise
+                    except Exception as exc:      # noqa: BLE001
+                        result.errors.append(f"{type(exc).__name__}: {exc}")
+
+            await asyncio.gather(*(heavy(u) for u in chosen))
+            return ordered, found
+
         async def audit(url: str, index: int) -> SiteOutcome:
             async with semaphore:
                 cancel.raise_if_cancelled()
                 bus.emit(SiteStarted(batch_id=batch_id, url=url,
                                      index=index, total=total))
-                ctx = PageContext(url=url, client=client, config=cfg)
+                found: DiscoveryResult | None = None
                 try:
-                    page = await collect_page(ctx, pipeline, bus=bus,
-                                              batch_id=batch_id, cancel=cancel)
+                    pages, found = await collect_site(url)
                 except BatchCancelled:
                     raise
                 except Exception as exc:
                     page = PageResult(url=url)
                     page.errors.append(f"{type(exc).__name__}: {exc}")
+                    pages = [page]
 
                 # Persist synchronously, on purpose. `conn` belongs to this
                 # thread and sqlite3 connections are thread-affine, so an
@@ -310,7 +571,8 @@ async def run_batch(urls: Iterable[str], settings: Settings, *,
                 # has no await inside it, which also makes it atomic with
                 # respect to the event loop: no second writer can interleave.
                 outcome = _persist(conn, batch_id=batch_id, url=url,
-                                   result=page, engine=engine)
+                                   results=pages, engine=engine,
+                                   discovery=found)
 
                 counter["done"] += 1
                 bus.emit(SiteFinished(
@@ -441,15 +703,30 @@ def get_run(settings: Settings, run_id: int) -> dict[str, Any] | None:
 
 
 def get_run_detail(settings: Settings, run_id: int) -> dict[str, Any] | None:
-    """Everything one report needs about one run, in a single call."""
+    """Everything one report needs about one run, in a single call.
+
+    ``observations`` is every page's, and ``home_values`` is the home page's
+    alone. Both are needed and they are not interchangeable: the verdict, the
+    TLS section and the technology fingerprint describe the site and must come
+    from one page, while the appendix and the per-page sections want the lot.
+
+    Flattening *all* observations into one dict is the trap here. It reads
+    fine, renders fine, and silently reports whichever page happened to be
+    written last, so a site verdict would change depending on which product
+    page sorted highest.
+    """
     conn = _conn(settings)
     run = db.get_run(conn, run_id)
     if run is None:
         return None
+    home_id = db.home_page_id(conn, run_id)
     return {
         "run": run,
         "observations": db.get_observations(conn, run_id),
         "findings": db.get_findings(conn, run_id),
+        "pages": db.run_pages(conn, run_id),
+        "home_page_id": home_id,
+        "home_values": db.observations_as_dict(conn, home_id) if home_id else {},
     }
 
 
@@ -511,13 +788,16 @@ def get_site_detail(settings: Settings, site_id: int) -> dict[str, Any] | None:
         "latest": latest,
         "previous": previous,
         "history": db.site_metric_history(conn, site_id, TREND_METRICS),
+        # The home page's observations, not "whichever page came back first".
+        # `LIMIT 1` with no ORDER BY was correct while a run held exactly one
+        # page and became a coin toss the moment it held twenty: the site's
+        # headline score and CWV tiles would come from an arbitrary product
+        # page, and change between runs for no reason a reader could see.
         "observations": (
-            db.observations_as_dict(
-                conn,
-                conn.execute("SELECT id FROM page WHERE run_id = ? LIMIT 1",
-                             (latest["id"],)).fetchone()["id"],
-            ) if latest else {}
+            db.observations_as_dict(conn, db.home_page_id(conn, latest["id"]) or 0)
+            if latest else {}
         ),
+        "pages": db.run_pages(conn, latest["id"]) if latest else [],
         "open": current,
         "new": [f for f in current if previous and f["rule_id"] not in prior_ids],
         "fixed": [f for f in prior if f["rule_id"] not in current_ids],

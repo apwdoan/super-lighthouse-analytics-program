@@ -8,7 +8,11 @@
     <h1>Report preview</h1>
   </div>
   <div class="grow"></div>
-  <span class="chip">{{ findings|length }} findings &middot; {{ observation_count }} observations</span>
+  <span class="chip">
+    {{ findings|length }} issue{{ '' if findings|length == 1 else 's' }} &middot;
+    {{ pages|length }} page{{ '' if pages|length == 1 else 's' }} &middot;
+    {{ observation_count }} observations
+  </span>
   <button class="btn" onclick="document.getElementById('brand').hidden = !document.getElementById('brand').hidden">Branding</button>
   <form method="post" action="/run/{{ run.id }}/export" style="display:inline">
     <button class="btn" type="submit">Export HTML</button>
@@ -54,6 +58,45 @@
       (it is read-only) and which is worth deciding deliberately.
     </p>
   </div>
+
+  {% if pages|length > 1 %}
+  <div class="card">
+    <header>
+      <div class="grow"><h2>Pages in this run</h2></div>
+      <span class="chip">
+        {{ measured }} of {{ pages|length }} measured
+      </span>
+    </header>
+    <p class="hint" style="margin-top:0">
+      One page per template gets the browser audit; the rest are checked for
+      security and delivery. A page with no score was not measured, which is
+      not the same as scoring zero.
+    </p>
+    <table class="grid">
+      <thead>
+        <tr><th>Page</th><th>Template</th><th>Role</th>
+            <th class="num">Performance</th><th class="num">Issues</th></tr>
+      </thead>
+      <tbody>
+        {% for p in pages %}
+        <tr>
+          <td class="mono">{{ p.path }}</td>
+          <td>{{ p.template }}</td>
+          <td class="secondary">{{ p.role }}</td>
+          <td class="num">
+            {# Never a bare colour, and never a blank cell. #}
+            <span class="badge"><span class="sw {{ p.score_status }}"></span>{%
+              if p.measured %}{{ p.score }} &middot; {{ p.score_word }}{%
+              else %}{{ p.score_word }}{% endif %}</span>
+          </td>
+          <td class="num">{{ p.findings }}{% if p.urgent %}
+            <span class="secondary">({{ p.urgent }} urgent)</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
 
   <div class="card preview-frame">
     {# An iframe, not inlined. report.css declares its own :root tokens and

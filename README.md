@@ -1,20 +1,23 @@
 # SLAP: Super Lighthouse Analytics Project
 
-Batch website performance and security auditing. Retrieves the data, turns
-it into findings a site owner will act on, and renders a client-facing
-HTML and PDF report.
+**Per-page** website performance and security auditing. Finds a site's pages,
+audits each one, turns the result into findings a site owner will act on, and
+renders a client-facing HTML and PDF report.
 
 ```
-collectors  ──►  normalized observations  ──►  findings engine  ──►  report
-(many, dumb)     (one schema, immutable)       (rules, tunable)      (HTML → PDF)
+discovery  ──►  collectors  ──►  observations  ──►  findings  ──►  report
+(sitemap,      (many, dumb,     (one schema,       (rules,       (grouped by
+ crawl)         per page)        immutable)         tunable)      rule → PDF)
 ```
 
-**Status: every planned phase is built, and it packages into a
-self-contained distributable teammates can run with nothing installed.** Schema frozen, no-browser
-collectors working, Lighthouse runner driving a pinned Chromium, findings
-engine running off 46 YAML rules, client-facing HTML and PDF reports
-rendering, and both front-ends (CLI and a local web app) driving the same
-core. See `docs/ui-redesign.md`, `docs/lighthouse.md`, and `docs/reports.md`.
+**Status: per-page analysis is built, and it packages into a self-contained
+distributable teammates can run with nothing installed.** Schema frozen,
+sitemap-and-crawl page discovery, no-browser collectors running on every
+page, Lighthouse sampling one page per template against a pinned Chromium,
+findings engine running off 50 YAML rules and reported once per rule with the
+pages each affects, client-facing HTML and PDF reports rendering, and both
+front-ends (CLI and a local web app) driving the same core. See `docs/per-page.md`, `docs/ui-redesign.md`, `docs/lighthouse.md`,
+and `docs/reports.md`.
 
 ---
 
@@ -65,7 +68,12 @@ and the report says so rather than pretending lab data is field data.
 ```bash
 slap audit example.com another-site.com     # bare hostnames are fine
 slap audit -f sites.txt -c 20               # one URL per line, 20 at a time
-slap audit example.com --lighthouse         # add the lab audit (~90s/site)
+slap audit example.com --lighthouse         # add the lab audit (~90s/page)
+
+slap audit example.com --pages 40           # audit up to 40 pages of the site
+slap audit example.com --no-discover        # just the one URL, as before
+slap audit example.com -l --lh-pages 8      # measure 8 page templates, not 5
+slap audit example.com --page-concurrency 8 # pages in flight WITHIN one site
 slap doctor                                 # which backends are available
 slap batches                                # what has been run
 slap runs -b <batch-id>                     # runs in a batch
@@ -104,6 +112,35 @@ bundle it just built before uploading it.
 See `docs/packaging.md` for the size breakdown, Windows SmartScreen, and
 macOS Gatekeeper.
 
+## Per-page analysis
+
+By default an audit covers the **whole site**, not just the URL you give it.
+
+Pages come from `robots.txt` and the site's sitemap (including nested indexes
+and gzipped `.xml.gz` shards), falling back to a shallow same-origin crawl.
+Every discovered page gets the security, header, cookie and mixed-content
+checks. Only a **sample** gets the browser performance audit: one page per
+detected template, chosen by how many pages that template covers, because
+Lighthouse costs ~90s per page against a concurrency cap of 3 and a client
+acts on "product pages are slow", not on the 400th product page.
+
+Two numbers control the cost:
+
+| Flag | Default | What it bounds |
+|---|---|---|
+| `--pages` | 20 | pages audited per site |
+| `--lh-pages` | 5 | pages given the browser audit |
+
+Findings are reported **once per rule** with the pages they affect. Twenty
+pages missing HSTS is one thing to fix, not twenty findings, and a report that
+prints it twenty times buries the three that only affect checkout.
+
+The report says what it did not cover. If a site publishes 3,400 pages and 20
+were audited, it prints "20 of 3,400" — a cap that is applied and not stated
+reads as full coverage. Pages without a performance score print "not measured"
+rather than a blank cell, because a blank reads as a zero to some people and
+as a pass to others.
+
 Reports land in `report_dir` (per-user, under `%LOCALAPPDATA%\slap` on
 Windows) unless you pass `-o`. The HTML is the artifact of record and the
 PDF is a rendering of it, so if the PDF backend is missing you still get
@@ -122,9 +159,11 @@ src/slap/
   events.py              progress events; the front-end seam
   core.py                THE API. Both front-ends call only this
   config.py              settings from defaults / TOML / environment
+  discovery.py           finding a site's pages: sitemap, then crawl
   collectors/
     base.py              Collector protocol, shared fetch context
     http_probe.py        headers, compression, caching, cookies, redirects
+    subresources.py      mixed content, insecure forms, third-party origins
     tls_probe.py         certificate validity, expiry, protocol
     fingerprint.py       CMS, CDN, page builder, WP Rocket + cache state
     crux.py              CrUX field data, token-bucket rate limited
@@ -146,6 +185,7 @@ src/slap_web/            the front-end. Depends on slap.core, never back
   activity.py            batches and progress over server-sent events
   templates/             sites, site, findings, run
 packaging/               build script and PyInstaller spec
+docs/per-page.md         page discovery, sampling, and the silent aggregation bugs
 docs/ui-redesign.md      why the UI is site-centric and browser-based
 docs/packaging.md        building the self-contained distributable
 docs/lighthouse.md       lab runner, concurrency, the LH13 audit-ID trap
@@ -182,10 +222,21 @@ docs/reports.md          report pipeline, palette rules, PDF backend
    benchmark are recorded so the report can say when this happened.
 10. **The Node worker is dumb.** Job on stdin, raw LHR on stdout, exit. No
    thresholds, no storage, no formatting. One language boundary, enforced.
-11. **The GUI is a client, not a layer.** `slap_gui` calls `slap.core` and
-   nothing below it; no widget opens a database, builds a pipeline, or
+11. **The front-end is a client, not a layer.** `slap_web` calls `slap.core`
+   and nothing below it; no route opens a database, builds a pipeline, or
    renders a template. A test walks the AST of every module under `slap/`
-   and fails if any of them imports Qt.
+   and fails if any of them imports a UI framework.
+12. **A run holds many pages; the home page is the anchor.** It is what a
+   site's trend line follows and where origin-scoped observations live.
+   Aggregate queries count DISTINCT rules and DISTINCT pages, never finding
+   rows: the naive version reports 240 open findings for a site with twelve
+   problems, and it renders perfectly.
+13. **Metric scope is declared.** `Metric.scope` says whether a fact
+   describes a page or the origin. Origin-scoped collectors run once per
+   site, not once per page, and the report prints their findings as
+   "site-wide" rather than "1 of 20 pages".
+14. **State the cap.** Any limit that reduces coverage is printed in the
+   report and logged in the CLI. Silent truncation reads as completeness.
 
 ## Adding a collector
 
@@ -200,7 +251,7 @@ docs/reports.md          report pipeline, palette rules, PDF backend
 ## Tests
 
 ```bash
-pytest -q          # 241 tests, no network and no display required
+pytest -q          # 317 tests, no network and no display required
 ```
 
 The suite runs local HTTP servers for the end-to-end paths, so the whole
@@ -210,3 +261,9 @@ because a clean page yields zero savings everywhere and cannot tell a
 working extractor from a broken one. Web tests drive the real routes
 against a real temporary database through FastAPI's TestClient. Tests needing
 a real browser skip cleanly when it is absent.
+
+`tests/multipage_server.py` is a ten-page offline site with a **nested,
+partly gzipped sitemap index**, four page templates, an insecure cookie on
+`/checkout` and a payment form posting over plain HTTP. Every discovery bug
+worth having is silent — an index parsed as a page list audits nothing and
+reports success — so the fixture is built to make each one fail loudly.

@@ -33,7 +33,15 @@
               &middot; WP Rocket: {{ r.wp_rocket_setting }}{% endif %}</div>
           </td>
           <td>{{ m.badge(r.status, r.word) }}</td>
-          <td class="num"><b>{{ r.site_count }}</b> <span class="sub">/ {{ total_sites }}</span></td>
+          <td class="num">
+            <b>{{ r.site_count }}</b> <span class="sub">/ {{ total_sites }}</span>
+            {# Sites and pages answer different questions: one rule can affect
+               two sites and eighty of their pages. Both are DISTINCT counts,
+               because the join fans out to one row per page per finding. #}
+            {% if r.page_count and r.page_count > r.site_count %}
+              <div class="sub">{{ r.page_count }} pages</div>
+            {% endif %}
+          </td>
           <td>
             {# A share bar, not a pie: one ratio against a limit is a meter. #}
             <div class="meter wide">

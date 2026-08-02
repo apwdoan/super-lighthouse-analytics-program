@@ -69,6 +69,15 @@ class SiteRow:
     urgent_count: int
     spark: str           # an SVG path, precomputed. Templates draw, not compute.
     spark_last: tuple[float, float] | None
+    #: Pages in the latest run. `open_count` counts DISTINCT rules, so the two
+    #: numbers answer different questions and both belong in the row: "12
+    #: problems across 20 pages" is the honest summary, and the version that
+    #: multiplied them read "240 open findings".
+    page_count: int = 1
+
+    @property
+    def pages_text(self) -> str:
+        return "1 page" if self.page_count <= 1 else f"{self.page_count} pages"
 
 
 def _num(values: dict[str, Any], key: str) -> float | None:
@@ -113,6 +122,19 @@ def stamp(iso: str | None) -> str:
     `humanise` is right for a table cell ("3 days ago") and wrong for a chart
     axis: seed five runs in an afternoon and every tick reads "today", which
     is how the first render of this screen came out.
+
+    The first fix only held for a day. It appended the time when the run was
+    less than 24 hours old and fell back to "%-d %b" after that, so the five
+    runs seeded in one afternoon read distinctly that afternoon and collapsed
+    to five identical "31 Jul" ticks the next morning. Its own test passed on
+    the day it was written and failed from the following day onwards, which is
+    the tell: a test whose result depends on how long ago the fixture date was
+    is asserting against the clock, not against the behaviour.
+
+    So the date always carries its time. Only the label for *today* drops the
+    date, because "today" is the one case where the reader already has it.
+    Chart axes label the first and last point only, so the extra five
+    characters cost nothing.
     """
     if not iso:
         return ""
@@ -123,8 +145,9 @@ def stamp(iso: str | None) -> str:
     if when.tzinfo is None:
         when = when.replace(tzinfo=timezone.utc)
     when = when.astimezone()
-    days = (datetime.now(timezone.utc) - when.astimezone(timezone.utc)).days
-    return when.strftime("%H:%M") if days < 1 else when.strftime("%-d %b")
+    if when.date() == datetime.now(when.tzinfo).date():
+        return when.strftime("%H:%M")
+    return when.strftime("%-d %b %H:%M")
 
 
 def sparkline(values: Sequence[float | None], width: float = 88,
@@ -183,6 +206,7 @@ def build_site_rows(sites: list[dict[str, Any]],
             urgent_count=site.get("urgent_count") or 0,
             spark=path,
             spark_last=last,
+            page_count=site.get("page_count") or 1,
         ))
     return rows
 
@@ -253,16 +277,80 @@ def build_trend(history: list[dict[str, Any]], metric: str = "lh.score.performan
     }
 
 
-def decorate_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Attach the swatch class and the mandatory word to each finding."""
+def decorate_findings(findings: list[dict[str, Any]], *,
+                      pages_total: int = 1) -> list[dict[str, Any]]:
+    """Group by rule, attach the swatch class and the mandatory word.
+
+    Grouped for the same reason the client report groups: a run over twenty
+    pages produces a few hundred finding rows describing a dozen problems, and
+    an operator list that shows all of them is unreadable in exactly the way
+    the report would be. The rule id is the identity; the pages ride along.
+    """
     order = {s: i for i, s in enumerate(SEVERITY_ORDER)}
-    out = []
+    grouped: dict[str, dict[str, Any]] = {}
     for f in findings:
+        rule_id = f.get("rule_id") or f.get("title", "")
+        url = f.get("url")
+        if rule_id in grouped:
+            if url and url not in grouped[rule_id]["pages"]:
+                grouped[rule_id]["pages"].append(url)
+            continue
         severity = f.get("severity", "info")
-        out.append({
+        grouped[rule_id] = {
             **f,
             "status": SEVERITY_STATUS.get(severity, "muted"),
             "word": SEVERITY_WORDS.get(severity, severity.title()),
             "rank": order.get(severity, 99),
-        })
+            "pages": [url] if url else [],
+        }
+    out = []
+    for entry in grouped.values():
+        count = len(entry["pages"])
+        # Only claim a page count when we actually counted pages. Rows from
+        # `findings_across_sites` are aggregated in SQL and carry no `url`, so
+        # unconditionally writing len(pages) would overwrite a real
+        # COUNT(DISTINCT p.id) with 0 — and the template that reads it would
+        # simply render nothing, which is the failure mode this whole change
+        # exists to stamp out.
+        if count:
+            entry["page_count"] = count
+        entry["scope"] = (
+            "" if pages_total <= 1 or not count
+            else f"All {pages_total} pages" if count >= pages_total
+            else f"{count} of {pages_total} pages"
+        )
+        out.append(entry)
     return sorted(out, key=lambda f: (f["rank"], f.get("title", "")))
+
+
+def build_page_rows(pages: list[dict[str, Any]],
+                    scores: dict[int, float | None] | None = None) -> list[dict[str, Any]]:
+    """The operator's page inventory for a run.
+
+    Mirrors `report.model.build_page_rows` in what it decides and stays in the
+    web layer for what it looks like. A page with no score prints why: a blank
+    cell reads as a zero to some people and as a pass to others.
+    """
+    from urllib.parse import urlsplit
+
+    scores = scores or {}
+    rows = []
+    for page in pages:
+        score = scores.get(page["id"])
+        status, word = score_status(score)
+        parts = urlsplit(page["url"])
+        rows.append({
+            "id": page["id"],
+            "url": page["url"],
+            "path": (parts.path or "/") + (f"?{parts.query}" if parts.query else ""),
+            "template": (page.get("template_class") or "page").replace("-", " "),
+            "role": page.get("role") or "discovered",
+            "depth": page.get("audit_depth") or "light",
+            "measured": score is not None,
+            "score": int(round(score)) if score is not None else None,
+            "score_word": word if score is not None else "Not measured",
+            "score_status": status if score is not None else "muted",
+            "findings": page.get("finding_count") or 0,
+            "urgent": page.get("urgent_count") or 0,
+        })
+    return rows

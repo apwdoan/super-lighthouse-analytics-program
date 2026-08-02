@@ -17,7 +17,7 @@ from typing import Any
 
 import httpx
 
-from ..schema import Observation, Source, obs
+from ..schema import Observation, Scope, Source, obs
 from .base import PageContext
 
 
@@ -99,6 +99,10 @@ async def _handshake(host: str, port: int, context: ssl.SSLContext,
 
 class TlsCollector:
     name = "tls"
+    #: One certificate serves every page of a host, so this runs once per
+    #: site rather than once per page: N pages would be N identical results
+    #: and N handshakes, and the report would print the same expiry N times.
+    scope = Scope.ORIGIN
 
     async def collect(self, ctx: PageContext) -> list[Observation]:
         url = httpx.URL(ctx.url)

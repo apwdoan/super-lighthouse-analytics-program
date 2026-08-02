@@ -60,8 +60,11 @@
             {% else %}<span class="sub">one run</span>{% endif %}
           </td>
           <td class="num">
+            {# Distinct problems, not finding rows. Twenty pages missing HSTS
+               is one thing to fix; the multiplied version read "240". #}
             {{ s.open_count }}
             {% if s.urgent_count %}<div class="sub">{{ s.urgent_count }} urgent</div>{% endif %}
+            <div class="sub">across {{ s.pages_text }}</div>
           </td>
           <td>{{ s.audited }}</td>
         </tr>

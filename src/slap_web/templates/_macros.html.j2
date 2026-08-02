@@ -15,8 +15,11 @@
     {% if f.wp_rocket_setting %}
       <div class="rocket"><b>In WP Rocket:</b> {{ f.wp_rocket_setting }}</div>
     {% endif %}
-    {% if f.effort and not fixed %}
-      <div class="meta"><span class="chip">{{ f.effort|capitalize }} effort</span></div>
+    {% if (f.effort and not fixed) or f.scope %}
+      <div class="meta">
+        {% if f.scope %}<span class="chip">{{ f.scope }}</span>{% endif %}
+        {% if f.effort and not fixed %}<span class="chip">{{ f.effort|capitalize }} effort</span>{% endif %}
+      </div>
     {% endif %}
   </div>
 </div>
