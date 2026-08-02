@@ -208,6 +208,16 @@ def check_paths_are_inside_the_bundle(report: VerifyReport) -> None:
         return
 
     root = Path(root).resolve()
+    # On macOS the executable sits in Contents/MacOS, but PyInstaller puts
+    # an .app's data files in Contents/Resources and its binaries in
+    # Contents/Frameworks, reached through symlinks that resolve() follows.
+    # Contain to the .app, which is the thing that actually ships; anything
+    # inside it is bundled by definition. Anchoring to the executable's own
+    # directory would flag Playwright's driver Node as a leak on every Mac.
+    for parent in root.parents:
+        if parent.suffix == ".app":
+            root = parent
+            break
     outside: list[str] = []
     for name, value in bundle.describe().items():
         if name in ("frozen", "bundle_root", "node_source") or not value:

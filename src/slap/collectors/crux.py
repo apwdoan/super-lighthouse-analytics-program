@@ -194,8 +194,25 @@ async def check_key(api_key: str | None, *, timeout: float = 15.0) -> tuple[bool
     if response.status_code == 200:
         return True, "Real-user Core Web Vitals available."
     if response.status_code == 403:
-        detail = response.json().get("error", {}).get("message", "")
-        if "has not been used in project" in detail or "is disabled" in detail:
+        # Google's `reason` code names the fix; the human-readable message
+        # only names the symptom ("requests ... are blocked"), which sends
+        # people hunting in the wrong console screen. Both real cases were
+        # hit with real keys: one had the API not enabled on its project,
+        # one had key restrictions that allowed other APIs but not CrUX.
+        error = response.json().get("error", {})
+        detail = error.get("message", "")
+        reasons = {d.get("reason") for d in error.get("details", [])
+                   if isinstance(d, dict)}
+        if "API_KEY_SERVICE_BLOCKED" in reasons:
+            return False, (
+                "The key works, but its API restrictions do not allow the\n"
+                "Chrome UX Report API. In Google Cloud console: APIs & Services\n"
+                "-> Credentials -> this key -> API restrictions: add\n"
+                "'Chrome UX Report API' (or set the key to Don't restrict key)."
+            )
+        if ("SERVICE_DISABLED" in reasons
+                or "has not been used in project" in detail
+                or "is disabled" in detail):
             return False, (
                 "The key is valid but the Chrome UX Report API is not enabled on\n"
                 "its Google Cloud project. Enable it here, then retry:\n"

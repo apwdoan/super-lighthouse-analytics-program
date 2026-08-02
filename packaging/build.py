@@ -436,7 +436,14 @@ def main(argv: list[str] | None = None) -> int:
 
     dist = run_pyinstaller(clean=args.clean)
     copy_runtime(dist)
-    verify_vulndb(dist)
+    # Scanned over the SHIPPABLE root, not the dist target. They are the
+    # same directory everywhere except macOS, where dist is
+    # Contents/MacOS (the executable and runtime/) but PyInstaller puts an
+    # .app's data files under Contents/Resources, symlinked from
+    # Contents/Frameworks. rglob does not follow directory symlinks, so
+    # scanning Contents/MacOS reported "no vulndb.json" on a bundle that
+    # carried it, and failed every macOS build.
+    verify_vulndb(shippable_path())
 
     manifest = {
         "platform": sys.platform,

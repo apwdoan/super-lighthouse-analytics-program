@@ -405,6 +405,10 @@
         {% if m.provenance.benchmark_index %}
         <li>Measuring machine CPU benchmark {{ m.provenance.benchmark_index | int }}</li>
         {% endif %}
+        {% elif m.provenance.lab_error %}
+        <li>The lab audit was attempted and did not complete
+            ({{ m.provenance.lab_error }}); the figures here are network
+            measurements only</li>
         {% else %}
         <li>No lab audit was run; the figures here are network measurements only</li>
         {% endif %}

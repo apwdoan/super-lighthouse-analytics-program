@@ -4,11 +4,17 @@ version = "0.1.0"
 description = "Super Lighthouse Analytics Project: batch website performance and security auditing"
 requires-python = ">=3.11"
 dependencies = [
-    # The http2 extra is NOT optional. Without `h2`, httpx negotiates
-    # HTTP/1.1 unconditionally and the no-http2 rule fires against sites
-    # that are actually on HTTP/2. A confidently wrong finding in a client
-    # report is worse than no finding.
-    "httpx[http2]>=0.27",
+    # The http2, brotli and zstd extras are NOT optional. Without `h2`,
+    # httpx negotiates HTTP/1.1 unconditionally and the no-http2 rule fires
+    # against sites that are actually on HTTP/2. Without a brotli decoder,
+    # the same failure one layer up and quieter: the fetch advertised `br`,
+    # wordpress.org obliged, httpx fell back to identity without an error,
+    # and every HTML-reading collector analysed 28KB of raw compressed
+    # bytes. Zero components on a WordPress site, no error anywhere. A
+    # confidently wrong finding in a client report is worse than no
+    # finding, and an analysis of bytes that only look like a page is how
+    # you get one.
+    "httpx[http2,brotli,zstd]>=0.27",
     "jinja2>=3.1",
     "pyyaml>=6.0",
 ]

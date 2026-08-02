@@ -277,7 +277,15 @@ jobs:
             Remove-Item "env:$name" -ErrorAction SilentlyContinue
           }
 
-          & $app --cli verify --max-vulndb-age 14
+          # Piped, never bare. SLAP.exe is a GUI-subsystem binary, and
+          # PowerShell does not wait for those: a bare invocation returns
+          # the prompt immediately, $LASTEXITCODE is never set, and this
+          # step failed in 16 seconds with "slap verify failed (exit )" --
+          # empty exit code, no verify output, on a bundle that was fine.
+          # docs/packaging.md warned about exactly this and the step was
+          # rewritten without it anyway. The pipe makes PowerShell read the
+          # process output to EOF, which means waiting for the exit code.
+          & $app --cli verify --max-vulndb-age 14 2>&1 | ForEach-Object { "$_" }
           if ($LASTEXITCODE -ne 0) { throw "slap verify failed (exit $LASTEXITCODE)" }
 
       - name: Upload

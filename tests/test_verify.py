@@ -126,6 +126,51 @@ def test_a_path_outside_the_bundle_fails(monkeypatch, tmp_path):
     assert "worker" not in check.detail        # that one was inside
 
 
+def test_a_mac_app_bundle_is_contained_by_the_app_not_the_exe_dir(monkeypatch,
+                                                                  tmp_path):
+    """The layout PyInstaller actually produces for an .app: the executable
+    in Contents/MacOS, data in Contents/Resources, binaries in
+    Contents/Frameworks, symlinks between them that resolve() follows. The
+    executable's own directory contains almost nothing, so anchoring the
+    containment check there flags Playwright's driver Node as a leak on
+    every Mac. The .app is the thing that ships; contain to it."""
+    app = tmp_path / "SLAP.app"
+    macos = app / "Contents" / "MacOS"
+    resources = app / "Contents" / "Resources" / "playwright" / "driver"
+    macos.mkdir(parents=True)
+    resources.mkdir(parents=True)
+    node = resources / "node"
+    node.touch()
+    frameworks = app / "Contents" / "Frameworks"
+    frameworks.mkdir()
+    (frameworks / "playwright").symlink_to(
+        app / "Contents" / "Resources" / "playwright", target_is_directory=True)
+    outside = tmp_path / "staging-node"
+    outside.touch()
+
+    monkeypatch.setattr(verify_module.bundle, "is_frozen", lambda: True)
+    monkeypatch.setattr(verify_module.bundle, "bundle_root", lambda: macos)
+    monkeypatch.setattr(verify_module.bundle, "describe", lambda: {
+        "frozen": "True", "bundle_root": str(macos),
+        "node": str(frameworks / "playwright" / "driver" / "node"),
+        "node_source": "playwright driver",
+    })
+    report = VerifyReport()
+    check_paths_are_inside_the_bundle(report)
+    assert report.checks[0].ok, report.checks[0].detail
+
+    # And a genuine leak is still a leak: .app containment must not turn
+    # the check into a formality.
+    monkeypatch.setattr(verify_module.bundle, "describe", lambda: {
+        "frozen": "True", "bundle_root": str(macos), "node": str(outside),
+        "node_source": "staged runtime",
+    })
+    leaked = VerifyReport()
+    check_paths_are_inside_the_bundle(leaked)
+    assert leaked.checks[0].ok is False
+    assert "node" in leaked.checks[0].detail
+
+
 def test_all_paths_inside_passes(monkeypatch, tmp_path):
     root = tmp_path / "bundle"
     (root / "runtime").mkdir(parents=True)

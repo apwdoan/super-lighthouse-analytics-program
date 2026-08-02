@@ -416,3 +416,97 @@ def test_the_old_env_var_still_points_the_database(tmp_path, monkeypatch):
     # And the new one wins when both are set.
     monkeypatch.setenv("SLAP_DB", str(tmp_path / "new.sqlite3"))
     assert S.load(tmp_path / "missing.toml").db_path == tmp_path / "new.sqlite3"
+
+
+# --------------------------------------------------------------------------
+# Content encoding: only ask for what we can decode
+# --------------------------------------------------------------------------
+
+def test_the_fetch_only_advertises_decodable_encodings(monkeypatch):
+    """The first real-site audit: the header was the literal
+    "gzip, deflate, br", wordpress.org obliged with brotli, no decoder was
+    installed, and httpx quietly fell back to identity. Every HTML-reading
+    collector then analysed 28KB of raw compressed bytes: zero components
+    detected on a WordPress site, generator tag and all, with no error
+    recorded anywhere. The fixtures never catch it because they serve gzip,
+    which the standard library always decodes."""
+    import builtins
+
+    from slap.collectors import http_probe
+
+    http_probe.accept_encoding.cache_clear()
+    header = http_probe.accept_encoding()
+    assert "gzip" in header and "deflate" in header
+
+    for token in ("br", "zstd"):
+        if token in header.split(", "):
+            continue        # not installed here; nothing to assert against
+        assert False, f"{token} missing although its decoder is a dependency"
+
+    # And with the decoders gone, the header must shrink rather than lie.
+    real_import = builtins.__import__
+
+    def no_compression_libs(name, *args, **kwargs):
+        if name in ("brotli", "brotlicffi", "zstandard"):
+            raise ImportError(name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_compression_libs)
+    http_probe.accept_encoding.cache_clear()
+    stripped = http_probe.accept_encoding()
+    assert "br" not in stripped.split(", ")
+    assert "zstd" not in stripped.split(", ")
+    assert "gzip" in stripped
+    monkeypatch.undo()
+    http_probe.accept_encoding.cache_clear()
+
+
+def test_a_brotli_page_is_read_as_html_not_as_bytes(settings):
+    """End to end through the real pipeline against a server that only
+    speaks brotli, the encoding that broke on the first real site."""
+    brotli = pytest.importorskip("brotli", reason="brotli decoder not installed")
+    import asyncio
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    page = (b'<!doctype html><html><head>'
+            b'<meta name="generator" content="WordPress 6.5">'
+            b'<title>br</title></head><body>compressed</body></html>')
+    compressed = brotli.compress(page)
+
+    class BrotliOnly(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            accept = self.headers.get("Accept-Encoding", "")
+            assert "br" in accept, f"fetch no longer advertises br: {accept}"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Encoding", "br")
+            self.send_header("Content-Length", str(len(compressed)))
+            self.end_headers()
+            self.wfile.write(compressed)
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), BrotliOnly)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{httpd.server_address[1]}/"
+        settings.discovery.enabled = False
+        settings.lighthouse.enabled = False
+        result = asyncio.run(core.run_batch([url], settings))
+        assert result.succeeded == 1
+
+        conn = db.connect(settings.db_path)
+        rows = {r["metric_key"]: r for r in conn.execute(
+            """SELECT o.metric_key, o.numeric_value, o.text_value
+               FROM observation o JOIN page p ON p.id = o.page_id
+               JOIN run r ON r.id = p.run_id WHERE r.id = ?""",
+            (result.run_ids[0],))}
+        # The page was readable: the generator tag was seen through the
+        # compression, which is exactly what failed on wordpress.org.
+        assert rows["tech.cms"]["text_value"] == "WordPress"
+        assert rows["component.observed_count"]["numeric_value"] >= 1
+        assert rows["http.compression"]["text_value"] == "br"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()

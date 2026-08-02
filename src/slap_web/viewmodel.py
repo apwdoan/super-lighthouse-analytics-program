@@ -201,6 +201,17 @@ def build_site_rows(sites: list[dict[str, Any]],
         first = next((s for s in scores if s is not None), None)
         path, last = sparkline(scores)
         status, word = score_status(latest)
+        # No lab score does not mean no verdict. The first real-data run had
+        # this column reading "No data" for a site whose OWN ROW showed a
+        # 2.7s LCP from real visitors, because the verdict keyed on the
+        # Lighthouse score alone. The report leads with field data when it
+        # has it; the site list follows the same rule.
+        if latest is None:
+            cwv = next((h.get("crux.cwv_pass") for h in reversed(history)
+                        if h.get("crux.cwv_pass") is not None), None)
+            if cwv is not None:
+                status = "good" if cwv else "poor"
+                word = "Passing CWV" if cwv else "Failing CWV"
         lcp = next(
             (h.get("crux.lcp.p75") or h.get("lh.lcp") for h in reversed(history)
              if h.get("crux.lcp.p75") is not None or h.get("lh.lcp") is not None),

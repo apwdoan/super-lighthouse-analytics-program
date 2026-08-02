@@ -307,3 +307,60 @@ def test_cwv_pass_tolerates_missing_inp():
 def test_parse_crux_record_handles_empty_payload():
     values = {o.metric_key: o.value for o in parse_crux_record({})}
     assert values == {"crux.available": True}
+
+
+def test_check_key_names_the_fix_for_a_restricted_key():
+    """Hit with a real key: valid, well-formed, and blocked for CrUX by the
+    key's own API restrictions. Google's human-readable message says only
+    that requests 'are blocked', which sends people to the wrong console
+    screen; the `reason` code is what names the fix."""
+    import asyncio
+
+    import respx
+    from httpx import Response
+
+    from slap.collectors.crux import CRUX_ENDPOINT, check_key
+
+    blocked = {
+        "error": {
+            "code": 403,
+            "message": "Requests to this API chromeuxreport.googleapis.com "
+                       "method ... are blocked.",
+            "status": "PERMISSION_DENIED",
+            "details": [{
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "API_KEY_SERVICE_BLOCKED",
+                "domain": "googleapis.com",
+            }],
+        }
+    }
+    with respx.mock:
+        respx.post(CRUX_ENDPOINT).mock(return_value=Response(403, json=blocked))
+        ok, detail = asyncio.run(check_key("AIza-not-a-real-key"))
+    assert ok is False
+    assert "API restrictions" in detail
+    assert "Chrome UX Report API" in detail
+
+
+def test_check_key_still_explains_a_disabled_api():
+    import asyncio
+
+    import respx
+    from httpx import Response
+
+    from slap.collectors.crux import CRUX_ENDPOINT, check_key
+
+    disabled = {
+        "error": {
+            "code": 403,
+            "message": "Chrome UX Report API has not been used in project 123 "
+                       "before or it is disabled.",
+            "status": "PERMISSION_DENIED",
+            "details": [{"reason": "SERVICE_DISABLED"}],
+        }
+    }
+    with respx.mock:
+        respx.post(CRUX_ENDPOINT).mock(return_value=Response(403, json=disabled))
+        ok, detail = asyncio.run(check_key("AIza-not-a-real-key"))
+    assert ok is False
+    assert "not enabled" in detail

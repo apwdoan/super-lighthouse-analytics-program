@@ -48,6 +48,13 @@ hiddenimports = [
     "pypdf",
     "h2",
     "httpx",
+    # httpx imports its content decoders lazily inside try/except, which is
+    # precisely what static analysis can drop. A bundle without brotli
+    # advertises what `accept_encoding()` can decode, so nothing breaks --
+    # but it would silently ask real sites for gzip forever, and the whole
+    # point of shipping the decoders is that it never has to.
+    "brotli",
+    "zstandard",
     # Named explicitly despite being a plain function-level import, because
     # of what its absence looks like: this is what gives a windowed build a
     # stdout, so a bundle without it fails on launch with no console to

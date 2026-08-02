@@ -854,8 +854,12 @@ def get_run_detail(settings: Settings, run_id: int) -> dict[str, Any] | None:
 
 #: What a trend line is drawn from. Lab score first because it is the only
 #: one present on every run; the CrUX metrics need field data to exist.
+#: `crux.cwv_pass` rides along for the site list's verdict column: with no
+#: lab score it falls back to the field verdict, which is only possible if
+#: the history rows carry it.
 TREND_METRICS: tuple[str, ...] = (
     "lh.score.performance", "lh.lcp", "crux.lcp.p75", "crux.inp.p75",
+    "crux.cwv_pass",
 )
 
 

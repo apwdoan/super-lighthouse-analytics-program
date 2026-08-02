@@ -56,8 +56,14 @@
         </header>
         {% if trend.empty %}
           <p class="hint">
-            A trend needs at least two completed runs. This site has
-            {{ trend.count }}. Audit it again and the line appears.
+            {# "Measured", not "completed": a site can have many completed
+               runs and still no line, because only Lighthouse-measured runs
+               carry a performance score. The first real-data site had two
+               completed runs and read "This site has 0", which is the kind
+               of sentence that gets the whole page dismissed. #}
+            A trend needs at least two runs with a Lighthouse measurement.
+            This site has {{ trend.count }}. Audit it with Lighthouse on and
+            the line appears.
           </p>
         {% else %}
         <div class="chartwrap">

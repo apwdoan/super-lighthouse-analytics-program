@@ -10,6 +10,7 @@ exercise the interesting logic without touching the network.
 
 from __future__ import annotations
 
+import functools
 import re
 import time
 from typing import Any
@@ -116,6 +117,42 @@ def normalize_url(url: str) -> str:
     return url
 
 
+@functools.lru_cache(maxsize=1)
+def accept_encoding() -> str:
+    """Only ever advertise encodings this process can actually decode.
+
+    The header used to be the literal ``"gzip, deflate, br"``, and the first
+    real-site audit showed what that costs: wordpress.org answered the ``br``
+    with brotli, no brotli decoder was installed, and httpx quietly fell back
+    to identity, handing every HTML-reading collector 28KB of raw compressed
+    bytes. Zero components detected on a WordPress site, no error anywhere,
+    and the fixtures never notice because they serve gzip, which the
+    standard library always decodes.
+
+    The decoders are declared as hard dependencies now (`httpx[brotli,zstd]`,
+    same reasoning as the h2 extra), so normally everything below is
+    importable. Probing anyway means a stripped-down install degrades to
+    asking for gzip rather than to analysing bytes that only look like a
+    page.
+    """
+    encodings = ["gzip", "deflate"]        # stdlib zlib; always decodable
+    try:
+        import brotli  # noqa: F401
+        encodings.append("br")
+    except ImportError:
+        try:
+            import brotlicffi  # noqa: F401
+            encodings.append("br")
+        except ImportError:
+            pass
+    try:
+        import zstandard  # noqa: F401
+        encodings.append("zstd")
+    except ImportError:
+        pass
+    return ", ".join(encodings)
+
+
 async def fetch(ctx: PageContext) -> FetchedDocument:
     """Fetch ``ctx.url``, following redirects, and record timing."""
     cfg: CollectorConfig = ctx.config
@@ -124,7 +161,7 @@ async def fetch(ctx: PageContext) -> FetchedDocument:
         headers={
             "User-Agent": cfg.user_agent,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Encoding": "gzip, deflate, br",
+            "Accept-Encoding": accept_encoding(),
             "Accept-Language": "en-US,en;q=0.9",
         },
     )

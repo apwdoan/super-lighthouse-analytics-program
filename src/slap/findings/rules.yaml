@@ -172,7 +172,8 @@ rules:
     effort: medium
     remediation: >-
       Confirm page caching is actually serving this URL, then look at
-      hosting tier, object caching (Redis/Memcached), and slow plugin queries.
+      hosting tier, object caching (Redis/Memcached), and slow database
+      queries, often from plugins on a CMS.
     wp_rocket_setting: "Preload > Activate Preloading; consider WP Rocket's Object Cache add-on"
 
   - id: short-cache-ttl
@@ -345,9 +346,13 @@ rules:
       all:
         - {metric: sec.csp, missing: true}
     effort: high
+    # Platform-neutral on purpose: the first real-site audit served this
+    # sentence, then written as advice about WordPress plugins, to
+    # wikipedia.org. Rule text speaks about every site it fires on.
     remediation: >-
       Start in report-only mode to gather violations before enforcing, since
-      a strict policy on an existing WordPress site will break plugins.
+      a strict policy on an established site will break existing embeds and
+      inline scripts.
 
   - id: no-x-content-type-options
     severity: low
@@ -510,8 +515,9 @@ rules:
     severity: medium
     title: "Unused JavaScript is costing {lh.opp.unused_js}"
     detail: >-
-      Scripts are downloaded and parsed that this page never uses. Usually
-      plugins loading their assets site-wide rather than only where needed.
+      Scripts are downloaded and parsed that this page never uses. Usually a
+      CMS loading plugin or theme assets site-wide rather than only where
+      needed.
     when:
       all:
         - {metric: lh.opp.unused_js, gt: 300}
@@ -586,8 +592,8 @@ rules:
     title: "Legacy JavaScript is shipped to modern browsers"
     detail: >-
       Polyfills and transpiled code for browsers nobody uses any more,
-      costing {lh.opp.legacy_javascript}. Comes from a theme or plugin build
-      targeting very old browsers.
+      costing {lh.opp.legacy_javascript}. Comes from a theme, plugin, or
+      bundler configuration targeting very old browsers.
     when:
       all:
         - {metric: lh.opp.legacy_javascript, gt: 150}

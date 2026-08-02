@@ -966,6 +966,24 @@ def split_findings(findings: list[FindingView], *,
     return top, [f for f in findings if f.rule_id not in top_ids]
 
 
+def _lab_error(run_error: str | None) -> str | None:
+    """One readable sentence from the run's Lighthouse failures, or None.
+
+    The run error field aggregates every collector's failures, and the
+    Lighthouse ones repeat per attempt ("lighthouse run 1: ...; lighthouse
+    run 2: ..."), usually with the same reason. The appendix needs the
+    reason once, in client-readable form, not the log."""
+    if not run_error or "lighthouse" not in run_error.lower():
+        return None
+    first = next((part.strip() for part in run_error.split(";")
+                  if "lighthouse" in part.lower()), "")
+    reason = first.split(":", 1)[-1].strip() if ":" in first else first
+    # The first sentence carries the cause; the rest is advice to us, not
+    # to the client ("Make sure you are testing the correct URL...").
+    reason = reason.split(". ")[0].rstrip(".")
+    return reason or None
+
+
 def build_report_model(detail: dict[str, Any], *,
                        generated_at: datetime | None = None,
                        branding: dict[str, Any] | None = None,
@@ -1037,6 +1055,13 @@ def build_report_model(detail: dict[str, Any], *,
             "lighthouse_runs": values.get("lh.runs"),
             "benchmark_index": values.get("lh.benchmark_index"),
             "status": run["status"],
+            # "Attempted and failed" and "not run" are different facts, and a
+            # client reads them differently: one says the tool was not asked,
+            # the other says the site did something worth knowing about. The
+            # first real-site audit collapsed both into "No lab audit was
+            # run" while the run's own error log held three failed Lighthouse
+            # attempts against a page Chrome refused to load.
+            "lab_error": _lab_error(run.get("error")),
         },
         tech={
             "cms": values.get("tech.cms"),
