@@ -417,3 +417,18 @@ def build_page_rows(pages: list[dict[str, Any]],
             "urgent": page.get("urgent_count") or 0,
         })
     return rows
+
+
+def mask_key(key: str | None) -> str | None:
+    """Enough of a credential to recognise it, never enough to reuse it.
+
+    The settings page runs on loopback, but "only I can see it" is how keys
+    end up in screenshots, screen shares and bug reports. The page shows
+    the shape ("AIzaSy...rdE"), which answers "is my key in there, and is it
+    the one I think it is" without ever rendering the middle.
+    """
+    if not key:
+        return None
+    if len(key) < 12:
+        return "•" * len(key)
+    return f"{key[:6]}...{key[-3:]}"

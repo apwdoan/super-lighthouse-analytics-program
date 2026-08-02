@@ -1032,6 +1032,36 @@ def pdf_backend_status() -> "report.BackendStatus":
     return report.check_backend()
 
 
+def check_crux_key(settings: Settings) -> tuple[bool, str]:
+    """Live-test the configured CrUX key against the real API.
+
+    Here rather than in the web layer because front-ends are clients of this
+    module and nothing below it; the settings page must not import a
+    collector. Blocking (one network round-trip); call it from a worker
+    thread, not an event loop.
+    """
+    from .collectors.crux import check_key
+
+    return asyncio.run(check_key(settings.collector.crux_api_key))
+
+
+def save_crux_api_key(settings: Settings, key: str | None) -> Path:
+    """Persist the key and apply it to this Settings object in one move.
+
+    The persisted copy is what survives a restart; the in-memory copy is
+    what the next audit this session reads. Doing only one of the two is a
+    settings page that lies in one direction or the other.
+    """
+    from dataclasses import replace as _replace
+
+    from . import config
+
+    path = config.save_crux_api_key(key, settings.config_path)
+    settings.collector = _replace(settings.collector,
+                                  crux_api_key=(key or "").strip() or None)
+    return path
+
+
 def _report_paths(settings: Settings, hostname: str, run_id: int,
                   out_dir: Path | None) -> tuple[Path, Path]:
     from . import report

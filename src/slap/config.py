@@ -7,6 +7,7 @@ object from a Qt preferences dialog just as easily as from a file.
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -146,12 +147,17 @@ class Settings:
     #: Deliberately a plain dict so a Qt preferences dialog and a TOML file
     #: can both populate it without a schema change.
     branding: dict[str, Any] = field(default_factory=dict)
+    #: Where these settings were loaded from, and therefore where a settings
+    #: page must write. Recorded by :meth:`load` whether or not the file
+    #: exists yet; None on a directly-constructed Settings (tests, scratch).
+    config_path: Path | None = None
 
     @classmethod
     def load(cls, config_path: str | Path | None = None) -> "Settings":
         settings = cls()
 
         path = Path(config_path) if config_path else default_data_dir() / "config.toml"
+        settings.config_path = path
         if path.is_file():
             raw: dict[str, Any] = tomllib.loads(path.read_text(encoding="utf-8"))
             for key in ("db_path", "artifact_dir", "report_dir", "rules_path",
@@ -188,3 +194,96 @@ class Settings:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.artifact_dir.mkdir(parents=True, exist_ok=True)
         self.report_dir.mkdir(parents=True, exist_ok=True)
+
+
+# --------------------------------------------------------------------------
+# Writing one setting back. The read side is tomllib; there is no toml
+# WRITER in the standard library, and that absence shaped this function.
+# --------------------------------------------------------------------------
+
+_KEY_SHAPE = re.compile(r"^[A-Za-z0-9_\-]{10,200}$")
+
+
+def save_crux_api_key(key: str | None,
+                      path: str | Path | None = None) -> Path:
+    """Persist (or clear) the CrUX API key in config.toml. Returns the path.
+
+    A surgical text edit, not a parse-and-rewrite. config.toml is user-owned:
+    it may carry comments, hand-tuned lighthouse settings, and formatting the
+    user chose. ``tomllib`` is read-only, and serialising the parsed dict
+    back would destroy all of that to change one line. So this touches the
+    one line it is about -- replace it where it exists, insert it under
+    ``[collector]`` where it does not, create the file when there is none --
+    and leaves every other byte alone.
+
+    The result is parsed with tomllib BEFORE it replaces the original, and a
+    result that does not parse, or does not carry the key it was asked to
+    write, raises with the original file untouched. An editor that can
+    corrupt a config file is worse than no editor.
+
+    The key itself is validated against the shape API keys actually have,
+    because the failure mode of writing an arbitrary string into a quoted
+    TOML value is an injection into a file the whole app reads at startup.
+    """
+    import os
+    import tomllib as _tomllib
+
+    path = Path(path) if path else default_data_dir() / "config.toml"
+    key = (key or "").strip() or None
+    if key is not None and not _KEY_SHAPE.fullmatch(key):
+        raise ValueError(
+            "That does not look like an API key (letters, digits, - and _ "
+            "only). Nothing was saved.")
+
+    original = path.read_text(encoding="utf-8") if path.is_file() else None
+    lines = (original or "").splitlines()
+
+    # Find the [collector] section and the key line inside it.
+    section_start = section_end = key_line = None
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if section_start is not None and section_end is None:
+                section_end = i
+            if stripped == "[collector]":
+                section_start = i
+        elif (section_start is not None and section_end is None
+              and re.match(r"^\s*crux_api_key\s*=", line)):
+            key_line = i
+    if section_start is not None and section_end is None:
+        section_end = len(lines)
+
+    entry = f'crux_api_key = "{key}"' if key else None
+    if key_line is not None:
+        if entry:
+            lines[key_line] = entry
+        else:
+            del lines[key_line]
+    elif entry:
+        if section_start is not None:
+            lines.insert(section_start + 1, entry)
+        else:
+            if lines and lines[-1].strip():
+                lines.append("")
+            lines.extend(["[collector]", entry])
+    else:
+        # Clearing a key that is not there: nothing to do, and creating an
+        # empty file to say so would be noise.
+        return path
+
+    if original is None and entry:
+        lines.insert(0, "# SLAP configuration. Read at startup; the settings "
+                        "page edits it in place.")
+
+    text = "\n".join(lines) + "\n"
+    parsed = _tomllib.loads(text)          # raises before any file is touched
+    written_key = (parsed.get("collector") or {}).get("crux_api_key")
+    if written_key != key and not (written_key is None and key is None):
+        raise ValueError("the edited config did not read back correctly; "
+                         "nothing was saved")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    scratch = path.with_name(path.name + ".tmp")
+    scratch.write_text(text, encoding="utf-8")
+    os.replace(scratch, path)
+    return path

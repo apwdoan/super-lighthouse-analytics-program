@@ -528,3 +528,80 @@ def test_the_date_helpers_work_with_a_stubbed_windows_strftime(monkeypatch):
     assert vm.day_month(when) == "4 Mar"
     assert vm.stamp("2020-03-04T20:39:00+00:00").startswith(("4 Mar", "5 Mar"))
     assert vm.humanise("2020-03-04T20:39:00+00:00") in ("4 Mar", "5 Mar")
+
+
+# --------------------------------------------------------------------------
+# The settings page
+# --------------------------------------------------------------------------
+
+def test_settings_page_shows_the_key_shape_never_the_key(client, seeded):
+    from dataclasses import replace
+
+    seeded.collector = replace(seeded.collector,
+                               crux_api_key="AIzaSyFAKEFAKEFAKE_1234567890rdE")
+    body = client.get("/settings").text
+    assert "AIzaSyFAKEFAKEFAKE_1234567890rdE" not in body
+    assert "AIzaSy...rdE" in body
+    assert str(seeded.report_dir) in body        # the storage answers live here
+
+
+def test_saving_a_key_persists_applies_and_tests_it(client, seeded, tmp_path,
+                                                    monkeypatch):
+    from slap import core as core_module
+
+    seeded.config_path = tmp_path / "config.toml"
+    checked = {}
+
+    def fake_check(settings):
+        checked["key"] = settings.collector.crux_api_key
+        return True, "Real-user Core Web Vitals available."
+
+    monkeypatch.setattr(core_module, "check_crux_key", fake_check)
+
+    response = client.post("/settings/crux",
+                           data={"key": "AIzaSyFAKEFAKEFAKE_1234567890rdE"},
+                           follow_redirects=True)
+    assert response.status_code == 200
+    # Persisted for the next start...
+    assert "AIzaSyFAKEFAKEFAKE_1234567890rdE" in \
+        seeded.config_path.read_text(encoding="utf-8")
+    # ...applied to the running app...
+    assert seeded.collector.crux_api_key == "AIzaSyFAKEFAKEFAKE_1234567890rdE"
+    # ...and tested, because "saved" and "working" are different claims.
+    assert checked["key"] == "AIzaSyFAKEFAKEFAKE_1234567890rdE"
+    assert "Working" in response.text
+
+
+def test_clearing_the_key_removes_it_everywhere(client, seeded, tmp_path):
+    from dataclasses import replace
+
+    seeded.config_path = tmp_path / "config.toml"
+    seeded.config_path.write_text(
+        '[collector]\ncrux_api_key = "AIzaSyFAKEFAKEFAKE_1234567890rdE"\n',
+        encoding="utf-8")
+    seeded.collector = replace(seeded.collector,
+                               crux_api_key="AIzaSyFAKEFAKEFAKE_1234567890rdE")
+
+    response = client.post("/settings/crux", data={"key": ""},
+                           follow_redirects=True)
+    assert response.status_code == 200
+    assert "crux_api_key" not in seeded.config_path.read_text(encoding="utf-8")
+    assert seeded.collector.crux_api_key is None
+    assert "No key is stored" in response.text
+
+
+def test_a_malformed_key_is_refused_with_the_reason(client, seeded, tmp_path):
+    seeded.config_path = tmp_path / "config.toml"
+    response = client.post("/settings/crux", data={"key": "not a key!!"},
+                           follow_redirects=True)
+    assert response.status_code == 200
+    assert "Not saved" in response.text
+    assert not seeded.config_path.exists()
+
+
+def test_the_env_override_is_disclosed(client, monkeypatch):
+    monkeypatch.setenv("CRUX_API_KEY", "AIzaSyENVENVENVENV_1234567890env")
+    body = client.get("/settings").text
+    assert "CRUX_API_KEY" in body
+    assert "precedence" in body
+    assert "AIzaSyENVENVENVENV_1234567890env" not in body

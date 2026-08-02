@@ -1,0 +1,107 @@
+{% extends "base.html.j2" %}
+{% block title %}Settings &middot; SLAP{% endblock %}
+{% block main %}
+<div class="bar">
+  <div>
+    <h1>Settings</h1>
+    <div class="hint">Saved to {{ config_path }}</div>
+  </div>
+</div>
+<div class="content">
+
+  <div class="card">
+    <header>
+      <div class="grow">
+        <h2>CrUX API key</h2>
+        <div class="hint">
+          Real-user Core Web Vitals from Google's Chrome UX Report. Without a
+          key, reports rely on lab measurements only and say so. A key is
+          free: <a href="https://developer.chrome.com/docs/crux/api"
+                   target="_blank" rel="noopener">developer.chrome.com/docs/crux/api</a>
+        </div>
+      </div>
+    </header>
+
+    {% if key_error %}
+      <div class="card notice">
+        <span class="badge"><span class="sw poor"></span>Not saved</span>
+        {{ key_error }}
+      </div>
+    {% endif %}
+
+    {% if env_override %}
+      <div class="card notice">
+        <span class="badge"><span class="sw muted"></span>Note</span>
+        The <code>CRUX_API_KEY</code> environment variable is set on this
+        machine and takes precedence over the saved key whenever the app
+        starts.
+      </div>
+    {% endif %}
+
+    <form method="post" action="/settings/crux" class="row">
+      <label>
+        API key
+        {# The stored key is never rendered, only its shape: loopback pages
+           end up in screenshots and screen shares. An empty value with the
+           mask as placeholder means submitting without typing cannot
+           accidentally re-save or clear anything by surprise. #}
+        <input name="key" size="46" autocomplete="off" spellcheck="false"
+               placeholder="{{ crux_masked or 'AIza...' }}">
+      </label>
+      <button class="btn primary" type="submit">Save and test</button>
+    </form>
+
+    {% if crux_masked %}
+      <div class="row" style="margin-top: 10px">
+        <form method="post" action="/settings/crux/test">
+          <button class="btn" type="submit">Test the stored key</button>
+        </form>
+        <form method="post" action="/settings/crux"
+              onsubmit="return confirm('Remove the stored CrUX API key?')">
+          <input type="hidden" name="key" value="">
+          <button class="btn" type="submit">Clear</button>
+        </form>
+        <div class="hint">Stored key: {{ crux_masked }}</div>
+      </div>
+    {% else %}
+      <div class="hint" style="margin-top: 10px">No key is stored.</div>
+    {% endif %}
+
+    {% if key_check %}
+      <div class="card notice">
+        {% if key_check[0] %}
+          <span class="badge"><span class="sw good"></span>Working</span>
+        {% else %}
+          <span class="badge"><span class="sw poor"></span>Rejected</span>
+        {% endif %}
+        <span style="white-space: pre-line">{{ key_check[1] }}</span>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <header>
+      <div class="grow">
+        <h2>Storage</h2>
+        <div class="hint">Where this app keeps what it makes</div>
+      </div>
+    </header>
+    <table>
+      <tbody>
+        <tr><td>Audit history</td><td class="hint">{{ db_path }}</td></tr>
+        <tr><td>Exported reports</td><td class="hint">{{ report_dir }}</td></tr>
+        <tr><td>Vulnerability database</td><td class="hint">{{ vulndb_path }}</td></tr>
+        <tr><td>Configuration</td><td class="hint">{{ config_path }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  {% if not pdf_backend %}
+    <div class="card notice">
+      <span class="badge"><span class="sw muted"></span>PDF export unavailable</span>
+      {{ pdf_backend.detail }}
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

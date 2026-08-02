@@ -187,6 +187,61 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             path, media = result.html_path, "text/html"
         return FileResponse(path, media_type=media, filename=path.name)
 
+    # ----------------------------------------------------------------
+    # Settings. The one place configuration is edited, and the seam rule
+    # holds: persistence and the live key test are core functions
+    # (`core.save_crux_api_key`, `core.check_crux_key`); this layer only
+    # translates a form post.
+    # ----------------------------------------------------------------
+    @app.get("/settings", response_class=HTMLResponse)
+    def settings_page(request: Request) -> HTMLResponse:
+        import os
+
+        from slap import config as config_module
+
+        return page(
+            request, "settings.html.j2",
+            crux_masked=vm.mask_key(settings.collector.crux_api_key),
+            env_override=bool(os.environ.get("CRUX_API_KEY")),
+            key_check=getattr(app.state, "key_check", None),
+            key_error=getattr(app.state, "key_error", None),
+            config_path=str(settings.config_path
+                            or config_module.default_data_dir() / "config.toml"),
+            db_path=str(settings.db_path),
+            report_dir=str(settings.report_dir),
+            vulndb_path=str(settings.vulndb_path),
+            pdf_backend=core.pdf_backend_status(),
+        )
+
+    @app.post("/settings/crux")
+    def save_crux(key: str = Form(default="")) -> RedirectResponse:
+        """Save (or clear) the key, then test what was saved.
+
+        Saving and testing are one action on purpose: the key this page
+        exists for was valid, well-formed, and rejected on every request by
+        its own API restrictions. A page that said "saved" and stopped
+        would have called that key configured.
+        """
+        app.state.key_error = None
+        app.state.key_check = None
+        try:
+            core.save_crux_api_key(settings, key)
+        except ValueError as exc:
+            app.state.key_error = str(exc)
+            return RedirectResponse("/settings", status_code=303)
+        if settings.collector.crux_api_key:
+            app.state.key_check = core.check_crux_key(settings)
+        return RedirectResponse("/settings", status_code=303)
+
+    @app.post("/settings/crux/test")
+    def test_crux() -> RedirectResponse:
+        """Re-test the stored key without retyping it. Keys do not expire so
+        much as get their restrictions edited; this answers "is it still
+        good" in one click."""
+        app.state.key_error = None
+        app.state.key_check = core.check_crux_key(settings)
+        return RedirectResponse("/settings", status_code=303)
+
     @app.post("/branding")
     def set_branding(company_name: str = Form(default=""),
                      accent: str = Form(default=""),
