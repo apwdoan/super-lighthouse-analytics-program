@@ -76,7 +76,14 @@ jobs:
             family: linux
 
     steps:
-      - uses: actions/checkout@v4
+      # Action versions here are the earliest major of each that runs on the
+      # Actions Node 24 runtime, not the newest available. GitHub retires
+      # the Node 20 runtime in fall 2026 (Node 20 itself went end-of-life
+      # in April 2026), and every job was printing a deprecation warning per
+      # action. Note this is the runtime the ACTIONS run on, not the Node
+      # SLAP ships: the bundle stages Node 22, which is in maintenance until
+      # April 2027 and is what Lighthouse 13 requires.
+      - uses: actions/checkout@v5
 
       # ----------------------------------------------------------------
       # One place that decides whether this platform is being built.
@@ -114,14 +121,14 @@ jobs:
           fi
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           # 3.12 rather than 3.13: widest wheel availability across
           # playwright, pypdf and uvicorn. The app itself supports 3.11+.
           python-version: "3.12"
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           # Build-time only, for `npm install` of the Lighthouse worker.
           # The SHIPPED runtime is Playwright's bundled Node, version-checked
@@ -275,7 +282,7 @@ jobs:
 
       - name: Upload
         if: steps.gate.outputs.build == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: SLAP-${{ matrix.label }}
           path: dist/*.zip
