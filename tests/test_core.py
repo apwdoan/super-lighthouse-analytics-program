@@ -7,6 +7,7 @@ collected observations. No external network.
 
 from __future__ import annotations
 
+import sqlite3
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -70,6 +71,33 @@ def settings(tmp_path):
 
 
 # --------------------------------------------------------------------------
+
+def test_the_connection_cache_survives_being_emptied(tmp_path):
+    """The bug that failed Windows CI while pointing everywhere but here.
+
+    `close_thread_connections` leaves the cache as an EMPTY dict, and
+    `connect`'s ``getattr(...) or {}`` treated empty as absent: it built a
+    fresh dict the ``hasattr`` guard then refused to store. From the first
+    close onward, every connection the thread opened was uncached and
+    unclosable. One command per process never notices. A test suite is many
+    commands in one process, and on Windows an open database cannot be
+    deleted, so it surfaced as WinError 32 in `slap verify`'s scratch
+    cleanup — deterministically, and only there.
+    """
+    path = tmp_path / "cache.sqlite3"
+
+    first = db.connect(path)
+    db.close_thread_connections()          # the state every command exits in
+
+    second = db.connect(path)
+    third = db.connect(path)
+    assert second is third, "the cache must work after being emptied"
+    assert second is not first
+
+    db.close_thread_connections()
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        second.cursor()
+
 
 def test_prepare_urls_normalizes_dedupes_and_skips_comments():
     result = core.prepare_urls([

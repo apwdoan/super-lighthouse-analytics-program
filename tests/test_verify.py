@@ -382,6 +382,114 @@ def test_the_command_exits_non_zero_on_failure(tmp_path, capsys):
     assert '"ok": false' in capsys.readouterr().out
 
 
+def test_no_sqlite_connection_survives_cmd_verify(tmp_path, monkeypatch, capsys):
+    """Every connection the command opens must be closed by the time it
+    returns.
+
+    This is what earns `scratch_directory` the right to give up quietly.
+    Windows CI failed cleanup with WinError 32 on the scratch database; the
+    holder there is external (a scanner opening the freshly checkpointed
+    file), and the cleanup now retries and then leaves the directory rather
+    than crash. If the busy file were ever OURS, that leniency would hide a
+    real connection leak forever. So this tracks every sqlite connection
+    created during the command and asserts each was closed, which fails
+    loudly and cross-platform on the day someone leaks one.
+    """
+    import argparse
+    import sqlite3
+
+    from slap import cli
+
+    import threading
+
+    made: list[tuple[str, str, sqlite3.Connection]] = []
+    real_connect = sqlite3.connect
+
+    def tracking(*args, **kwargs):
+        conn = real_connect(*args, **kwargs)
+        made.append((str(args[0]) if args else str(kwargs.get("database")),
+                     threading.current_thread().name, conn))
+        return conn
+
+    monkeypatch.setattr(sqlite3, "connect", tracking)
+
+    # The state every prior command leaves behind: an emptied — not absent —
+    # connection cache. The leak this test exists for only fired from that
+    # state, which is why it passed alone and failed in the suite, and why
+    # it failed on CI only after other test files had run a command first.
+    from slap import core
+    core.close_connections()
+
+    settings = Settings()
+    settings.collector.crux_api_key = None
+    args = argparse.Namespace(json=True, no_lighthouse=True, no_web=True,
+                              max_vulndb_age=None)
+    cli.cmd_verify(args, settings)
+
+    # Only the command's own connections. The monkeypatch window is process
+    # wide, and an anyio worker thread idling on from an earlier test's web
+    # check can open a connection to that test's database mid-window; that
+    # thread's connections are its own to close on its own schedule.
+    ours = [(path, thread, conn) for path, thread, conn in made
+            if "slap-verify-" in path]
+    assert ours, "the command should have opened at least the scratch database"
+    for path, thread, conn in ours:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            conn.cursor()
+            pytest.fail(f"open connection to {path} from thread {thread}")
+
+
+def test_scratch_cleanup_retries_past_a_transient_holder(monkeypatch):
+    """The Windows CI failure: the delete lands inside a virus scanner's
+    window on the just-written file. A short backoff outlasts the scan."""
+    import shutil
+
+    attempts: list[int] = []
+    real_rmtree = shutil.rmtree
+
+    def flaky(path, **kwargs):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise PermissionError(
+                32, "The process cannot access the file because it is "
+                    "being used by another process")
+        return real_rmtree(path, **kwargs)
+
+    monkeypatch.setattr(verify_module.shutil, "rmtree", flaky)
+    monkeypatch.setattr(verify_module.time, "sleep", lambda seconds: None)
+
+    with verify_module.scratch_directory("slap-test-") as root:
+        (root / "held.sqlite3").write_text("x", encoding="utf-8")
+
+    assert len(attempts) == 3
+    assert not root.exists()
+
+
+def test_scratch_cleanup_gives_up_quietly_not_with_a_traceback(monkeypatch,
+                                                               capsys):
+    """`slap verify` printing "This build works." and then dying in cleanup
+    is a lie about the build. A stuck file costs a note on stderr and a
+    stranded directory in temp, never the exit code."""
+    import shutil
+
+    real_rmtree = shutil.rmtree
+
+    def stubborn(path, **kwargs):
+        if kwargs.get("ignore_errors"):
+            return None                       # deletes nothing, raises nothing
+        raise PermissionError(32, "held forever")
+
+    monkeypatch.setattr(verify_module.shutil, "rmtree", stubborn)
+    monkeypatch.setattr(verify_module.time, "sleep", lambda seconds: None)
+
+    with verify_module.scratch_directory("slap-test-") as root:
+        (root / "held.sqlite3").write_text("x", encoding="utf-8")
+
+    assert root.exists()                      # left behind, deliberately
+    assert "scratch" in capsys.readouterr().err
+    real_rmtree(root)
+
+
 def test_verifying_does_not_write_into_a_real_database(tmp_path):
     """`slap verify` must be safe to run on a machine with audits worth
     keeping: it writes to a scratch directory, not to the user's history."""

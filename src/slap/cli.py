@@ -534,15 +534,14 @@ def cmd_verify(args: argparse.Namespace, settings: Settings) -> int:
     PowerShell, asserting the same things in different languages. Nothing
     stopped a check landing on only one of them.
     """
-    import tempfile
-
     from . import verify as verify_module
 
     # A scratch database and report directory, so verifying never writes into
     # a teammate's real history. `slap verify` should be safe to run twice on
-    # a machine that has audits worth keeping.
-    with tempfile.TemporaryDirectory(prefix="slap-verify-") as scratch:
-        root = Path(scratch)
+    # a machine that has audits worth keeping. Not a plain TemporaryDirectory:
+    # on Windows, deleting the just-checkpointed database races the machine's
+    # virus scanner. See `scratch_directory`.
+    with verify_module.scratch_directory("slap-verify-") as root:
         settings.db_path = root / "verify.sqlite3"
         settings.artifact_dir = root / "artifacts"
         settings.report_dir = root / "reports"

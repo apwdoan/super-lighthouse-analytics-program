@@ -161,11 +161,26 @@ def utcnow() -> str:
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
-    """Return this thread's connection to ``path``, creating it if needed."""
+    """Return this thread's connection to ``path``, creating it if needed.
+
+    The cache lookup must be ``is None``, never truthiness.
+    ``close_thread_connections`` leaves the cache as an EMPTY dict, and the
+    first version's ``getattr(...) or {}`` treated empty as absent: it built
+    a fresh dict, and the ``hasattr`` guard then declined to store it. From
+    the first close onward, every connection this thread opened went into a
+    dict nothing kept — uncached, unclosable, held until process exit.
+
+    One command per process never notices; the leaked handles die with the
+    process. A test suite is many commands in one process, and on Windows an
+    open database cannot be deleted (SQLite opens without
+    FILE_SHARE_DELETE), so the leak surfaced as ``WinError 32`` in
+    `slap verify`'s scratch cleanup — two tests, deterministically, and only
+    on Windows, pointing at everything except this line.
+    """
     path = str(Path(path).expanduser())
-    cache: dict[str, sqlite3.Connection] = getattr(_local, "conns", None) or {}
-    if not hasattr(_local, "conns"):
-        _local.conns = cache
+    cache: dict[str, sqlite3.Connection] | None = getattr(_local, "conns", None)
+    if cache is None:
+        cache = _local.conns = {}
     conn = cache.get(path)
     if conn is not None:
         return conn

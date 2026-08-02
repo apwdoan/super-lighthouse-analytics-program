@@ -15,14 +15,13 @@ from __future__ import annotations
 
 import contextlib
 import os
-import tempfile
 import threading
 from pathlib import Path
 from typing import Iterator
 
 from slap.config import Settings
 from slap.streams import detached
-from slap.verify import VerifyReport, _free_port
+from slap.verify import VerifyReport, _free_port, scratch_directory
 
 from .server import make_config
 
@@ -130,8 +129,11 @@ def check_headless_launch(report: VerifyReport, settings: Settings) -> None:
     then assert the file exists. A launch that dies with no console leaves
     the user nothing to send us except that file.
     """
-    with tempfile.TemporaryDirectory(prefix="slap-headless-") as scratch:
-        log = Path(scratch) / "slap.log"
+    # scratch_directory rather than TemporaryDirectory for the same reason
+    # `cmd_verify` uses it: the log is written and closed milliseconds before
+    # the delete, which on Windows is exactly when a virus scanner holds it.
+    with scratch_directory("slap-headless-") as scratch:
+        log = scratch / "slap.log"
         with _log_to(log), detached():
             _serve_and_request(report, settings, name="headless launch",
                                prefix="no console: ")

@@ -30,15 +30,19 @@ server over a real socket.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import platform
+import shutil
 import socket
 import sys
+import tempfile
 import threading
+import time
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from . import __version__, bundle
 from .config import Settings
@@ -85,6 +89,57 @@ def _free_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         return int(probe.getsockname()[1])
+
+
+@contextlib.contextmanager
+def scratch_directory(prefix: str) -> Iterator[Path]:
+    """A temporary directory whose cleanup does not outrank the verdict.
+
+    Verifying writes a database, reports and a log into scratch space and
+    deletes it on the way out. On Windows an open file cannot be deleted
+    (SQLite opens without FILE_SHARE_DELETE), so anything still holding a
+    handle turns cleanup into ``WinError 32`` — and because cleanup runs
+    *after* the report is printed, `slap verify` would announce the build
+    works and then crash with a traceback. The exit code and the sentence
+    both lie about the build.
+
+    The first time that happened, the holder was SLAP itself: a cache bug
+    in ``db.connect`` leaked every connection after the first
+    ``close_thread_connections``. That bug is fixed, and the tracking test
+    beside this one asserts the command closes every connection it opens —
+    which is what earns this function the right to be lenient about the
+    holders that remain. Those are real and not ours to close: a server
+    thread pool's workers release their connections on their own schedule
+    shortly after the web checks finish, and Windows virus scanners open
+    freshly modified files behind everyone's back.
+
+    So: retry with a short backoff, which outlasts both; then delete what
+    can be deleted, leave what cannot, and say so on stderr. A scratch
+    directory stranded in the temp dir is a nuisance, not a failed build.
+
+    Not ``TemporaryDirectory(ignore_cleanup_errors=True)``, because that
+    swallows the failure silently everywhere — including the day another
+    leak like the one above lands, which is exactly the day the noise is
+    the point. The tracking test guards the our-handle case; the stderr
+    note reports the rest.
+    """
+    path = Path(tempfile.mkdtemp(prefix=prefix))
+    try:
+        yield path
+    finally:
+        for pause in (0.0, 0.1, 0.25, 0.5, 1.0):
+            time.sleep(pause)
+            try:
+                shutil.rmtree(path)
+                break
+            except OSError:
+                continue
+        else:
+            shutil.rmtree(path, ignore_errors=True)
+            if path.exists():
+                print(f"note: could not remove scratch directory {path}; "
+                      "something (an antivirus?) is holding a file in it",
+                      file=sys.stderr)
 
 
 @dataclass(slots=True)
@@ -253,6 +308,7 @@ def check_audit_and_report(report: VerifyReport, settings: Settings, *,
         report.add("audit", False, f"{type(exc).__name__}: {exc}")
     finally:
         httpd.shutdown()
+        httpd.server_close()
 
 
 # --------------------------------------------------------------------------
