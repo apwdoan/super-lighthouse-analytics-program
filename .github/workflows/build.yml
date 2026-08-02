@@ -188,6 +188,25 @@ jobs:
       # real PDF export, against the repo's own offline fixture rather than
       # a live site, so a network hiccup cannot look like a broken build.
       # ----------------------------------------------------------------
+      # ----------------------------------------------------------------
+      # Run the bundle that was just built.
+      #
+      # Every ASSERTION lives in `slap verify`, in Python, covered by the
+      # test suite and shipped inside the bundle it checks. This step is only
+      # the platform-specific part: find the executable, strip the
+      # environment, run one command, read the exit code.
+      #
+      # It used to be 145 lines of bash beside 147 lines of PowerShell
+      # asserting the same eleven things. They had not drifted, but nothing
+      # stopped them: a check added to one and forgotten in the other would
+      # have passed CI and shipped. That nearly happened when the
+      # vulnerability-database assertions went in, and only care caught it.
+      #
+      # `verify` audits a page it serves itself, exports a real PDF, and
+      # drives the real web server over a real socket, which is what catches
+      # uvicorn resolving its event loop and protocol implementations by
+      # string at runtime. `doctor` alone would never notice.
+      # ----------------------------------------------------------------
       - name: Verify the bundle
         if: steps.gate.outputs.build == 'true' && runner.os != 'Windows'
         shell: bash
@@ -204,134 +223,20 @@ jobs:
           # bundle from the arm64 job and nothing else here would notice.
           file "$APP" || true
 
-          python -m tests.fixture_server 8899 > /dev/null 2>&1 &
-          FIXTURE=$!
-          SERVER=""
-          trap 'kill $FIXTURE $SERVER 2>/dev/null || true' EXIT
-          sleep 3
-
-          OUT="$RUNNER_TEMP/verify"
-          mkdir -p "$OUT" "$RUNNER_TEMP/clean"
-
           # env -i proves nothing leaks in from the build environment: no
           # node on PATH, no PLAYWRIGHT_BROWSERS_PATH, no site-packages.
-          CLEAN="env -i PATH=/usr/bin:/bin HOME=$RUNNER_TEMP/clean"
+          # `verify` additionally asserts that every path the bundle resolved
+          # lives inside the bundle, because "should be impossible" is not a
+          # check and the Windows step had already proved that.
+          mkdir -p "$RUNNER_TEMP/clean"
+          env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP/clean" \
+            "$APP" --cli verify --max-vulndb-age 14 | tee "$RUNNER_TEMP/verify.txt"
 
-          # `doctor` exits 1 when ANY backend is missing, and CI has no
-          # CrUX key, so its exit code cannot be the gate. Assert on the
-          # backends a BUNDLE is responsible for instead.
-          DOCTOR="$($CLEAN "$APP" --cli doctor || true)"
-          echo "$DOCTOR"
-          echo "$DOCTOR" | grep -q '\[ok \] Lighthouse lab data'
-          echo "$DOCTOR" | grep -q '\[ok \] PDF export'
-          # A bundle with no vulnerability database starts fine, audits
-          # fine, and reports zero known vulnerabilities forever, which
-          # looks exactly like a clean result. Same class of lie as the PDF
-          # check that stat-ed a file instead of launching the browser.
-          echo "$DOCTOR" | grep -q '\[ok \] Vulnerability database'
+          # And keep the machine-readable copy for the build log.
+          env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP/clean" \
+            "$APP" --cli verify --json --no-lighthouse --no-web \
+            > "$RUNNER_TEMP/verify.json" || true
 
-          # And assert it resolves INSIDE the bundle. A database picked up
-          # from the build machine's home directory would pass the line
-          # above and ship nothing.
-          VULNDB="$($CLEAN "$APP" --cli vulndb status)"
-          echo "$VULNDB"
-          echo "$VULNDB" | grep -q 'npm: OSV.dev'
-          case "$VULNDB" in
-            *"$PWD/dist"*) : ;;
-            *) echo "the bundle resolved a vulnerability database outside itself" >&2
-               exit 1 ;;
-          esac
-
-          # Every path doctor prints must be inside the bundle. `env -i`
-          # should already make borrowing the build machine's browser
-          # impossible; assert it rather than trust it, because the Windows
-          # step made exactly that mistake and still reported success.
-          if echo "$DOCTOR" | grep -q 'packaging/staging'; then
-            echo "doctor resolved a path in packaging/staging: not self-contained" >&2
-            exit 1
-          fi
-
-          # ----------------------------------------------------------
-          # Everything below drives the bundled WEB SERVER, because that is
-          # what a teammate gets when they double-click the app. The CLI is
-          # the secondary path now.
-          #
-          # This is the check that would have caught uvicorn's dynamic
-          # imports: it resolves its event loop, HTTP protocol and lifespan
-          # implementations by STRING at runtime, so a bundle missing them
-          # starts perfectly and dies on the first request. `doctor` alone
-          # would never notice.
-          # ----------------------------------------------------------
-          $CLEAN "$APP" --no-browser --port 8898 --db "$OUT/v.sqlite3" \
-            > "$OUT/server.log" 2>&1 &
-          SERVER=$!
-          trap 'kill $FIXTURE $SERVER 2>/dev/null || true' EXIT
-
-          # free_port() moves to an OS-assigned port if 8898 is taken, so
-          # read the URL the server actually printed rather than assuming.
-          # `|| true` is not defensive noise. Under `set -euo pipefail` a
-          # grep that matches nothing exits 1, pipefail propagates it, and
-          # the failing assignment kills the script on the FIRST iteration,
-          # before the server has had a chance to write anything. That is
-          # exactly what happened the first time this ran.
-          URL=""
-          for _ in $(seq 1 30); do
-            URL=$(grep -o 'http://127.0.0.1:[0-9]*/' "$OUT/server.log" | head -1 || true)
-            if [ -n "$URL" ] && curl -fsS "${URL}healthz" >/dev/null 2>&1; then
-              break
-            fi
-            sleep 1
-          done
-          [ -n "$URL" ] || { echo "server never printed a URL:"; cat "$OUT/server.log"; exit 1; }
-          echo "bundled server at $URL"
-
-          for path in "" findings healthz; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "${URL}${path}")
-            echo "  GET /${path} -> $code"
-            [ "$code" = "200" ] || { cat "$OUT/server.log"; exit 1; }
-          done
-
-          # A real Lighthouse audit, started the way the operator starts one.
-          curl -fsS -X POST -o /dev/null \
-            -d 'urls=http://127.0.0.1:8899/index.html&lighthouse=1' "${URL}audit"
-
-          # Poll rather than sleep a fixed time: a Lighthouse run is 30-40s
-          # on a fast machine and longer on a loaded runner.
-          for _ in $(seq 1 60); do
-            STATE=$(curl -fsS "${URL}activity")
-            echo "$STATE" | grep -q '"running": *false' && break
-            sleep 5
-          done
-          echo "$STATE"
-          echo "$STATE" | grep -q '"running": *false' || {
-            echo "the audit never finished" >&2; cat "$OUT/server.log"; exit 1; }
-          echo "$STATE" | grep -q '"state": *"done"' || {
-            echo "the audit finished but did not succeed" >&2; exit 1; }
-
-          # A batch whose Lighthouse is unavailable completes on the network
-          # collectors alone, so assert the lab observations actually landed.
-          echo "$STATE" | grep -qE '"observations": *[1-9][0-9]+' || {
-            echo "too few observations: Lighthouse probably did not run" >&2; exit 1; }
-
-          # The report preview must be the report, not the app shell.
-          curl -fsS "${URL}run/1/report.html" | grep -qi 'site performance' || {
-            echo "the report preview did not render the report" >&2; exit 1; }
-
-          $CLEAN "$APP" --cli --db "$OUT/v.sqlite3" report 1 -o "$OUT"
-
-          # A glob inside `test -f` is a syntax error on multiple matches
-          # and silently passes the literal string on zero. Count instead.
-          count=$(find "$OUT" -name '*.pdf' | wc -l)
-          echo "PDFs produced: $count"
-          [ "$count" -ge 1 ]
-
-          # Size too, not just existence. A zero-byte file satisfies a
-          # count and is not a PDF. (The shell waits for any child here
-          # regardless of subsystem, so the fire-and-forget problem the
-          # Windows step hit does not arise on this side.)
-          find "$OUT" -name '*.pdf' -printf '  %f: %s bytes\n'
-          [ -z "$(find "$OUT" -name '*.pdf' -size -1k)" ] || {
-            echo "a PDF is under 1KB" >&2; exit 1; }
 
       - name: Verify the bundle (Windows)
         if: steps.gate.outputs.build == 'true' && runner.os == 'Windows'
@@ -339,146 +244,25 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $app = "$PWD\dist\SLAP\SLAP.exe"
-          $server = $null
-          $fixture = Start-Process python -ArgumentList "-m","tests.fixture_server","8899" -PassThru
-          Start-Sleep -Seconds 3
-          try {
-            $out = "$env:RUNNER_TEMP\verify"
-            New-Item -ItemType Directory -Force -Path $out | Out-Null
+          if (-not (Test-Path $app)) { throw "no SLAP.exe at $app" }
 
-            # ------------------------------------------------------------
-            # The Windows equivalent of the `env -i` used on the other
-            # platforms. Without this the job-wide PLAYWRIGHT_BROWSERS_PATH
-            # leaks in and the bundle happily uses the STAGING browser, so
-            # the step reported success while proving nothing about whether
-            # the bundle ships a working one. It printed the staging path
-            # right there in the log and nobody had to notice.
-            #
-            # PATH is cut to the system directories so the runner's Node
-            # and Python cannot stand in for the bundled ones either.
-            # ------------------------------------------------------------
-            Remove-Item Env:PLAYWRIGHT_BROWSERS_PATH -ErrorAction SilentlyContinue
-            Remove-Item Env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD -ErrorAction SilentlyContinue
-            Remove-Item Env:CHROME_PATH -ErrorAction SilentlyContinue
-            Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-            Remove-Item Env:NODE_PATH -ErrorAction SilentlyContinue
-            $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot"
-
-            # doctor exits 1 with no CrUX key, so assert on its output.
-            $doctor = & $app --cli doctor 2>&1 | Out-String
-            Write-Host $doctor
-            if ($doctor -notmatch '\[ok \] Lighthouse lab data') { throw "Lighthouse backend missing" }
-            if ($doctor -notmatch '\[ok \] PDF export') { throw "PDF backend missing" }
-            # A bundle with no vulnerability database reports zero known
-            # vulnerabilities forever and looks clean doing it.
-            if ($doctor -notmatch '\[ok \] Vulnerability database') { throw "vulnerability database missing" }
-
-            $vulndb = & $app --cli vulndb status 2>&1 | Out-String
-            Write-Host $vulndb
-            if ($vulndb -notmatch 'npm: OSV.dev') { throw "the bundled database has no npm source" }
-
-            # Every path doctor prints must live inside the bundle. Without
-            # this the step passes on a bundle that quietly borrowed the
-            # build machine's browser, which is the exact failure the
-            # environment scrub above is meant to expose.
-            if ($doctor -match 'packaging.staging') {
-              throw "doctor resolved a path in packaging/staging: the bundle is not self-contained"
-            }
-
-            # ----------------------------------------------------------
-            # Everything below drives the bundled WEB SERVER, which is what
-            # a teammate gets when they double-click the app.
-            #
-            # Start-Process, not `&`: this one we deliberately do NOT wait
-            # for. (The opposite mistake, calling a short-lived command
-            # bare, is what made an earlier run report "no PDF produced"
-            # while the app was still writing it. console=False means
-            # PowerShell never blocks, so the choice has to be explicit
-            # both ways.)
-            # ----------------------------------------------------------
-            $log = "$out\server.log"
-            $server = Start-Process $app `
-              -ArgumentList "--no-browser","--port","8898","--db","$out\v.sqlite3" `
-              -PassThru -RedirectStandardOutput $log -RedirectStandardError "$out\server.err"
-
-            # free_port() drifts to an OS-assigned port if 8898 is taken, so
-            # read back the URL the server actually printed.
-            $url = $null
-            foreach ($i in 1..30) {
-              Start-Sleep -Seconds 1
-              if (Test-Path $log) {
-                $m = Select-String -Path $log -Pattern 'http://127\.0\.0\.1:\d+/' | Select-Object -First 1
-                if ($m) { $url = $m.Matches[0].Value; break }
-              }
-            }
-            if (-not $url) {
-              if (Test-Path $log) { Get-Content $log }
-              if (Test-Path "$out\server.err") { Get-Content "$out\server.err" }
-              throw "the bundled server never printed a URL"
-            }
-            Write-Host "bundled server at $url"
-
-            foreach ($path in @("", "findings", "healthz")) {
-              $r = Invoke-WebRequest -Uri "$url$path" -UseBasicParsing -TimeoutSec 20
-              Write-Host "  GET /$path -> $($r.StatusCode)"
-              if ($r.StatusCode -ne 200) { throw "GET /$path returned $($r.StatusCode)" }
-            }
-
-            # A real Lighthouse audit, started the way an operator starts one.
-            Invoke-WebRequest -Uri "${url}audit" -Method Post -UseBasicParsing `
-              -Body @{ urls = "http://127.0.0.1:8899/index.html"; lighthouse = "1" } | Out-Null
-
-            # Poll: a Lighthouse run is 30-40s on a fast machine and longer
-            # on a loaded runner, so a fixed sleep is either flaky or slow.
-            $state = $null
-            foreach ($i in 1..60) {
-              $state = Invoke-RestMethod -Uri "${url}activity" -TimeoutSec 20
-              if (-not $state.running) { break }
-              Start-Sleep -Seconds 5
-            }
-            $state | ConvertTo-Json -Depth 4 | Write-Host
-            if ($state.running) { Get-Content $log; throw "the audit never finished" }
-            if ($state.sites[0].state -ne "done") { throw "the audit did not succeed" }
-            # A batch with Lighthouse unavailable still completes on the
-            # network collectors, so assert the lab observations landed.
-            if ($state.sites[0].observations -lt 20) {
-              throw "only $($state.sites[0].observations) observations: Lighthouse probably did not run"
-            }
-
-            # The preview must be the report, not the app shell around it.
-            $preview = Invoke-WebRequest -Uri "${url}run/1/report.html" -UseBasicParsing
-            if ($preview.Content -notmatch '(?i)site performance') {
-              throw "the report preview did not render the report"
-            }
-
-            # `| Out-String` is LOAD-BEARING, not tidiness.
-            #
-            # SLAP.exe is built console=False, so it is a GUI-subsystem
-            # binary and PowerShell does NOT block on it. Called bare, this
-            # returned instantly, Get-ChildItem found nothing, and the step
-            # failed with "no PDF produced" while the app was still running.
-            # The log proved it: the report's own output appeared AFTER the
-            # exception that said it had not produced anything.
-            #
-            # Piping forces PowerShell to read stdout to EOF, which happens
-            # when the process exits. The doctor and audit calls above were
-            # already piped and so were already correct, which is exactly
-            # why this was the only one that broke.
-            $report = & $app --cli --db "$out\v.sqlite3" report 1 -o $out 2>&1 | Out-String
-            Write-Host $report
-
-            $pdfs = @(Get-ChildItem $out -Filter *.pdf)
-            Write-Host "PDFs produced: $($pdfs.Count)"
-            if ($pdfs.Count -lt 1) { throw "no PDF produced" }
-            foreach ($pdf in $pdfs) {
-              # A zero-byte file counts for Get-ChildItem and is not a PDF.
-              if ($pdf.Length -lt 1024) { throw "$($pdf.Name) is only $($pdf.Length) bytes" }
-              Write-Host "  $($pdf.Name): $([math]::Round($pdf.Length / 1KB)) KB"
-            }
-          } finally {
-            Stop-Process -Id $fixture.Id -ErrorAction SilentlyContinue
-            if ($server) { Stop-Process -Id $server.Id -ErrorAction SilentlyContinue }
+          # The Windows equivalent of `env -i`. There is no such thing in
+          # PowerShell, so the variables that could leak are cleared by name.
+          # The first version missed PLAYWRIGHT_BROWSERS_PATH and the bundle
+          # cheerfully used the STAGING browser, so the step reported success
+          # while proving nothing about what it ships.
+          #
+          # Clearing by name cannot be exhaustive, which is why `verify`
+          # asserts that every resolved path is inside the bundle rather than
+          # trusting this list to be complete.
+          foreach ($name in @("PLAYWRIGHT_BROWSERS_PATH", "PLAYWRIGHT_DRIVER_PATH",
+                              "NODE_PATH", "PYTHONPATH", "PYTHONHOME",
+                              "CHROME_PATH", "SLAP_DB", "SALP_DB", "CRUX_API_KEY")) {
+            Remove-Item "env:$name" -ErrorAction SilentlyContinue
           }
+
+          & $app --cli verify --max-vulndb-age 14
+          if ($LASTEXITCODE -ne 0) { throw "slap verify failed (exit $LASTEXITCODE)" }
 
       - name: Upload
         if: steps.gate.outputs.build == 'true'

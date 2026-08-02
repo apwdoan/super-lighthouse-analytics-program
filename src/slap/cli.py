@@ -483,6 +483,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-p", "--path", help="alternate rules.yaml")
     p.set_defaults(func=cmd_rules)
 
+    p = sub.add_parser(
+        "verify",
+        help="prove this build works: audits a page it serves itself, "
+             "exports a PDF, and drives the web server")
+    p.add_argument("--json", action="store_true", help="machine-readable output")
+    p.add_argument("--no-lighthouse", action="store_true",
+                   help="skip the browser audit (much faster)")
+    p.add_argument("--no-web", action="store_true", help="skip the web server")
+    p.add_argument("--max-vulndb-age", type=int, metavar="DAYS",
+                   help="fail if the vulnerability database is older than this")
+    p.set_defaults(func=cmd_verify)
+
     p = sub.add_parser("vulndb", help="the offline vulnerability database")
     p.add_argument("action", choices=["status", "update"], nargs="?",
                    default="status")
@@ -498,6 +510,51 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_probe)
 
     return parser
+
+
+def cmd_verify(args: argparse.Namespace, settings: Settings) -> int:
+    """Prove the build works, on any platform, from one place.
+
+    Exists because this used to be two 145-line CI steps, one bash and one
+    PowerShell, asserting the same things in different languages. Nothing
+    stopped a check landing on only one of them.
+    """
+    import tempfile
+
+    from . import verify as verify_module
+
+    # A scratch database and report directory, so verifying never writes into
+    # a teammate's real history. `slap verify` should be safe to run twice on
+    # a machine that has audits worth keeping.
+    with tempfile.TemporaryDirectory(prefix="slap-verify-") as scratch:
+        root = Path(scratch)
+        settings.db_path = root / "verify.sqlite3"
+        settings.artifact_dir = root / "artifacts"
+        settings.report_dir = root / "reports"
+        settings.discovery.enabled = False       # one page is the point
+        settings.collector.crux_api_key = None   # no network dependency
+
+        # The web check lives in `slap_web`, because it drives uvicorn and
+        # nothing under `slap/` may import a web framework. The CLI is the
+        # seam that puts the two together.
+        extra = []
+        if not args.no_web:
+            try:
+                from slap_web.verify import check_web_server
+
+                extra.append(check_web_server)
+            except ImportError:
+                pass
+
+        report = verify_module.verify(
+            settings,
+            lighthouse=not args.no_lighthouse,
+            max_vulndb_age_days=args.max_vulndb_age,
+            extra_checks=extra,
+        )
+        print(verify_module.render(report, as_json=args.json))
+        core.close_connections()
+    return 0 if report.ok else 1
 
 
 def cmd_vulndb(args: argparse.Namespace, settings: Settings) -> int:

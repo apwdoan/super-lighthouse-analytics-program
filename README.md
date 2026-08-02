@@ -81,6 +81,7 @@ slap probe allow client.com --by "Austin"   # authorise endpoint probing
 slap probe list                             # who is authorised, and when
 slap audit client.com --probe               # probe AUTHORISED hosts only
 slap doctor                                 # which backends are available
+slap verify                                 # prove this build actually works
 slap batches                                # what has been run
 slap runs -b <batch-id>                     # runs in a batch
 slap show 42 -v                             # findings, with fixes
@@ -119,14 +120,19 @@ the app, Node, Lighthouse and Chromium. Double-clicking it starts a local
 server and opens the default browser. A teammate unzips it and runs it;
 they install nothing.
 
+`SLAP.exe --cli verify` proves a build works rather than describing it: it
+audits a page it serves itself, exports a real PDF, and drives the real web
+server over a real socket, then exits non-zero with the specific reason if any
+of that fails. Worth running on a bundle that has just been downloaded.
+
 PyInstaller is not a cross-compiler, so build on the platform you are
 shipping to. To get every target without owning every machine, run the
 **Build distributables** workflow on GitHub: it builds Windows, macOS on
 both Apple Silicon and Intel, and Linux natively, and each job runs the
 bundle it just built before uploading it.
 
-See `docs/packaging.md` for the size breakdown, Windows SmartScreen, and
-macOS Gatekeeper.
+See `docs/packaging.md` for the size breakdown, `slap verify`, Windows
+SmartScreen, and macOS Gatekeeper.
 
 ## Per-page analysis
 
@@ -364,7 +370,7 @@ docs/reports.md          report pipeline, palette rules, PDF backend
 ## Tests
 
 ```bash
-pytest -q          # 417 tests, no network and no display required
+pytest -q          # 435 tests, no network and no display required
 ```
 
 The suite runs local HTTP servers for the end-to-end paths, so the whole

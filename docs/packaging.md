@@ -350,3 +350,61 @@ has been wrong before:
 - **No code signing.** See the SmartScreen note above.
 - **No notarisation.** macOS builds are unsigned, so Gatekeeper blocks the
   first launch until someone clears the quarantine attribute. See above.
+
+---
+
+## Verifying a build (2026-08-02)
+
+`slap verify` replaced two CI steps: **145 lines of bash beside 147 lines of
+PowerShell**, asserting the same eleven things in two languages. They had not
+drifted, but nothing prevented it — a check added to one and forgotten in the
+other would have passed CI and shipped. That nearly happened when the
+vulnerability-database assertions went in, and only care caught it.
+
+Every assertion now lives in `src/slap/verify.py`, covered by
+`tests/test_verify.py` and shipped inside the bundle it checks. The CI steps
+kept only what is genuinely platform-specific — finding the executable,
+stripping the environment, reading an exit code — and shrank to **26 and 22
+lines**.
+
+What it checks, and why each is a doing rather than a stat-ing:
+
+| Check | How |
+|---|---|
+| paths inside the bundle | compares every resolved runtime path to the bundle root |
+| vulnerability database | loads it, counts advisories, enforces `--max-vulndb-age` |
+| pdf backend | launches the browser |
+| lighthouse | probes the worker for real versions |
+| audit | audits a page it **serves itself**, so it works offline |
+| html + pdf report | exports both and asserts the files exist on disk |
+| web server | starts uvicorn on a loopback port and requests real routes |
+
+The web check is what catches uvicorn resolving its event loop, HTTP protocol
+and lifespan implementations **by string** at runtime: a bundle missing them
+starts perfectly and dies on the first request, and `doctor` would never
+notice.
+
+The path check exists because a stripped environment is supposed to make it
+unnecessary. Windows has no `env -i`, so its step clears variables by name;
+the first version missed `PLAYWRIGHT_BROWSERS_PATH` and the bundle used the
+*staging* browser while reporting success. Clearing by name cannot be
+exhaustive, so `verify` compares paths to the bundle rather than trusting the
+list to be complete.
+
+**The web check lives in `slap_web`, not in `slap`.** It drives uvicorn, and
+nothing under `slap/` may import a web framework — rule 5, the reason
+replacing PySide6 with a browser UI was a rewrite of one package rather than
+of the project. `verify()` takes a list of extra checks and the CLI supplies
+this one when the extra is installed. The AST test that walks every module
+under `slap/` caught the function on its first day in the wrong package, which
+is the rule working rather than being bent.
+
+Proven against deliberately broken bundles rather than only a good one:
+deleting `vulndb.json` fails with `vulnerability database`; deleting
+`runtime/browsers/` fails with `pdf backend` and `pdf export`. Both exit 1,
+and `cmd | tee` under `set -euo pipefail` was checked to propagate that —
+a pipeline swallowing the exit code would have let CI pass a broken bundle.
+
+It is also a user-facing diagnostic rather than CI scaffolding. A teammate
+unsure whether a download survived runs `SLAP.exe --cli verify` and gets a yes
+or a specific no.
