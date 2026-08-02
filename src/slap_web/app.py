@@ -11,7 +11,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -132,6 +137,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             pdf_backend=core.pdf_backend_status(),
             branding=settings.branding,
             humanise=vm.humanise,
+            # The real path, because "the report directory" answered a
+            # question nobody asked while the actual question was "where?".
+            report_dir=str(settings.report_dir),
         )
 
     @app.get("/run/{run_id}/report.html", response_class=HTMLResponse)
@@ -146,11 +154,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             report.render_report_html(detail, branding=settings.branding)
         )
 
-    @app.post("/run/{run_id}/export")
-    def run_export(run_id: int, pdf: str = Form(default="")) -> RedirectResponse:
-        result = core.export_report(settings, run_id, pdf=bool(pdf))
-        app.state.last_export = result
-        return RedirectResponse(f"/run/{run_id}?exported=1", status_code=303)
+    @app.get("/run/{run_id}/download/{kind}")
+    def run_download(run_id: int, kind: str) -> FileResponse:
+        """Export and hand the file to the browser as a download.
+
+        This replaced a POST that wrote into the app's data directory and
+        flashed "Written to the report directory." In a browser that is a
+        button that appears to do nothing: no download, no link, and a
+        directory the user has never seen named only by its role. The
+        deliverable of a click in a browser arrives through the browser.
+
+        The on-disk copy is still written first, to the same reports
+        directory as always, because that archive is what the CLI, the
+        batch exports and "find me the report from March" all rely on. The
+        run page now prints that directory's real path instead of alluding
+        to it.
+        """
+        if kind not in ("html", "pdf"):
+            raise HTTPException(status_code=404, detail="html or pdf")
+        if core.get_run_detail(settings, run_id) is None:
+            raise HTTPException(status_code=404, detail="No such run")
+
+        result = core.export_report(settings, run_id, pdf=(kind == "pdf"))
+        if kind == "pdf":
+            if not result.pdf_path:
+                # The HTML was still written; say why the PDF was not.
+                raise HTTPException(
+                    status_code=503,
+                    detail=result.pdf_error or "no PDF backend available")
+            path, media = result.pdf_path, "application/pdf"
+        else:
+            path, media = result.html_path, "text/html"
+        return FileResponse(path, media_type=media, filename=path.name)
 
     @app.post("/branding")
     def set_branding(company_name: str = Form(default=""),

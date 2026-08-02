@@ -344,6 +344,53 @@ def test_report_preview_404s_on_an_unknown_run(client):
     assert client.get("/run/424242").status_code == 404
 
 
+def test_export_arrives_as_a_browser_download(client, seeded):
+    """The buttons used to POST, write into the app's data directory, and
+    flash "Written to the report directory." In a browser that is a button
+    that does nothing visible, aimed at a directory the user has never seen,
+    named only by its role. The user's verdict was "does not work", and for
+    a browser UI that verdict was correct: the deliverable of a click in a
+    browser arrives through the browser."""
+    run_id = core.list_runs(seeded)[0]["id"]
+    response = client.get(f"/run/{run_id}/download/html")
+    assert response.status_code == 200
+    assert "attachment" in response.headers["content-disposition"]
+    assert "example.com" in response.headers["content-disposition"]
+    assert "<!doctype html" in response.text.lower()
+
+    # And the archive copy still lands in the reports directory, which the
+    # CLI and the batch exports rely on.
+    archived = list(seeded.report_dir.glob("example.com-*.html"))
+    assert archived, "the on-disk archive copy must still be written"
+
+
+def test_pdf_download_names_the_reason_when_there_is_no_backend(client, seeded,
+                                                                monkeypatch):
+    from slap import report as report_module
+
+    async def no_pdf(*args, **kwargs):
+        raise report_module.PdfError("no browser here")
+
+    monkeypatch.setattr(report_module, "html_file_to_pdf_async", no_pdf)
+    run_id = core.list_runs(seeded)[0]["id"]
+    response = client.get(f"/run/{run_id}/download/pdf")
+    assert response.status_code == 503
+    assert "no browser" in response.json()["detail"]
+
+
+def test_download_404s_on_unknown_run_and_unknown_kind(client):
+    assert client.get("/run/424242/download/html").status_code == 404
+    assert client.get("/run/1/download/docx").status_code == 404
+
+
+def test_the_run_page_names_the_real_reports_directory(client, seeded):
+    """"Where is that?" must be answerable from the page itself. "The report
+    directory" is a role, not a place."""
+    run_id = core.list_runs(seeded)[0]["id"]
+    body = client.get(f"/run/{run_id}").text
+    assert str(seeded.report_dir) in body
+
+
 # --------------------------------------------------------------------------
 # Activity
 # --------------------------------------------------------------------------

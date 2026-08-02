@@ -14,22 +14,21 @@
     {{ observation_count }} observations
   </span>
   <button class="btn" onclick="document.getElementById('brand').hidden = !document.getElementById('brand').hidden">Branding</button>
-  <form method="post" action="/run/{{ run.id }}/export" style="display:inline">
-    <button class="btn" type="submit">Export HTML</button>
-  </form>
-  <form method="post" action="/run/{{ run.id }}/export" style="display:inline">
-    <input type="hidden" name="pdf" value="1">
-    <button class="btn primary" type="submit" {{ 'disabled' if not pdf_backend else '' }}>Export PDF</button>
-  </form>
+  {# Downloads, not form posts: the deliverable of a click in a browser
+     arrives through the browser. The `download` attribute keeps the
+     navigation in place, so the page and its state survive the click. #}
+  <a class="btn" href="/run/{{ run.id }}/download/html" download>Download HTML</a>
+  {% if pdf_backend %}
+    <a class="btn primary" href="/run/{{ run.id }}/download/pdf" download>Download PDF</a>
+  {% else %}
+    <button class="btn primary" disabled>Download PDF</button>
+  {% endif %}
 </div>
 <div class="content">
 
-  {% if request.query_params.get('exported') %}
-    <div class="card notice">
-      <span class="badge"><span class="sw good"></span>Done</span>
-      Written to the report directory.
-    </div>
-  {% endif %}
+  <div class="hint" style="text-align: right; margin-bottom: 10px">
+    Downloads also archive a copy in {{ report_dir }}
+  </div>
 
   {% if not pdf_backend %}
     <div class="card notice">
