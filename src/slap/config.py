@@ -15,6 +15,7 @@ from typing import Any
 from .collectors.base import CollectorConfig
 from .collectors.lighthouse import LighthouseConfig
 from .discovery import DiscoveryConfig
+from .vulndb import default_db_path as default_vulndb_path
 
 
 #: The directory this app used before it was renamed from SALP to SLAP.
@@ -90,6 +91,14 @@ class Settings:
     collector: CollectorConfig = field(default_factory=CollectorConfig)
     lighthouse: LighthouseConfig = field(default_factory=LighthouseConfig)
     discovery: DiscoveryConfig = field(default_factory=DiscoveryConfig)
+    #: Where the offline vulnerability database lives. Bundled beside the
+    #: package; `slap vulndb update` refreshes it.
+    vulndb_path: Path = field(default_factory=default_vulndb_path)
+    #: Endpoint probing. Off by default and authorised per host, never
+    #: globally: a global flag gets switched on once and then silently
+    #: applies to the next client, who never agreed to it.
+    probe_enabled: bool = False
+    probe_rate_per_second: float = 2.0
     #: Report branding. Keys: company_name, accent (hex), logo_data_uri.
     #: Deliberately a plain dict so a Qt preferences dialog and a TOML file
     #: can both populate it without a schema change.
@@ -102,7 +111,8 @@ class Settings:
         path = Path(config_path) if config_path else default_data_dir() / "config.toml"
         if path.is_file():
             raw: dict[str, Any] = tomllib.loads(path.read_text(encoding="utf-8"))
-            for key in ("db_path", "artifact_dir", "report_dir", "rules_path"):
+            for key in ("db_path", "artifact_dir", "report_dir", "rules_path",
+                        "vulndb_path"):
                 if key in raw:
                     setattr(settings, key, Path(raw[key]).expanduser())
             collector_raw = raw.get("collector", {})

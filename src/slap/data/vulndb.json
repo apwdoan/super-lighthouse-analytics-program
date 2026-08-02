@@ -1,0 +1,5101 @@
+{
+ "generated_at": "2026-08-02T02:07:53+00:00",
+ "schema": 1,
+ "sources": {
+  "npm": "OSV.dev"
+ },
+ "vulnerabilities": [
+  {
+   "aliases": [
+    "CVE-2026-52725"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-692r-grfm-v8x7",
+   "package": "@angular/core",
+   "ranges": [
+    {
+     "fixed": "21.2.15",
+     "introduced": "21.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "22.0.0",
+     "introduced": "22.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "19.2.23",
+     "introduced": "19.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": null,
+     "introduced": "0",
+     "last_affected": "18.2.14"
+    },
+    {
+     "fixed": "20.3.22",
+     "introduced": "20.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/angular/angular/security/advisories/GHSA-692r-grfm-v8x7",
+   "severity": "medium",
+   "summary": "@angular/core: Angular Template and Dynamic Component Namespace Bypass leading to Cross-Site Scripting (XSS)",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2021-4231"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-c75v-2vq8-878f",
+   "package": "@angular/core",
+   "ranges": [
+    {
+     "fixed": "11.0.5",
+     "introduced": "11.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "11.1.0",
+     "introduced": "11.1.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "10.2.5",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2021-4231",
+   "severity": "medium",
+   "summary": "Angular vulnerable to Cross-site Scripting",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-50557"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-f3m7-gqxr-g87x",
+   "package": "@angular/core",
+   "ranges": [
+    {
+     "fixed": "21.2.15",
+     "introduced": "21.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "22.0.0",
+     "introduced": "22.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "20.3.22",
+     "introduced": "20.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "19.2.22",
+     "introduced": "19.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": null,
+     "introduced": "0",
+     "last_affected": "18.2.14"
+    }
+   ],
+   "reference": "https://github.com/angular/angular/security/advisories/GHSA-f3m7-gqxr-g87x",
+   "severity": "medium",
+   "summary": "Angular: Template and Attribute Namespace Sanitization Bypass (XSS)",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-32635"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-g93w-mfhg-p222",
+   "package": "@angular/core",
+   "ranges": [
+    {
+     "fixed": "22.0.0",
+     "introduced": "22.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "21.2.4",
+     "introduced": "21.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "20.3.18",
+     "introduced": "20.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "19.2.20",
+     "introduced": "19.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": null,
+     "introduced": "17.0.0",
+     "last_affected": "18.2.14"
+    }
+   ],
+   "reference": "https://github.com/angular/angular/security/advisories/GHSA-g93w-mfhg-p222",
+   "severity": "high",
+   "summary": "Angular vulnerable to XSS in i18n attribute bindings",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-22610"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-jrmj-c5cx-3cw6",
+   "package": "@angular/core",
+   "ranges": [
+    {
+     "fixed": "21.1.0",
+     "introduced": "21.1.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "21.0.7",
+     "introduced": "21.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "20.3.16",
+     "introduced": "20.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "19.2.18",
+     "introduced": "19.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": null,
+     "introduced": "0",
+     "last_affected": "18.2.14"
+    }
+   ],
+   "reference": "https://github.com/angular/angular/security/advisories/GHSA-jrmj-c5cx-3cw6",
+   "severity": "high",
+   "summary": "Angular has XSS Vulnerability via Unsanitized SVG Script Attributes",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-27970"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-prjf-86w9-mfqv",
+   "package": "@angular/core",
+   "ranges": [
+    {
+     "fixed": "21.2.0",
+     "introduced": "21.2.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "21.1.6",
+     "introduced": "21.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "20.3.17",
+     "introduced": "20.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "19.2.19",
+     "introduced": "19.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": null,
+     "introduced": "0",
+     "last_affected": "18.2.14"
+    }
+   ],
+   "reference": "https://github.com/angular/angular/security/advisories/GHSA-prjf-86w9-mfqv",
+   "severity": "high",
+   "summary": "Angular i18n vulnerable to Cross-Site Scripting",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-54267"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-rgjc-h3x7-9mwg",
+   "package": "@angular/core",
+   "ranges": [
+    {
+     "fixed": "22.0.1",
+     "introduced": "22.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "21.2.17",
+     "introduced": "21.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "20.3.25",
+     "introduced": "20.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": null,
+     "introduced": "0",
+     "last_affected": "19.2.25"
+    }
+   ],
+   "reference": "https://github.com/angular/angular/security/advisories/GHSA-rgjc-h3x7-9mwg",
+   "severity": "high",
+   "summary": "Angular Client Hydration DOM Clobbering & Response-Cache Poisoning",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-28hp-fgcr-2r4h",
+   "package": "angular",
+   "ranges": [
+    {
+     "fixed": "1.6.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/angular/angular.js/commit/6476af83cd0418c84e034a955b12a842794385c4",
+   "severity": "medium",
+   "summary": "Cross-Site Scripting via JSONP",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2023-26117"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-2qqx-w9hr-q5gx",
+   "package": "angular",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "0",
+     "last_affected": "1.8.3"
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2023-26117",
+   "severity": "medium",
+   "summary": "angular vulnerable to regular expression denial of service via the $resource service",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2023-26116"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-2vrf-hf26-jrp5",
+   "package": "angular",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "0",
+     "last_affected": "1.8.3"
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2023-26116",
+   "severity": "medium",
+   "summary": "angular vulnerable to regular expression denial of service via the angular.copy() utility",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2024-21490"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-4w4v-5hc9-xrr2",
+   "package": "angular",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "1.3.0",
+     "last_affected": "1.8.3"
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2024-21490",
+   "severity": "high",
+   "summary": "angular vulnerable to super-linear runtime due to backtracking",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-5cp4-xmrw-59wf",
+   "package": "angular",
+   "ranges": [
+    {
+     "fixed": "1.8.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/google/security-research/security/advisories/GHSA-5cp4-xmrw-59wf",
+   "severity": "medium",
+   "summary": "XSS via JQLite DOM manipulation functions in AngularJS",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-11998"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-7x27-g8rg-x87w",
+   "package": "angular",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "1.2.0",
+     "last_affected": "1.8.3"
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2026-11998",
+   "severity": "high",
+   "summary": "Angular's deprecated package has a Cross-Site Scripting issue",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2019-10768",
+    "SNYK-JS-ANGULAR-534884"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-89mq-4x47-5v83",
+   "package": "angular",
+   "ranges": [
+    {
+     "fixed": "1.7.9",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2019-10768",
+   "severity": "high",
+   "summary": "angular Prototype Pollution vulnerability",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2025-0716"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-j58c-ww9w-pwp5",
+   "package": "angular",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "0",
+     "last_affected": "1.8.3"
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2025-0716",
+   "severity": "low",
+   "summary": "AngularJS improperly sanitizes SVG elements",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2022-25844"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-m2h2-264f-f486",
+   "package": "angular",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "1.7.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2022-25844",
+   "severity": "medium",
+   "summary": "angular vulnerable to regular expression denial of service (ReDoS)",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2024-8372"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-m9gf-397r-hwpg",
+   "package": "angular",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "1.3.0",
+     "last_affected": "1.8.3"
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2024-8372",
+   "severity": "low",
+   "summary": "AngularJS allows attackers to bypass common image source restrictions",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2020-7676"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-mhp6-pxh8-r675",
+   "package": "angular",
+   "ranges": [
+    {
+     "fixed": "1.8.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2020-7676",
+   "severity": "medium",
+   "summary": "Angular vulnerable to Cross-site Scripting",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2024-8373"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-mqm9-c95h-x2p6",
+   "package": "angular",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "0",
+     "last_affected": "1.8.3"
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2024-8373",
+   "severity": "low",
+   "summary": "AngularJS allows attackers to bypass common image source restrictions",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2022-25869"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-prc3-vjfx-vhm9",
+   "package": "angular",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "0",
+     "last_affected": "1.8.3"
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2022-25869",
+   "severity": "medium",
+   "summary": "Angular (deprecated package) Cross-site Scripting",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2023-26118"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-qwqh-hm9m-p5hr",
+   "package": "angular",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "0",
+     "last_affected": "1.8.3"
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2023-26118",
+   "severity": "medium",
+   "summary": "angular vulnerable to regular expression denial of service via the <input type=\"url\"> element",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2019-14863"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-r5fx-8r73-v86c",
+   "package": "angular",
+   "ranges": [
+    {
+     "fixed": "1.5.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2019-14863",
+   "severity": "medium",
+   "summary": "AngularJS Cross-site Scripting due to failure to sanitize `xlink.href` attributes",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2016-10537"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-j6p2-cx3w-6jcp",
+   "package": "backbone",
+   "ranges": [
+    {
+     "fixed": "0.5.0",
+     "introduced": "0.3.3",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2016-10537",
+   "severity": "medium",
+   "summary": "Cross-Site Scripting in backbone",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2018-20676"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-3mgp-fx93-9xv5",
+   "package": "bootstrap",
+   "ranges": [
+    {
+     "fixed": "3.4.0",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.4.0",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.4.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2018-20676",
+   "severity": "medium",
+   "summary": "XSS vulnerability that affects bootstrap",
+   "versions": [
+    "1.0.0",
+    "2.3.1",
+    "2.3.2",
+    "3.0.0",
+    "3.0.1",
+    "3.0.2",
+    "3.0.3",
+    "3.1.0",
+    "3.1.1",
+    "3.2.0",
+    "3.3.0",
+    "3.3.1",
+    "3.3.2",
+    "3.3.4",
+    "3.3.5",
+    "3.3.6",
+    "3.3.6-jQuery3",
+    "3.3.6.1",
+    "3.3.7"
+   ]
+  },
+  {
+   "aliases": [
+    "CVE-2018-14040"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-3wqf-4x89-9g79",
+   "package": "bootstrap",
+   "ranges": [
+    {
+     "fixed": "4.1.2",
+     "introduced": "4.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.1.2",
+     "introduced": "4.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.4.0",
+     "introduced": "2.3.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.4.0",
+     "introduced": "2.3.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.4.0",
+     "introduced": "2.3.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.1.2",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2018-14040",
+   "severity": "medium",
+   "summary": "Bootstrap vulnerable to Cross-Site Scripting (XSS)",
+   "versions": [
+    "4.0.0",
+    "4.1.0",
+    "4.1.1",
+    "2.3.1",
+    "2.3.2",
+    "3.0.0",
+    "3.0.1",
+    "3.0.2",
+    "3.0.3",
+    "3.1.0",
+    "3.1.1",
+    "3.2.0",
+    "3.3.0",
+    "3.3.1",
+    "3.3.2",
+    "3.3.4",
+    "3.3.5",
+    "3.3.6",
+    "3.3.6-jQuery3",
+    "3.3.6.1",
+    "3.3.7",
+    "4.0.0",
+    "4.1.0",
+    "4.1.1",
+    "4.1.1-contentFiles"
+   ]
+  },
+  {
+   "aliases": [
+    "CVE-2016-10735"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-4p24-vmcr-4gqj",
+   "package": "bootstrap",
+   "ranges": [
+    {
+     "fixed": "3.4.0",
+     "introduced": "2.0.4",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.0.0",
+     "introduced": "4.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.0.0",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.4.0",
+     "introduced": "2.0.4",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.0.0",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2016-10735",
+   "severity": "medium",
+   "summary": "Bootstrap Cross-site Scripting vulnerability",
+   "versions": [
+    "4.0.0.alpha1",
+    "4.0.0.alpha2",
+    "4.0.0.alpha3",
+    "4.0.0.alpha3.1",
+    "4.0.0.alpha4",
+    "4.0.0.alpha5",
+    "4.0.0.alpha6",
+    "4.0.0.beta",
+    "4.0.0.beta2",
+    "4.0.0.beta2.1",
+    "4.0.0.beta3",
+    "2.3.1",
+    "2.3.2",
+    "3.0.0",
+    "3.0.1",
+    "3.0.2",
+    "3.0.3",
+    "3.1.0",
+    "3.1.1",
+    "3.2.0",
+    "3.3.0",
+    "3.3.1",
+    "3.3.2",
+    "3.3.4",
+    "3.3.5",
+    "3.3.6",
+    "3.3.6-jQuery3",
+    "3.3.6.1",
+    "3.3.7",
+    "4.0.0-beta"
+   ]
+  },
+  {
+   "aliases": [
+    "CVE-2018-14042"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-7mvr-5x2g-wfc8",
+   "package": "bootstrap",
+   "ranges": [
+    {
+     "fixed": "4.1.2",
+     "introduced": "4.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.4.0",
+     "introduced": "2.3.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.1.2",
+     "introduced": "4.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.4.0",
+     "introduced": "2.3.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.1.2",
+     "introduced": "4.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.4.0",
+     "introduced": "2.3.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2018-14042",
+   "severity": "medium",
+   "summary": "Bootstrap Cross-site Scripting vulnerability",
+   "versions": [
+    "4.0.0",
+    "4.1.0",
+    "4.1.1",
+    "4.0.0",
+    "4.1.0",
+    "4.1.1",
+    "4.1.1-contentFiles",
+    "2.3.1",
+    "2.3.2",
+    "3.0.0",
+    "3.0.1",
+    "3.0.2",
+    "3.0.3",
+    "3.1.0",
+    "3.1.1",
+    "3.2.0",
+    "3.3.0",
+    "3.3.1",
+    "3.3.2",
+    "3.3.4",
+    "3.3.5",
+    "3.3.6",
+    "3.3.6-jQuery3",
+    "3.3.6.1",
+    "3.3.7"
+   ]
+  },
+  {
+   "aliases": [
+    "CVE-2019-8331"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-9v3m-8fp8-mj99",
+   "package": "bootstrap",
+   "ranges": [
+    {
+     "fixed": "4.3.1",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.3.1",
+     "introduced": "4.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.4.1",
+     "introduced": "3.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.3.1",
+     "introduced": "4.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.4.1",
+     "introduced": "3.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2019-8331",
+   "severity": "medium",
+   "summary": "Bootstrap Vulnerable to Cross-Site Scripting",
+   "versions": [
+    "4.0.0",
+    "4.0.0.alpha1",
+    "4.0.0.alpha2",
+    "4.0.0.alpha3",
+    "4.0.0.alpha3.1",
+    "4.0.0.alpha4",
+    "4.0.0.alpha5",
+    "4.0.0.alpha6",
+    "4.0.0.beta",
+    "4.0.0.beta2",
+    "4.0.0.beta2.1",
+    "4.0.0.beta3",
+    "4.1.0",
+    "4.1.1",
+    "4.1.2",
+    "4.1.3",
+    "4.2.1",
+    "4.3.0",
+    "4.0.0",
+    "4.1.0",
+    "4.1.1",
+    "4.1.1-contentFiles",
+    "4.1.2",
+    "4.1.3",
+    "4.2.1",
+    "3.0.0",
+    "3.0.1",
+    "3.0.2",
+    "3.0.3",
+    "3.1.0",
+    "3.1.1",
+    "3.2.0",
+    "3.3.0",
+    "3.3.1",
+    "3.3.2",
+    "3.3.4",
+    "3.3.5",
+    "3.3.6",
+    "3.3.6-jQuery3",
+    "3.3.6.1",
+    "3.3.7",
+    "3.4.0"
+   ]
+  },
+  {
+   "aliases": [
+    "CVE-2018-20677"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-ph58-4vrj-w6hr",
+   "package": "bootstrap",
+   "ranges": [
+    {
+     "fixed": "3.4.0",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.4.0",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.4.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2018-20677",
+   "severity": "medium",
+   "summary": "bootstrap Cross-site Scripting vulnerability",
+   "versions": [
+    "1.0.0",
+    "2.3.1",
+    "2.3.2",
+    "3.0.0",
+    "3.0.1",
+    "3.0.2",
+    "3.0.3",
+    "3.1.0",
+    "3.1.1",
+    "3.2.0",
+    "3.3.0",
+    "3.3.1",
+    "3.3.2",
+    "3.3.4",
+    "3.3.5",
+    "3.3.6",
+    "3.3.6-jQuery3",
+    "3.3.6.1",
+    "3.3.7"
+   ]
+  },
+  {
+   "aliases": [
+    "CVE-2018-14041"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-pj7m-g53m-7638",
+   "package": "bootstrap",
+   "ranges": [
+    {
+     "fixed": "4.1.2",
+     "introduced": "4.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.1.2",
+     "introduced": "4.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.1.2",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2018-14041",
+   "severity": "medium",
+   "summary": "Bootstrap Cross-site Scripting vulnerability",
+   "versions": [
+    "4.0.0",
+    "4.1.0",
+    "4.1.1",
+    "4.0.0",
+    "4.1.0",
+    "4.1.1",
+    "4.1.1-contentFiles"
+   ]
+  },
+  {
+   "aliases": [
+    "CVE-2025-1647"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-q58r-hwc8-rm9j",
+   "package": "bootstrap",
+   "ranges": [],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2025-1647",
+   "severity": "medium",
+   "summary": "Bootstrap Vulnerable to Cross-Site Scripting in its Popover and Tooltip Components",
+   "versions": [
+    "3.4.1"
+   ]
+  },
+  {
+   "aliases": [
+    "CVE-2024-6485"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-vxmc-5x29-h64v",
+   "package": "bootstrap",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "1.4.0",
+     "last_affected": "3.4.1"
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2024-6485",
+   "severity": "medium",
+   "summary": "Bootstrap Cross-Site Scripting (XSS) vulnerability for data-* attributes",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2008-6681"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-39cx-xcwj-3rc4",
+   "package": "dojo",
+   "ranges": [
+    {
+     "fixed": "1.1.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2008-6681",
+   "severity": "medium",
+   "summary": "Cross-Site Scripting in dojo",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2010-2273"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-536q-8gxx-m782",
+   "package": "dojo",
+   "ranges": [
+    {
+     "fixed": "1.13.1",
+     "introduced": "1.13.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "1.12.4",
+     "introduced": "1.12.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "1.11.6",
+     "introduced": "1.11.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "1.10.10",
+     "introduced": "1.10.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2010-2273",
+   "severity": "medium",
+   "summary": "Cross-Site Scripting in dojo",
+   "versions": [
+    "1.13.0"
+   ]
+  },
+  {
+   "aliases": [
+    "CVE-2020-5258"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-jxfh-8wgv-vfr2",
+   "package": "dojo",
+   "ranges": [
+    {
+     "fixed": "1.11.10",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "1.12.8",
+     "introduced": "1.12.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "1.13.7",
+     "introduced": "1.13.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "1.14.6",
+     "introduced": "1.14.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "1.15.3",
+     "introduced": "1.15.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "1.16.2",
+     "introduced": "1.16.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/dojo/dojo/security/advisories/GHSA-jxfh-8wgv-vfr2",
+   "severity": "high",
+   "summary": "Prototype pollution in dojo",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2021-23450"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-m8gw-hjpr-rjv7",
+   "package": "dojo",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "0",
+     "last_affected": "1.16.4"
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2021-23450",
+   "severity": "high",
+   "summary": "Prototype Pollution in dojo",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2015-5654"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-p82g-2xpp-m5r3",
+   "package": "dojo",
+   "ranges": [
+    {
+     "fixed": "1.9.1",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2015-5654",
+   "severity": "medium",
+   "summary": "Cross-Site Scripting in dojo",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-27013"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-hfvx-25r5-qc3w",
+   "package": "fabric",
+   "ranges": [
+    {
+     "fixed": "7.2.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/fabricjs/fabric.js/security/advisories/GHSA-hfvx-25r5-qc3w",
+   "severity": "high",
+   "summary": "Fabric.js Affected by Stored XSS via SVG Export",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-44311"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-w22m-hvvm-xmwx",
+   "package": "fabric",
+   "ranges": [
+    {
+     "fixed": "7.4.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/fabricjs/fabric.js/security/advisories/GHSA-w22m-hvvm-xmwx",
+   "severity": "medium",
+   "summary": "Fabric.js improper escaping in fabric.Gradient colorStops leads to XSS in SVG serialization",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2020-26304"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-p8pc-3f7w-jr5q",
+   "package": "foundation-sites",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "0",
+     "last_affected": "6.3.3"
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2020-26304",
+   "severity": "medium",
+   "summary": "Foundation Regular Expression Denial of Service vulnerability",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2023-34238"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-c6f8-8r25-c4gc",
+   "package": "gatsby",
+   "ranges": [
+    {
+     "fixed": "4.25.7",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "5.9.1",
+     "introduced": "5.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/gatsbyjs/gatsby/security/advisories/GHSA-c6f8-8r25-c4gc",
+   "severity": "medium",
+   "summary": "Gatsby develop server has Local File Inclusion vulnerability",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-r9q4-w3fm-wrm2",
+   "package": "google-closure-library",
+   "ranges": [
+    {
+     "fixed": "20190301.0.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/google/closure-library/commit/c79ab48e8e962fee57e68739c00e16b9934c0ffa#commitcomment-33294853",
+   "severity": "medium",
+   "summary": "Cross-Site Scripting in google-closure-library",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2020-8910"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-vh5w-fg69-rc8m",
+   "package": "google-closure-library",
+   "ranges": [
+    {
+     "fixed": "20200315.0.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2020-8910",
+   "severity": "medium",
+   "summary": "Improper Input Validation in Google Closure Library",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2020-28478"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-6g8v-hpgw-h2v7",
+   "package": "gsap",
+   "ranges": [
+    {
+     "fixed": "3.6.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2020-28478",
+   "severity": "high",
+   "summary": "Prototype pollution in gsap",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-2cf5-4w76-r9qv",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "3.0.8",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.5.2",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://www.npmjs.com/advisories/1316",
+   "severity": "high",
+   "summary": "Arbitrary Code Execution in handlebars",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-33916"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-2qvq-rjwj-gvw9",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "4.7.9",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/handlebars-lang/handlebars.js/security/advisories/GHSA-2qvq-rjwj-gvw9",
+   "severity": "medium",
+   "summary": "Handlebars.js has Prototype Pollution Leading to XSS through Partial Template Injection",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-33937"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-2w6w-674q-4c4q",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "4.7.9",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/handlebars-lang/handlebars.js/security/advisories/GHSA-2w6w-674q-4c4q",
+   "severity": "critical",
+   "summary": "Handlebars.js has JavaScript Injection via AST Type Confusion",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2019-20920",
+    "SNYK-JS-HANDLEBARS-534478"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-3cqr-58rm-57f8",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "3.0.8",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.5.3",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2019-20920",
+   "severity": "high",
+   "summary": "Arbitrary Code Execution in Handlebars",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-33938"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-3mfm-83xf-c92r",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "4.7.9",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/handlebars-lang/handlebars.js/security/advisories/GHSA-3mfm-83xf-c92r",
+   "severity": "high",
+   "summary": "Handlebars.js has JavaScript Injection via AST Type Confusion by tampering @partial-block",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-442j-39wm-28r2",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "4.7.9",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/handlebars-lang/handlebars.js/security/advisories/GHSA-442j-39wm-28r2",
+   "severity": "low",
+   "summary": "Handlebars.js has a Property Access Validation Bypass in container.lookup",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2019-20922",
+    "SNYK-JS-HANDLEBARS-480388"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-62gr-4qp9-h98f",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "4.4.5",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2019-20922",
+   "severity": "high",
+   "summary": "Regular Expression Denial of Service in Handlebars",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2021-23383"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-765h-qjxv-5f44",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "4.7.7",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2021-23383",
+   "severity": "critical",
+   "summary": "Prototype Pollution in handlebars",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-7rx3-28cr-v5wh",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "4.7.9",
+     "introduced": "4.6.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/handlebars-lang/handlebars.js/security/advisories/GHSA-7rx3-28cr-v5wh",
+   "severity": "medium",
+   "summary": "Handlebars.js has a Prototype Method Access Control Gap via Missing __lookupSetter__ Blocklist Entry",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-33939"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-9cx6-37pm-9jff",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "4.7.9",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/handlebars-lang/handlebars.js/security/advisories/GHSA-9cx6-37pm-9jff",
+   "severity": "high",
+   "summary": "Handlebars.js has Denial of Service via Malformed Decorator Syntax in Template Compilation",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2015-8861"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-9prh-257w-9277",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "4.0.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2015-8861",
+   "severity": "medium",
+   "summary": "Cross-Site Scripting in handlebars",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2021-23369"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-f2jv-r9rf-7988",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "4.7.7",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2021-23369",
+   "severity": "critical",
+   "summary": "Remote code execution in handlebars when compiling templates",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-f52g-6jhx-586p",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "4.4.5",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://www.npmjs.com/advisories/1300",
+   "severity": "medium",
+   "summary": "Denial of Service in handlebars",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-g9r4-xpmj-mj65",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "3.0.8",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.5.3",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://www.npmjs.com/advisories/1325",
+   "severity": "high",
+   "summary": "Prototype Pollution in handlebars",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-q2c6-c6pm-g3gh",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "3.0.8",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.5.3",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://www.npmjs.com/advisories/1324",
+   "severity": "high",
+   "summary": "Arbitrary Code Execution in handlebars",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-q42p-pg8m-cqh6",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "4.1.2",
+     "introduced": "4.1.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.0.14",
+     "introduced": "4.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.0.7",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/handlebars-lang/handlebars.js/issues/1495",
+   "severity": "high",
+   "summary": "Prototype Pollution in handlebars",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2019-19919"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-w457-6q6x-cgp9",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "4.3.0",
+     "introduced": "4.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.0.8",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2019-19919",
+   "severity": "critical",
+   "summary": "Prototype Pollution in handlebars",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-33940"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-xhpv-hc6g-r9c6",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "4.7.9",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/handlebars-lang/handlebars.js/security/advisories/GHSA-xhpv-hc6g-r9c6",
+   "severity": "high",
+   "summary": "Handlebars.js has JavaScript Injection via AST Type Confusion when passing an object as dynamic partial",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-33941"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-xjpj-3mr7-gcpf",
+   "package": "handlebars",
+   "ranges": [
+    {
+     "fixed": "4.7.9",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/handlebars-lang/handlebars.js/security/advisories/GHSA-xjpj-3mr7-gcpf",
+   "severity": "high",
+   "summary": "Handlebars.js has JavaScript Injection in CLI Precompiler via Unescaped Names and Options",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2021-23446"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-hf66-r44g-p7j9",
+   "package": "handsontable",
+   "ranges": [
+    {
+     "fixed": "10.0.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2021-23446",
+   "severity": "high",
+   "summary": "Inefficient Regular Expression Complexity in handsontable",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2021-29489"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-8j65-4pcq-xq95",
+   "package": "highcharts",
+   "ranges": [
+    {
+     "fixed": "9.0.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/highcharts/highcharts/security/advisories/GHSA-8j65-4pcq-xq95",
+   "severity": "high",
+   "summary": "Options structure open to Cross-site Scripting if passed unfiltered",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-gr4j-r575-g665",
+   "package": "highcharts",
+   "ranges": [
+    {
+     "fixed": "7.2.2",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "8.1.1",
+     "introduced": "8.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/highcharts/highcharts/issues/13559",
+   "severity": "high",
+   "summary": "Cross-Site Scripting in highcharts",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2018-20801"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-xmc8-cjfr-phx3",
+   "package": "highcharts",
+   "ranges": [
+    {
+     "fixed": "6.1.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2018-20801",
+   "severity": "high",
+   "summary": "Regular Expression Denial of Service in highcharts",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2012-6708"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-2pqj-h3vj-pqgw",
+   "package": "jquery",
+   "ranges": [
+    {
+     "fixed": "1.9.0",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "1.9.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2017-16011",
+   "severity": "medium",
+   "summary": "Cross-Site Scripting in jquery",
+   "versions": [
+    "1.4.1",
+    "1.4.2",
+    "1.4.3",
+    "1.4.4",
+    "1.5.0",
+    "1.5.1",
+    "1.5.2",
+    "1.6.0",
+    "1.6.1",
+    "1.6.2",
+    "1.6.3",
+    "1.6.4",
+    "1.7.0",
+    "1.7.1",
+    "1.7.1.1",
+    "1.7.2",
+    "1.8.0",
+    "1.8.1",
+    "1.8.2",
+    "1.8.3"
+   ]
+  },
+  {
+   "aliases": [
+    "CVE-2011-4969"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-579v-mp3v-rrw5",
+   "package": "jquery",
+   "ranges": [
+    {
+     "fixed": "1.6.3",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "1.6.3",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2011-4969",
+   "severity": "medium",
+   "summary": "jQuery vulnerable to Cross-Site Scripting (XSS)",
+   "versions": [
+    "1.4.1",
+    "1.4.2",
+    "1.4.3",
+    "1.4.4",
+    "1.5.0",
+    "1.5.1",
+    "1.5.2",
+    "1.6.0",
+    "1.6.1",
+    "1.6.2"
+   ]
+  },
+  {
+   "aliases": [
+    "CVE-2019-11358",
+    "DRUPAL-CORE-2019-006",
+    "PYSEC-2026-628",
+    "SNYK-JS-JQUERY-174006"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-6c3j-c64m-qhgq",
+   "package": "jquery",
+   "ranges": [
+    {
+     "fixed": "3.4.0",
+     "introduced": "1.1.4",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.4.0",
+     "introduced": "1.1.4",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2019-11358",
+   "severity": "medium",
+   "summary": "XSS in jQuery as used in Drupal, Backdrop CMS, and other products",
+   "versions": [
+    "1.10.0",
+    "1.10.0.1",
+    "1.10.1",
+    "1.10.2",
+    "1.11.0",
+    "1.11.1",
+    "1.11.2",
+    "1.11.3",
+    "1.12.0",
+    "1.12.1",
+    "1.12.2",
+    "1.12.3",
+    "1.12.4",
+    "1.4.1",
+    "1.4.2",
+    "1.4.3",
+    "1.4.4",
+    "1.5.0",
+    "1.5.1",
+    "1.5.2",
+    "1.6.0",
+    "1.6.1",
+    "1.6.2",
+    "1.6.3",
+    "1.6.4",
+    "1.7.0",
+    "1.7.1",
+    "1.7.1.1",
+    "1.7.2",
+    "1.8.0",
+    "1.8.1",
+    "1.8.2",
+    "1.8.3",
+    "1.9.0",
+    "1.9.1",
+    "2.0.0",
+    "2.0.1",
+    "2.0.1.1",
+    "2.0.2",
+    "2.0.3",
+    "2.1.0",
+    "2.1.1",
+    "2.1.2",
+    "2.1.3",
+    "2.1.4",
+    "2.2.0",
+    "2.2.1",
+    "2.2.2",
+    "2.2.3",
+    "2.2.4",
+    "3.0.0",
+    "3.0.0.1",
+    "3.1.0",
+    "3.1.1",
+    "3.2.1",
+    "3.3.1"
+   ]
+  },
+  {
+   "aliases": [
+    "BIT-drupal-2020-11022",
+    "CVE-2020-11022"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-gxr4-xjj5-5px2",
+   "package": "jquery",
+   "ranges": [
+    {
+     "fixed": "3.5.0",
+     "introduced": "1.12.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.5.0",
+     "introduced": "1.12.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/jquery/jquery/security/advisories/GHSA-gxr4-xjj5-5px2",
+   "severity": "medium",
+   "summary": "Potential XSS vulnerability in jQuery",
+   "versions": [
+    "1.12.0",
+    "1.12.1",
+    "1.12.2",
+    "1.12.3",
+    "1.12.4",
+    "2.0.0",
+    "2.0.1",
+    "2.0.1.1",
+    "2.0.2",
+    "2.0.3",
+    "2.1.0",
+    "2.1.1",
+    "2.1.2",
+    "2.1.3",
+    "2.1.4",
+    "2.2.0",
+    "2.2.1",
+    "2.2.2",
+    "2.2.3",
+    "2.2.4",
+    "3.0.0",
+    "3.0.0.1",
+    "3.1.0",
+    "3.1.1",
+    "3.2.1",
+    "3.3.1",
+    "3.4.0",
+    "3.4.1"
+   ]
+  },
+  {
+   "aliases": [
+    "BIT-drupal-2020-11023",
+    "CVE-2020-11023"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-jpcq-cgw6-v4j6",
+   "package": "jquery",
+   "ranges": [
+    {
+     "fixed": "3.5.0",
+     "introduced": "1.0.3",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.5.0",
+     "introduced": "1.0.3",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/jquery/jquery/security/advisories/GHSA-jpcq-cgw6-v4j6",
+   "severity": "medium",
+   "summary": "Potential XSS vulnerability in jQuery",
+   "versions": [
+    "1.10.0",
+    "1.10.0.1",
+    "1.10.1",
+    "1.10.2",
+    "1.11.0",
+    "1.11.1",
+    "1.11.2",
+    "1.11.3",
+    "1.12.0",
+    "1.12.1",
+    "1.12.2",
+    "1.12.3",
+    "1.12.4",
+    "1.4.1",
+    "1.4.2",
+    "1.4.3",
+    "1.4.4",
+    "1.5.0",
+    "1.5.1",
+    "1.5.2",
+    "1.6.0",
+    "1.6.1",
+    "1.6.2",
+    "1.6.3",
+    "1.6.4",
+    "1.7.0",
+    "1.7.1",
+    "1.7.1.1",
+    "1.7.2",
+    "1.8.0",
+    "1.8.1",
+    "1.8.2",
+    "1.8.3",
+    "1.9.0",
+    "1.9.1",
+    "2.0.0",
+    "2.0.1",
+    "2.0.1.1",
+    "2.0.2",
+    "2.0.3",
+    "2.1.0",
+    "2.1.1",
+    "2.1.2",
+    "2.1.3",
+    "2.1.4",
+    "2.2.0",
+    "2.2.1",
+    "2.2.2",
+    "2.2.3",
+    "2.2.4",
+    "3.0.0",
+    "3.0.0.1",
+    "3.1.0",
+    "3.1.1",
+    "3.2.1",
+    "3.3.1",
+    "3.4.0",
+    "3.4.1"
+   ]
+  },
+  {
+   "aliases": [
+    "CVE-2016-10707"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-mhpp-875w-9cpv",
+   "package": "jquery",
+   "ranges": [
+    {
+     "fixed": "3.0.0",
+     "introduced": "3.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.0.0",
+     "introduced": "3.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2016-10707",
+   "severity": "high",
+   "summary": "Denial of Service in jquery",
+   "versions": [
+    "3.0.0-rc.1",
+    "3.0.0-rc.1"
+   ]
+  },
+  {
+   "aliases": [
+    "CVE-2020-7656",
+    "SNYK-JS-JQUERY-569619"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-q4m3-2j7h-f7xw",
+   "package": "jquery",
+   "ranges": [
+    {
+     "fixed": "1.9.0",
+     "introduced": "1.2.1",
+     "last_affected": null
+    },
+    {
+     "fixed": "1.9.0",
+     "introduced": "1.2.1",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2020-7656",
+   "severity": "medium",
+   "summary": "Cross-Site Scripting in jquery",
+   "versions": [
+    "1.4.1",
+    "1.4.2",
+    "1.4.3",
+    "1.4.4",
+    "1.5.0",
+    "1.5.1",
+    "1.5.2",
+    "1.6.0",
+    "1.6.1",
+    "1.6.2",
+    "1.6.3",
+    "1.6.4",
+    "1.7.0",
+    "1.7.1",
+    "1.7.1.1",
+    "1.7.2",
+    "1.8.0",
+    "1.8.1",
+    "1.8.2",
+    "1.8.3"
+   ]
+  },
+  {
+   "aliases": [
+    "CVE-2015-9251"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-rmxg-73gg-4p98",
+   "package": "jquery",
+   "ranges": [
+    {
+     "fixed": "1.12.2",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "1.12.2",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.0.0",
+     "introduced": "1.12.3",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.0.0",
+     "introduced": "1.12.3",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2015-9251",
+   "severity": "medium",
+   "summary": "Cross-Site Scripting (XSS) in jquery",
+   "versions": [
+    "1.10.0",
+    "1.10.0.1",
+    "1.10.1",
+    "1.10.2",
+    "1.11.0",
+    "1.11.1",
+    "1.11.2",
+    "1.11.3",
+    "1.12.0",
+    "1.12.1",
+    "1.4.1",
+    "1.4.2",
+    "1.4.3",
+    "1.4.4",
+    "1.5.0",
+    "1.5.1",
+    "1.5.2",
+    "1.6.0",
+    "1.6.1",
+    "1.6.2",
+    "1.6.3",
+    "1.6.4",
+    "1.7.0",
+    "1.7.1",
+    "1.7.1.1",
+    "1.7.2",
+    "1.8.0",
+    "1.8.1",
+    "1.8.2",
+    "1.8.3",
+    "1.9.0",
+    "1.9.1",
+    "1.12.3",
+    "1.12.4",
+    "2.0.0",
+    "2.0.1",
+    "2.0.1.1",
+    "2.0.2",
+    "2.0.3",
+    "2.1.0",
+    "2.1.1",
+    "2.1.2",
+    "2.1.3",
+    "2.1.4",
+    "2.2.0",
+    "2.2.1",
+    "2.2.2",
+    "2.2.3",
+    "2.2.4"
+   ]
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-fj93-7wm4-8x2g",
+   "package": "jquery-mobile",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/jquery/jquery-mobile/issues/8640",
+   "severity": "high",
+   "summary": "Cross-Site Scripting in jquery-mobile",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "BIT-drupal-2021-41182",
+    "CVE-2021-41182"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-9gj3-hwp5-pmwc",
+   "package": "jquery-ui",
+   "ranges": [
+    {
+     "fixed": "1.13.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/jquery/jquery-ui/security/advisories/GHSA-9gj3-hwp5-pmwc",
+   "severity": "medium",
+   "summary": "XSS in the `altField` option of the Datepicker widget in jquery-ui",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "BIT-drupal-2021-41184",
+    "CVE-2021-41184"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-gpqq-952q-5327",
+   "package": "jquery-ui",
+   "ranges": [
+    {
+     "fixed": "1.13.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/jquery/jquery-ui/security/advisories/GHSA-gpqq-952q-5327",
+   "severity": "medium",
+   "summary": "XSS in the `of` option of the `.position()` util in jquery-ui",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2022-31160"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-h6gj-6jjq-h8g9",
+   "package": "jquery-ui",
+   "ranges": [
+    {
+     "fixed": "1.13.2",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/jquery/jquery-ui/security/advisories/GHSA-h6gj-6jjq-h8g9",
+   "severity": "medium",
+   "summary": "jQuery UI vulnerable to XSS when refreshing a checkboxradio with an HTML-like initial text label",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2016-7103"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-hpcf-8vf9-q4gj",
+   "package": "jquery-ui",
+   "ranges": [
+    {
+     "fixed": "1.12.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2016-7103",
+   "severity": "medium",
+   "summary": "jQuery-UI vulnerable to Cross-site Scripting in dialog closeText",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "BIT-drupal-2021-41183",
+    "CVE-2021-41183"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-j7qv-pgf6-hvh4",
+   "package": "jquery-ui",
+   "ranges": [
+    {
+     "fixed": "1.13.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/jquery/jquery-ui/security/advisories/GHSA-j7qv-pgf6-hvh4",
+   "severity": "medium",
+   "summary": "XSS in `*Text` options of the Datepicker widget in jquery-ui",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2012-6662"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-qqxp-xp9v-vvx6",
+   "package": "jquery-ui",
+   "ranges": [
+    {
+     "fixed": "1.10.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2012-6662",
+   "severity": "medium",
+   "summary": "jquery-ui Tooltip widget vulnerable to XSS",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2010-5312"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-wcm2-9c89-wmfm",
+   "package": "jquery-ui",
+   "ranges": [
+    {
+     "fixed": "1.10.0",
+     "introduced": "1.7.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2010-5312",
+   "severity": "medium",
+   "summary": "Cross-site Scripting in jquery-ui",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2019-14862"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-vcjj-xf2r-mwvc",
+   "package": "knockout",
+   "ranges": [
+    {
+     "fixed": "3.5.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2019-14862",
+   "severity": "medium",
+   "summary": "XSS in knockout",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2020-28500"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-29mw-wpgm-hmr9",
+   "package": "lodash",
+   "ranges": [
+    {
+     "fixed": "4.17.21",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2020-28500",
+   "severity": "medium",
+   "summary": "Regular Expression Denial of Service (ReDoS) in lodash",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2021-23337",
+    "CVE-2026-4800",
+    "GHSA-r5fr-rjxr-66jc"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-35jh-r3h4-6jhm",
+   "package": "lodash",
+   "ranges": [
+    {
+     "fixed": "4.17.21",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2021-23337",
+   "severity": "high",
+   "summary": "Command Injection in lodash",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2018-16487"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-4xc9-xhrj-v574",
+   "package": "lodash",
+   "ranges": [
+    {
+     "fixed": "4.17.11",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2018-16487",
+   "severity": "high",
+   "summary": "Prototype Pollution in lodash",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2025-13465",
+    "CVE-2026-2950",
+    "GHSA-xxjr-mmjv-4gpg"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-f23m-r3pf-42rh",
+   "package": "lodash",
+   "ranges": [
+    {
+     "fixed": "4.18.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/lodash/lodash/security/advisories/GHSA-f23m-r3pf-42rh",
+   "severity": "medium",
+   "summary": "lodash vulnerable to Prototype Pollution via array path bypass in `_.unset` and `_.omit`",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2018-3721"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-fvqr-27wr-82fm",
+   "package": "lodash",
+   "ranges": [
+    {
+     "fixed": "4.17.5",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2018-3721",
+   "severity": "medium",
+   "summary": "Prototype Pollution in lodash",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2019-10744"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-jf85-cpcp-j695",
+   "package": "lodash",
+   "ranges": [
+    {
+     "fixed": "4.17.12",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2019-10744",
+   "severity": "critical",
+   "summary": "Prototype Pollution in lodash",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2020-8203"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-p6mc-m468-83gw",
+   "package": "lodash",
+   "ranges": [
+    {
+     "fixed": "4.17.19",
+     "introduced": "3.7.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2020-8203",
+   "severity": "high",
+   "summary": "Prototype Pollution in lodash",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2021-23337",
+    "CVE-2026-4800",
+    "GHSA-35jh-r3h4-6jhm"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-r5fr-rjxr-66jc",
+   "package": "lodash",
+   "ranges": [
+    {
+     "fixed": "4.18.0",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc",
+   "severity": "high",
+   "summary": "lodash vulnerable to Code Injection via `_.template` imports key names",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2019-1010266"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-x5rq-j2xg-h7qm",
+   "package": "lodash",
+   "ranges": [
+    {
+     "fixed": "4.17.11",
+     "introduced": "4.7.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2019-1010266",
+   "severity": "medium",
+   "summary": "Regular Expression Denial of Service (ReDoS) in lodash",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2025-13465",
+    "CVE-2026-2950",
+    "GHSA-f23m-r3pf-42rh"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-xxjr-mmjv-4gpg",
+   "package": "lodash",
+   "ranges": [
+    {
+     "fixed": "4.17.23",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/lodash/lodash/security/advisories/GHSA-xxjr-mmjv-4gpg",
+   "severity": "medium",
+   "summary": "Lodash has Prototype Pollution Vulnerability in `_.unset` and `_.omit` functions",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-41591"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-x9fj-57fh-c8wq",
+   "package": "marko",
+   "ranges": [
+    {
+     "fixed": "5.38.36",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/marko-js/marko/security/advisories/GHSA-x9fj-57fh-c8wq",
+   "severity": "medium",
+   "summary": "Marko: XSS via case-insensitive script/style closing tag bypass in runtime HTML escaping",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2017-18214"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-446m-mv8f-q348",
+   "package": "moment",
+   "ranges": [
+    {
+     "fixed": "2.19.3",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2017-18214",
+   "severity": "high",
+   "summary": "Regular Expression Denial of Service in moment",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2016-4055"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-87vv-r9j6-g5qv",
+   "package": "moment",
+   "ranges": [
+    {
+     "fixed": "2.11.2",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2016-4055",
+   "severity": "medium",
+   "summary": "Regular Expression Denial of Service in moment",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2022-24785"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-8hfj-j24r-96c4",
+   "package": "moment",
+   "ranges": [
+    {
+     "fixed": "2.29.2",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/moment/moment/security/advisories/GHSA-8hfj-j24r-96c4",
+   "severity": "high",
+   "summary": "Path Traversal: 'dir/../../filename' in moment.locale",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2022-31129"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-wc69-rhjr-hc9g",
+   "package": "moment",
+   "ranges": [
+    {
+     "fixed": "2.29.4",
+     "introduced": "2.18.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/moment/moment/security/advisories/GHSA-wc69-rhjr-hc9g",
+   "severity": "high",
+   "summary": "Moment.js vulnerable to Inefficient Regular Expression Complexity",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-56x4-j7p9-fcf9",
+   "package": "moment-timezone",
+   "ranges": [
+    {
+     "fixed": "0.5.35",
+     "introduced": "0.1.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/moment/moment-timezone/security/advisories/GHSA-56x4-j7p9-fcf9",
+   "severity": "low",
+   "summary": "Command Injection in moment-timezone",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-v78c-4p63-2j6c",
+   "package": "moment-timezone",
+   "ranges": [
+    {
+     "fixed": "0.5.35",
+     "introduced": "0.1.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/moment/moment-timezone/security/advisories/GHSA-v78c-4p63-2j6c",
+   "severity": "medium",
+   "summary": "Cleartext Transmission of Sensitive Information in moment-timezone",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2015-8862"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-w3w8-37jv-2c58",
+   "package": "mustache",
+   "ranges": [
+    {
+     "fixed": "2.2.1",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2015-8862",
+   "severity": "high",
+   "summary": "Cross-Site Scripting in mustache",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2025-30218"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-223j-4rm8-mrmf",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "12.3.6",
+     "introduced": "12.3.5",
+     "last_affected": null
+    },
+    {
+     "fixed": "13.5.10",
+     "introduced": "13.5.9",
+     "last_affected": null
+    },
+    {
+     "fixed": "14.2.26",
+     "introduced": "14.2.25",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.2.4",
+     "introduced": "15.2.3",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-223j-4rm8-mrmf",
+   "severity": "low",
+   "summary": "Next.js may leak x-middleware-subrequest-id to external hosts",
+   "versions": [
+    "12.3.5",
+    "13.5.9",
+    "14.2.25",
+    "15.2.3"
+   ]
+  },
+  {
+   "aliases": [
+    "CVE-2021-43803"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-25mp-g6fv-mqxx",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "12.0.5",
+     "introduced": "12.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "11.1.3",
+     "introduced": "0.9.9",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-25mp-g6fv-mqxx",
+   "severity": "high",
+   "summary": "Unexpected server crash in Next.js.",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-44575"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-267c-6grr-h53f",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.16",
+     "introduced": "15.2.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.5",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-267c-6grr-h53f",
+   "severity": "high",
+   "summary": "Next.js has a Middleware / Proxy bypass in App Router applications via segment-prefetch routes",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-45109"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-26hh-7cqf-hhc6",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.18",
+     "introduced": "15.2.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.6",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-267c-6grr-h53f",
+   "severity": "high",
+   "summary": "Next.js has a Middleware / Proxy bypass in App Router applications via segment-prefetch routes - Incomplete Fix Follow-Up",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-44573"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-36qx-fr4f-26g5",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.16",
+     "introduced": "12.2.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.5",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-36qx-fr4f-26g5",
+   "severity": "high",
+   "summary": "Next.js has a Middleware / Proxy bypass in Pages Router applications using i18n",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2017-16877"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-3f5c-4qxj-vmpf",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "2.4.1",
+     "introduced": "1.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2017-16877",
+   "severity": "high",
+   "summary": "Next.js Directory Traversal Vulnerability",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-44572"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-3g8h-86w9-wvmq",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.16",
+     "introduced": "12.2.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.5",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-3g8h-86w9-wvmq",
+   "severity": "low",
+   "summary": "Next.js's Middleware / Proxy redirects can be cache-poisoned",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2025-48068"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-3h52-269p-cp9r",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.2.2",
+     "introduced": "15.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "14.2.30",
+     "introduced": "13.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-3h52-269p-cp9r",
+   "severity": "low",
+   "summary": "Information exposure in Next.js dev server due to lack of origin verification",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-27980"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-3x4c-7xq6-9pq8",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "16.1.7",
+     "introduced": "16.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.5.14",
+     "introduced": "10.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-3x4c-7xq6-9pq8",
+   "severity": "medium",
+   "summary": "Next.js: Unbounded next/image disk cache growth can exhaust storage",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2025-57822"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-4342-x723-ch2f",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "14.2.32",
+     "introduced": "0.9.9",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.4.7",
+     "introduced": "15.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-4342-x723-ch2f",
+   "severity": "medium",
+   "summary": "Next.js Improper Middleware Redirect Handling Leads to SSRF",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-64647"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-4633-3j49-mh5q",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.21",
+     "introduced": "13.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.11",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-4633-3j49-mh5q",
+   "severity": "medium",
+   "summary": "Next.js: Cache confusion of response bodies for requests with bodies containing invalid UTF-8 byte sequences",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-44574"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-492v-c6pp-mqqv",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.16",
+     "introduced": "15.4.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.5",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-492v-c6pp-mqqv",
+   "severity": "high",
+   "summary": "Next.js has a Middleware / Proxy bypass through dynamic route parameter injection",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-64646"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-4c39-4ccg-62r3",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.21",
+     "introduced": "13.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.11",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-4c39-4ccg-62r3",
+   "severity": "medium",
+   "summary": "Next.js: Unbounded Server Action payload in Edge runtime",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2025-59472"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-5f7q-jpqc-wp7h",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "16.1.5",
+     "introduced": "16.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": null,
+     "introduced": "15.0.0",
+     "last_affected": "15.0.0"
+    },
+    {
+     "fixed": null,
+     "introduced": "15.0.1",
+     "last_affected": "15.0.1"
+    },
+    {
+     "fixed": null,
+     "introduced": "15.0.2",
+     "last_affected": "15.0.2"
+    },
+    {
+     "fixed": null,
+     "introduced": "15.0.3",
+     "last_affected": "15.0.3"
+    },
+    {
+     "fixed": null,
+     "introduced": "15.0.4",
+     "last_affected": "15.0.4"
+    },
+    {
+     "fixed": null,
+     "introduced": "15.1.1",
+     "last_affected": "15.1.1"
+    },
+    {
+     "fixed": null,
+     "introduced": "15.2.0",
+     "last_affected": "15.2.0"
+    },
+    {
+     "fixed": null,
+     "introduced": "15.2.1",
+     "last_affected": "15.2.1"
+    },
+    {
+     "fixed": null,
+     "introduced": "15.2.2",
+     "last_affected": "15.2.2"
+    },
+    {
+     "fixed": null,
+     "introduced": "15.3.0",
+     "last_affected": "15.3.0"
+    },
+    {
+     "fixed": null,
+     "introduced": "15.3.1",
+     "last_affected": "15.3.1"
+    },
+    {
+     "fixed": null,
+     "introduced": "15.4.0",
+     "last_affected": "15.4.0"
+    },
+    {
+     "fixed": null,
+     "introduced": "15.4.2",
+     "last_affected": "15.4.2"
+    },
+    {
+     "fixed": null,
+     "introduced": "15.5.1",
+     "last_affected": "15.5.1"
+    },
+    {
+     "fixed": "15.6.0",
+     "introduced": "15.6.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-5f7q-jpqc-wp7h",
+   "severity": "medium",
+   "summary": "Next.js has Unbounded Memory Consumption via PPR Resume Endpoint",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-5j59-xgg2-r9c4",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "14.2.35",
+     "introduced": "13.3.1",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.0.7",
+     "introduced": "15.0.6",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.1.11",
+     "introduced": "15.1.10",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.2.8",
+     "introduced": "15.2.7",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.3.8",
+     "introduced": "15.3.7",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.4.10",
+     "introduced": "15.4.9",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.5.9",
+     "introduced": "15.5.8",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.6.0",
+     "introduced": "15.6.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.0.10",
+     "introduced": "16.0.9",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.1.0",
+     "introduced": "16.1.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-5j59-xgg2-r9c4",
+   "severity": "high",
+   "summary": "Next has a Denial of Service with Server Components - Incomplete Fix Follow-Up",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-5vj8-3v2h-h38v",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "5.1.0",
+     "introduced": "0.9.9",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://www.npmjs.com/advisories/1538",
+   "severity": "high",
+   "summary": "Remote Code Execution in next",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2025-49826"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-67rr-84xm-4c7r",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.1.8",
+     "introduced": "15.0.4",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-67rr-84xm-4c7r",
+   "severity": "high",
+   "summary": "Next.JS vulnerability can lead to DoS via cache poisoning",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-64648"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-68g3-v927-f742",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.21",
+     "introduced": "13.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.11",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-68g3-v927-f742",
+   "severity": "medium",
+   "summary": "Next.js: Cache confusion of response bodies for requests with bodies",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-64642"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-6gpp-xcg3-4w24",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "16.2.11",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-6gpp-xcg3-4w24",
+   "severity": "high",
+   "summary": "Next.js: Middleware / Proxy bypass in App Router applications using Turbopack and single locale",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2024-34350"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-77r5-gw3j-2mpf",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "13.5.1",
+     "introduced": "13.4.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-77r5-gw3j-2mpf",
+   "severity": "high",
+   "summary": "Next.js Vulnerable to HTTP Request Smuggling",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2024-51479"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-7gfc-8cq8-jh5f",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "14.2.15",
+     "introduced": "9.5.5",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-7gfc-8cq8-jh5f",
+   "severity": "high",
+   "summary": "Next.js authorization bypass vulnerability",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2024-56332"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-7m27-7ghc-44w9",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "13.5.8",
+     "introduced": "13.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "14.2.21",
+     "introduced": "14.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.1.2",
+     "introduced": "15.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-7m27-7ghc-44w9",
+   "severity": "medium",
+   "summary": "Next.js Allows a Denial of Service (DoS) with Server Actions",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-64649"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-89xv-2m56-2m9x",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.21",
+     "introduced": "14.1.1",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.11",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-89xv-2m56-2m9x",
+   "severity": "high",
+   "summary": "Next.js: Server-Side Request Forgery in Server Actions on custom servers",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-8h8q-6873-q5fj",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.16",
+     "introduced": "13.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.5",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/facebook/react/security/advisories/GHSA-rv78-f8rc-xrxh",
+   "severity": "high",
+   "summary": "Next.js Vulnerable to Denial of Service with Server Components",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-64643"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-955p-x3mx-jcvp",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.21",
+     "introduced": "13.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.11",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-955p-x3mx-jcvp",
+   "severity": "medium",
+   "summary": "Next.js: Unauthenticated disclosure of internal Server Function endpoints",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2025-59471"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-9g9p-9gw9-jx7f",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.10",
+     "introduced": "10.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.1.5",
+     "introduced": "15.6.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-9g9p-9gw9-jx7f",
+   "severity": "medium",
+   "summary": "Next.js self-hosted applications vulnerable to DoS via Image Optimizer remotePatterns configuration",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2021-39178"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-9gr3-7897-pp7m",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "11.1.1",
+     "introduced": "10.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-9gr3-7897-pp7m",
+   "severity": "high",
+   "summary": "XSS in Image Optimization API for Next.js",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-9qr9-h5gf-34mp",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.0.5",
+     "introduced": "14.3.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.1.9",
+     "introduced": "15.1.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.2.6",
+     "introduced": "15.2.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.3.6",
+     "introduced": "15.3.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.4.8",
+     "introduced": "15.4.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.5.7",
+     "introduced": "15.5.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.0.7",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/facebook/react/security/advisories/GHSA-fv66-9v8q-g76r",
+   "severity": "critical",
+   "summary": "Next.js is vulnerable to RCE in React flight protocol",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-44578"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-c4j6-fc7j-m34r",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.16",
+     "introduced": "13.4.13",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.5",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-c4j6-fc7j-m34r",
+   "severity": "high",
+   "summary": "Next.js vulnerable to server-side request forgery in applications using WebSocket upgrades",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2023-46298"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-c59h-r6p8-q9wc",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "13.4.20",
+     "introduced": "0.9.9",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2023-46298",
+   "severity": "low",
+   "summary": "Next.js missing cache-control header may lead to CDN caching empty reply",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2025-29927"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-f82v-jwr5-mffw",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "13.5.9",
+     "introduced": "13.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "14.2.25",
+     "introduced": "14.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.2.3",
+     "introduced": "15.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "12.3.5",
+     "introduced": "12.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-f82v-jwr5-mffw",
+   "severity": "critical",
+   "summary": "Authorization Bypass in Next.js Middleware",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-44581"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-ffhc-5mcf-pf4q",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.16",
+     "introduced": "13.4.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.5",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-ffhc-5mcf-pf4q",
+   "severity": "medium",
+   "summary": "Next.js vulnerable to cross-site scripting in App Router applications using CSP nonces",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2022-23646"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-fmvm-x8mv-47mj",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "12.1.0",
+     "introduced": "10.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-fmvm-x8mv-47mj",
+   "severity": "medium",
+   "summary": "Improper CSP in Image Optimization API for Next.js versions between 10.0.0 and 12.1.0",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2024-39693"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-fq54-2j52-jc42",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "13.5.0",
+     "introduced": "13.3.1",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-fq54-2j52-jc42",
+   "severity": "high",
+   "summary": "Next.js Denial of Service (DoS) condition",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2020-5284"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-fq77-7p7r-83rj",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "9.3.2",
+     "introduced": "0.9.9",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/zeit/next.js/security/advisories/GHSA-fq77-7p7r-83rj",
+   "severity": "medium",
+   "summary": "Directory Traversal in Next.js",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2024-34351"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-fr5h-rqp8-mj6g",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "14.1.1",
+     "introduced": "13.4.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-fr5h-rqp8-mj6g",
+   "severity": "high",
+   "summary": "Next.js Server-Side Request Forgery in Server Actions",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2025-57752"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-g5qg-72qw-gw5v",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "14.2.31",
+     "introduced": "0.9.9",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.4.5",
+     "introduced": "15.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-g5qg-72qw-gw5v",
+   "severity": "medium",
+   "summary": "Next.js Affected by Cache Key Confusion for Image Optimization API Routes",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2024-47831"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-g77x-44xx-532m",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "14.2.7",
+     "introduced": "10.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-g77x-44xx-532m",
+   "severity": "medium",
+   "summary": "Denial of Service condition in Next.js image optimization",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-29057"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-ggv3-7p47-pfv8",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "16.1.7",
+     "introduced": "16.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.5.13",
+     "introduced": "9.5.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-ggv3-7p47-pfv8",
+   "severity": "medium",
+   "summary": "Next.js: HTTP request smuggling in rewrites",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2024-46982"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-gp8f-8m3g-qvj9",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "13.5.7",
+     "introduced": "13.5.1",
+     "last_affected": null
+    },
+    {
+     "fixed": "14.2.10",
+     "introduced": "14.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-gp8f-8m3g-qvj9",
+   "severity": "high",
+   "summary": "Next.js Cache Poisoning",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-44580"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-gx5p-jg67-6x7h",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.16",
+     "introduced": "13.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.5",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-gx5p-jg67-6x7h",
+   "severity": "medium",
+   "summary": "Next.js has cross-site scripting in beforeInteractive scripts with untrusted input",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-h25m-26qc-wcjf",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.0.8",
+     "introduced": "13.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.1.12",
+     "introduced": "15.1.1",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.2.9",
+     "introduced": "15.2.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.3.9",
+     "introduced": "15.3.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.4.11",
+     "introduced": "15.4.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.5.10",
+     "introduced": "15.5.1",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.6.0",
+     "introduced": "15.6.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.0.11",
+     "introduced": "16.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.1.5",
+     "introduced": "16.1.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/facebook/react/security/advisories/GHSA-83fc-fqcc-2hmg",
+   "severity": "high",
+   "summary": "Next.js HTTP request deserialization can lead to DoS when using insecure React Server Components",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-27979"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-h27x-g6w4-24gq",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "16.1.7",
+     "introduced": "16.0.1",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-h27x-g6w4-24gq",
+   "severity": "medium",
+   "summary": "Next.js: Unbounded postponed resume buffering can lead to DoS",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-44577"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-h64f-5h5j-jqjh",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.16",
+     "introduced": "10.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.5",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-h64f-5h5j-jqjh",
+   "severity": "medium",
+   "summary": "Next.js has a Denial of Service in the Image Optimization API",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-27977"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-jcc7-9wpm-mj36",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "16.1.7",
+     "introduced": "16.0.1",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-jcc7-9wpm-mj36",
+   "severity": "low",
+   "summary": "Next.js: null origin can bypass dev HMR websocket CSRF checks",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2018-6184"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-m34x-wgrh-g897",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "4.2.3",
+     "introduced": "1.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2018-6184",
+   "severity": "high",
+   "summary": "Directory traversal vulnerability in Next.js",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-64641"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-m99w-x7hq-7vfj",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.21",
+     "introduced": "13.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.11",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-m99w-x7hq-7vfj",
+   "severity": "high",
+   "summary": "Next.js: Denial of Service in App Router using Server Actions",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-44579"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-mg66-mrh9-m8jx",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.16",
+     "introduced": "15.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.5",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-mg66-mrh9-m8jx",
+   "severity": "high",
+   "summary": "Next.js vulnerable to Denial of Service via connection exhaustion in applications using Cache Components",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-27978"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-mq59-m269-xvcx",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "16.1.7",
+     "introduced": "16.0.1",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-mq59-m269-xvcx",
+   "severity": "medium",
+   "summary": "Next.js: null origin can bypass Server Actions CSRF checks",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-mwv6-3258-q52c",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "14.2.34",
+     "introduced": "13.3.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.0.6",
+     "introduced": "15.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.1.10",
+     "introduced": "15.1.1",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.2.7",
+     "introduced": "15.2.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.3.7",
+     "introduced": "15.3.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.4.9",
+     "introduced": "15.4.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.5.8",
+     "introduced": "15.5.1",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.6.0",
+     "introduced": "15.6.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.0.9",
+     "introduced": "16.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.1.0",
+     "introduced": "16.1.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-mwv6-3258-q52c",
+   "severity": "high",
+   "summary": "Next Vulnerable to Denial of Service with Server Components",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-64645"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-p9j2-gv94-2wf4",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.21",
+     "introduced": "12.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.11",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-p9j2-gv94-2wf4",
+   "severity": "high",
+   "summary": "Next.js: Server-Side Request Forgery in rewrites via attacker-controlled destination hostname",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-q4gf-8mx6-v5v3",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.15",
+     "introduced": "13.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.3",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-q4gf-8mx6-v5v3",
+   "severity": "high",
+   "summary": "Next.js has a Denial of Service with Server Components",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-64644"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-q8wf-6r8g-63ch",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.21",
+     "introduced": "15.5.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.11",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-q8wf-6r8g-63ch",
+   "severity": "medium",
+   "summary": "Next.js: Denial of Service in the Image Optimization API using SVGs",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2025-32421"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-qpjv-v59x-3qc4",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "14.2.24",
+     "introduced": "0.9.9",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.1.6",
+     "introduced": "15.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-qpjv-v59x-3qc4",
+   "severity": "low",
+   "summary": "Next.js Race Condition to Cache Poisoning",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2018-18282"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-qw96-mm2g-c8m7",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "7.0.2",
+     "introduced": "7.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2018-18282",
+   "severity": "medium",
+   "summary": "Next.js has cross site scripting (XSS) vulnerability via the 404 or 500 /_error page",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2025-49005"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-r2fc-ccr8-96c4",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.3.3",
+     "introduced": "15.3.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-r2fc-ccr8-96c4",
+   "severity": "low",
+   "summary": "Next.js has a Cache poisoning vulnerability due to omission of the Vary header",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-44582"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-vfv6-92ff-j949",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.16",
+     "introduced": "13.4.6",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.5",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-vfv6-92ff-j949",
+   "severity": "low",
+   "summary": "Next.js vulnerable to cache poisoning via collisions in React Server Component cache-busting",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2021-37699"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-vxf5-wxwp-m7g9",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "11.1.0",
+     "introduced": "0.9.9",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-vxf5-wxwp-m7g9",
+   "severity": "medium",
+   "summary": "Open Redirect in Next.js",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-w37m-7fhw-fmv9",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.0.6",
+     "introduced": "15.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.1.10",
+     "introduced": "15.1.1",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.2.7",
+     "introduced": "15.2.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.3.7",
+     "introduced": "15.3.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.4.9",
+     "introduced": "15.4.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.5.8",
+     "introduced": "15.5.1",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.6.0",
+     "introduced": "15.6.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.0.9",
+     "introduced": "16.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.1.0",
+     "introduced": "16.1.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-w37m-7fhw-fmv9",
+   "severity": "medium",
+   "summary": "Next Server Actions Source Code Exposure",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-44576"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-wfc6-r584-vfw7",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "15.5.16",
+     "introduced": "14.2.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "16.2.5",
+     "introduced": "16.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-wfc6-r584-vfw7",
+   "severity": "medium",
+   "summary": "Next.js vulnerable to cache poisoning in React Server Component responses",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2022-36046",
+    "PYSEC-2022-43188"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-wff4-fpwg-qqv3",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "12.2.4",
+     "introduced": "12.2.3",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-wff4-fpwg-qqv3",
+   "severity": "medium",
+   "summary": "Unexpected server crash in Next.js",
+   "versions": [
+    "12.2.3"
+   ]
+  },
+  {
+   "aliases": [
+    "CVE-2022-21721"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-wr66-vrwm-5g5x",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "12.0.9",
+     "introduced": "12.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-wr66-vrwm-5g5x",
+   "severity": "medium",
+   "summary": "Denial of Service Vulnerability in next.js",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2020-15242"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-x56p-c8cg-q435",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "9.5.4",
+     "introduced": "9.5.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-x56p-c8cg-q435",
+   "severity": "medium",
+   "summary": "Open Redirect in Next.js versions",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2025-55173"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-xv57-4mr9-wg8v",
+   "package": "next",
+   "ranges": [
+    {
+     "fixed": "14.2.31",
+     "introduced": "0.9.9",
+     "last_affected": null
+    },
+    {
+     "fixed": "15.4.5",
+     "introduced": "15.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/vercel/next.js/security/advisories/GHSA-xv57-4mr9-wg8v",
+   "severity": "medium",
+   "summary": "Next.js Content Injection Vulnerability for Image Optimization",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-56301"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-534h-c3cw-v3h9",
+   "package": "nuxt",
+   "ranges": [
+    {
+     "fixed": "4.4.7",
+     "introduced": "4.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.21.7",
+     "introduced": "3.18.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/nuxt/nuxt/security/advisories/GHSA-534h-c3cw-v3h9",
+   "severity": "medium",
+   "summary": "Nuxt dev server vite-node IPC socket is world-connectable on Linux",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-53722"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-934w-87qh-qr26",
+   "package": "nuxt",
+   "ranges": [
+    {
+     "fixed": "4.4.7",
+     "introduced": "4.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.21.7",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/nuxt/nuxt/security/advisories/GHSA-934w-87qh-qr26",
+   "severity": "medium",
+   "summary": "Nuxt: Reflected XSS in `<NuxtLink>` via unsanitised `javascript:` or `data:` URL",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-56326",
+    "CVE-2026-56697",
+    "CVE-2026-56698"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-c9cv-mq2m-ppp3",
+   "package": "nuxt",
+   "ranges": [
+    {
+     "fixed": "4.4.7",
+     "introduced": "4.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.21.7",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/nuxt/nuxt/security/advisories/GHSA-c9cv-mq2m-ppp3",
+   "severity": "medium",
+   "summary": "Nuxt: URL-handling weaknesses in `navigateTo` and `reloadNuxtApp`: SSR open redirect, client-side script execution via the `open` option, and protocol-relative bypass in `reloadNuxtApp`",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-45669"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-fx6j-w5w5-h468",
+   "package": "nuxt",
+   "ranges": [
+    {
+     "fixed": "3.21.6",
+     "introduced": "3.4.3",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.4.6",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/nuxt/nuxt/security/advisories/GHSA-fx6j-w5w5-h468",
+   "severity": "medium",
+   "summary": "Nuxt: Reflected XSS in `navigateTo()` external redirect",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-46342"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-g8wj-3cr3-6w7v",
+   "package": "nuxt",
+   "ranges": [
+    {
+     "fixed": "3.21.6",
+     "introduced": "3.1.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.4.6",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/nuxt/nuxt/security/advisories/GHSA-g8wj-3cr3-6w7v",
+   "severity": "low",
+   "summary": "Nuxt: `__nuxt_island` endpoint does not bind responses to request props, enabling shared-cache poisoning",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2023-3224"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-gc34-5v43-h7v8",
+   "package": "nuxt",
+   "ranges": [
+    {
+     "fixed": "3.4.3",
+     "introduced": "3.4.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2023-3224",
+   "severity": "critical",
+   "summary": "nuxt Code Injection vulnerability",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-47200"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-hg3f-28rg-4jxj",
+   "package": "nuxt",
+   "ranges": [
+    {
+     "fixed": "3.21.6",
+     "introduced": "3.11.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.4.6",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/nuxt/nuxt/security/advisories/GHSA-hg3f-28rg-4jxj",
+   "severity": "medium",
+   "summary": "Nuxt's route middleware is not enforced when rendering `.server.vue` pages via `/__nuxt_island/page_*`",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2025-27415"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-jvhm-gjrh-3h93",
+   "package": "nuxt",
+   "ranges": [
+    {
+     "fixed": "3.16.0",
+     "introduced": "3.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/nuxt/nuxt/security/advisories/GHSA-jvhm-gjrh-3h93",
+   "severity": "high",
+   "summary": "Nuxt allows DOS via cache poisoning with payload rendering response",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-56317"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-m3q2-p4fw-w38m",
+   "package": "nuxt",
+   "ranges": [
+    {
+     "fixed": "4.4.7",
+     "introduced": "4.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.21.7",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/nuxt/nuxt/security/advisories/GHSA-m3q2-p4fw-w38m",
+   "severity": "low",
+   "summary": "Cross-site scripting via <NoScript> slot content in Nuxt's head components",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-53721"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-mm7m-92g8-7m47",
+   "package": "nuxt",
+   "ranges": [
+    {
+     "fixed": "4.4.7",
+     "introduced": "4.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.21.7",
+     "introduced": "3.11.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/nuxt/nuxt/security/advisories/GHSA-mm7m-92g8-7m47",
+   "severity": "high",
+   "summary": "Nuxt: Route-rule middleware bypass via case-sensitivity mismatch between vue-router and the routeRules matcher",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2025-59414"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-p6jq-8vc4-79f6",
+   "package": "nuxt",
+   "ranges": [
+    {
+     "fixed": "3.19.0",
+     "introduced": "3.6.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.1.0",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/nuxt/nuxt/security/advisories/GHSA-p6jq-8vc4-79f6",
+   "severity": "low",
+   "summary": "Nuxt has Client-Side Path Traversal in Nuxt Island Payload Revival",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-rq7w-g337-39qq",
+   "package": "nuxt",
+   "ranges": [
+    {
+     "fixed": "4.4.7",
+     "introduced": "4.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/nuxt/nuxt/security/advisories/GHSA-rq7w-g337-39qq",
+   "severity": "low",
+   "summary": "Nuxt: Dev server discloses project absolute path and persistent workspace UUID via `/.well-known/appspecific/com.chrome.devtools.json`",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2024-34344"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-v784-fjjh-f8r4",
+   "package": "nuxt",
+   "ranges": [
+    {
+     "fixed": "3.12.4",
+     "introduced": "3.4.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/nuxt/nuxt/security/advisories/GHSA-v784-fjjh-f8r4",
+   "severity": "critical",
+   "summary": "Nuxt vulnerable to remote code execution via the browser when running the test locally",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2024-34343"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-vf6r-87q4-2vjf",
+   "package": "nuxt",
+   "ranges": [
+    {
+     "fixed": "3.12.4",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/nuxt/nuxt/security/advisories/GHSA-vf6r-87q4-2vjf",
+   "severity": "medium",
+   "summary": "nuxt vulnerable to Cross-site Scripting in navigateTo if used after SSR",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-22028"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-36hm-qxxp-pg3m",
+   "package": "preact",
+   "ranges": [
+    {
+     "fixed": "10.26.10",
+     "introduced": "10.26.5",
+     "last_affected": null
+    },
+    {
+     "fixed": "10.27.3",
+     "introduced": "10.27.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "10.28.2",
+     "introduced": "10.28.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/preactjs/preact/security/advisories/GHSA-36hm-qxxp-pg3m",
+   "severity": "high",
+   "summary": "Preact has JSON VNode Injection issue",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-cg48-9hh2-x6mx",
+   "package": "preact",
+   "ranges": [
+    {
+     "fixed": "10.0.0",
+     "introduced": "10.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/developit/preact/pull/1528",
+   "severity": "medium",
+   "summary": "HTML Injection in preact",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2011-1714"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-pchf-755w-jj6v",
+   "package": "qooxdoo",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "0",
+     "last_affected": "1.3"
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2011-1714",
+   "severity": "medium",
+   "summary": "QooxDoo XSS in Callback Parameter",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2013-7035"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-g53w-52xc-2j85",
+   "package": "react",
+   "ranges": [
+    {
+     "fixed": "0.4.2",
+     "introduced": "0.4.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "0.5.2",
+     "introduced": "0.5.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2013-7035",
+   "severity": "medium",
+   "summary": "Cross-Site Scripting in react",
+   "versions": []
+  },
+  {
+   "aliases": [],
+   "ecosystem": "npm",
+   "id": "GHSA-hg79-j56m-fxgv",
+   "package": "react",
+   "ranges": [
+    {
+     "fixed": "0.14.0",
+     "introduced": "0.0.1",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://reactjs.org/blog/2015/10/07/react-v0.14.html#notable-enhancements",
+   "severity": "high",
+   "summary": "Cross-Site Scripting in react",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2024-38999"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-x3m3-4wpv-5vgc",
+   "package": "requirejs",
+   "ranges": [
+    {
+     "fixed": "2.3.7",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2024-38999",
+   "severity": "high",
+   "summary": "jrburke requirejs vulnerable to prototype pollution",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2024-51091"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-pfr4-4397-3hg8",
+   "package": "seajs",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "0",
+     "last_affected": "2.2.3"
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2024-51091",
+   "severity": "low",
+   "summary": "seajs Cross-site Scripting vulnerability",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2024-38355"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-25hc-qcg6-38wj",
+   "package": "socket.io",
+   "ranges": [
+    {
+     "fixed": "2.5.1",
+     "introduced": "0",
+     "last_affected": null
+    },
+    {
+     "fixed": "4.6.2",
+     "introduced": "3.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/socketio/socket.io/security/advisories/GHSA-25hc-qcg6-38wj",
+   "severity": "medium",
+   "summary": "socket.io has an unhandled 'error' event",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2020-28481"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-fxwf-4rqh-v8g3",
+   "package": "socket.io",
+   "ranges": [
+    {
+     "fixed": "2.4.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2020-28481",
+   "severity": "medium",
+   "summary": "CORS misconfiguration in socket.io",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2017-16031"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-qv2v-m59f-v5fw",
+   "package": "socket.io",
+   "ranges": [
+    {
+     "fixed": "0.9.7",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2017-16031",
+   "severity": "high",
+   "summary": "Insecure randomness in socket.io",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2020-28496"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-fq6p-x6j3-cmmq",
+   "package": "three",
+   "ranges": [
+    {
+     "fixed": "0.125.0",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2020-28496",
+   "severity": "high",
+   "summary": "Denial of service in three",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2021-23358"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-cf4h-3jhx-xvhq",
+   "package": "underscore",
+   "ranges": [
+    {
+     "fixed": "1.12.1",
+     "introduced": "1.3.2",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2021-23358",
+   "severity": "critical",
+   "summary": "Arbitrary Code Execution in underscore",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2026-27601"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-qpx9-hpmf-5gmw",
+   "package": "underscore",
+   "ranges": [
+    {
+     "fixed": "1.13.8",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://github.com/jashkenas/underscore/security/advisories/GHSA-qpx9-hpmf-5gmw",
+   "severity": "high",
+   "summary": "Underscore has unlimited recursion in _.flatten and _.isEqual, potential for DoS attack",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2024-9506"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-5j4c-8p2g-v4jx",
+   "package": "vue",
+   "ranges": [
+    {
+     "fixed": "3.0.0",
+     "introduced": "2.0.0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2024-9506",
+   "severity": "low",
+   "summary": "ReDoS vulnerability in vue package that is exploitable through inefficient regex evaluation in the parseHTML function",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2013-4941"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-64r3-582j-frqm",
+   "package": "yui",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "3.2.0",
+     "last_affected": "3.9.1"
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2013-4941",
+   "severity": "medium",
+   "summary": "YUI Cross-site Scripting (XSS) vulnerability",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2013-4942"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-9ww8-j8j2-3788",
+   "package": "yui",
+   "ranges": [
+    {
+     "fixed": null,
+     "introduced": "3.2.0",
+     "last_affected": "3.9.1"
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2013-4942",
+   "severity": "medium",
+   "summary": "YUI Cross-site Scripting (XSS) vulnerability",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2013-4939"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-mj87-8xf8-fp4w",
+   "package": "yui",
+   "ranges": [
+    {
+     "fixed": "3.10.3",
+     "introduced": "0",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2013-4939",
+   "severity": "medium",
+   "summary": "Cross-Site Scripting in yui",
+   "versions": []
+  },
+  {
+   "aliases": [
+    "CVE-2013-4940"
+   ],
+   "ecosystem": "npm",
+   "id": "GHSA-x5hj-47vv-53p8",
+   "package": "yui",
+   "ranges": [
+    {
+     "fixed": "3.10.11",
+     "introduced": "3.0.0",
+     "last_affected": null
+    },
+    {
+     "fixed": "3.10.13",
+     "introduced": "3.10.12",
+     "last_affected": null
+    }
+   ],
+   "reference": "https://nvd.nist.gov/vuln/detail/CVE-2013-4940",
+   "severity": "medium",
+   "summary": "YUI Cross-site Scripting (XSS) vulnerability",
+   "versions": [
+    "3.10.12"
+   ]
+  }
+ ]
+}

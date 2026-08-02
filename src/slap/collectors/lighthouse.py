@@ -129,6 +129,13 @@ class LighthouseResult:
     errors: list[str] = field(default_factory=list)
     runs_attempted: int = 0
     runs_succeeded: int = 0
+    #: Libraries the browser identified in the running page, as
+    #: ``[{"name", "version", "npm"}]``. Extracted here rather than kept as a
+    #: reference to the whole LHR: the report only needs a handful of names,
+    #: and holding a ~4MB blob per page across a batch with twenty pages of
+    #: twenty sites in flight is real memory for no reason. The full LHR is
+    #: on disk if anyone needs to re-derive more.
+    libraries: list[dict[str, Any]] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------
@@ -610,6 +617,10 @@ class LighthouseRunner:
             result.runs_succeeded += 1
             last_meta = envelope.meta or {}
             extracts.append(extract_values(envelope.lhr))
+            # Library detection is deterministic for a given page, so the
+            # last run's list is as good as any; taking it here means the
+            # LHR can be released with the loop iteration.
+            result.libraries = extract_libraries(envelope.lhr)
             artifact = self._write_artifact(
                 envelope.lhr, hostname=hostname,
                 form_factor=form_factor, index=index,
@@ -668,6 +679,7 @@ class LighthouseCollector:
 
         merged = LighthouseResult(
             observations=observations,
+            libraries=next((r.libraries for r in results if r.libraries), []),
             artifacts=[a for r in results for a in r.artifacts],
             meta=next((r.meta for r in reversed(results) if r.meta), {}),
             errors=[e for r in results for e in r.errors],
@@ -679,6 +691,31 @@ class LighthouseCollector:
         # instance state would be clobbered by whichever site finished last.
         ctx.extras["lighthouse"] = merged
         return observations
+
+
+def extract_libraries(lhr: dict[str, Any]) -> list[dict[str, Any]]:
+    """The `js-libraries` audit rows: name, version, and npm coordinate.
+
+    The npm coordinate is why this is worth extracting rather than
+    fingerprinting from markup: it maps onto OSV's npm ecosystem with no name
+    guessing, so the version the browser actually observed can be matched
+    against advisories without an intermediate lookup table that could be
+    wrong.
+
+    Rows without all three fields are dropped. Guessing that "Kendo UI" is
+    npm's `kendo-ui-core` is how a version gets matched against another
+    package's advisories.
+    """
+    audit = (lhr.get("audits") or {}).get("js-libraries") or {}
+    details = audit.get("details") or {}
+    out: list[dict[str, Any]] = []
+    for item in details.get("items") or []:
+        name, version, npm = (item.get("name"), item.get("version"),
+                              item.get("npm"))
+        if name and version and npm:
+            out.append({"name": str(name), "version": str(version),
+                        "npm": str(npm)})
+    return out
 
 
 def lighthouse_observations(lhr: dict[str, Any]) -> list[Observation]:

@@ -776,3 +776,204 @@ rules:
     effort: low
     remediation: Point the form action at https://.
     evidence: [mixed.insecure_forms, mixed.insecure_form_urls]
+
+  # --- Known vulnerabilities ---------------------------------------------
+  #
+  # Two families, and the split between them is the whole design.
+  #
+  # `vuln-confirmed-*` fires on versions a BROWSER OBSERVED: Lighthouse read
+  # the version out of the running library, or the software announced itself
+  # in a generator tag. Those may name a CVE at its real severity.
+  #
+  # `vuln-possible` fires on versions INFERRED from a ?ver= query string.
+  # That value is frequently the WordPress core version rather than the
+  # plugin's, a cache-buster, or a hash, and optimisers rewrite it. It is
+  # capped at medium, it says how the version was determined, and it asks the
+  # client to confirm rather than telling them they are exposed.
+  #
+  # A confidently wrong CVE in a client report is the worst thing this tool
+  # can print, so the asymmetry is deliberate: over-reporting a real problem
+  # as "possible" costs a follow-up email, under-reporting a guess as
+  # "critical" costs the relationship.
+
+  - id: vuln-confirmed-critical
+    severity: critical
+    title: "{vuln.confirmed_critical} critical vulnerability(s) in software running on this page: {vuln.confirmed_ids}"
+    detail: >-
+      A browser read these version numbers out of the running page, so they
+      are not guesses. Affected: {vuln.confirmed_detail}.
+    when:
+      all:
+        - {metric: vuln.confirmed_critical, gt: 0}
+    effort: medium
+    remediation: >-
+      Update the named components. If an update is not possible immediately,
+      check whether the vulnerable code path is reachable on your site.
+    evidence: [vuln.confirmed_critical, vuln.confirmed_detail, vuln.db_generated]
+
+  - id: vuln-confirmed-high
+    severity: high
+    title: "{vuln.confirmed_high} high-severity vulnerability(s) in software running on this page: {vuln.confirmed_ids}"
+    detail: >-
+      A browser read these version numbers out of the running page, so they
+      are not guesses. Affected: {vuln.confirmed_detail}.
+    when:
+      all:
+        - {metric: vuln.confirmed_high, gt: 0}
+        - {metric: vuln.confirmed_critical, lt: 1}
+    effort: medium
+    remediation: Update the named components to a version past the fix.
+    evidence: [vuln.confirmed_high, vuln.confirmed_detail, vuln.db_generated]
+
+  - id: vuln-confirmed-medium
+    severity: medium
+    title: "{vuln.confirmed_medium} known vulnerability(s) in software running on this page: {vuln.confirmed_ids}"
+    detail: >-
+      Lower severity, but the version numbers were read from the running
+      page rather than guessed. Affected: {vuln.confirmed_detail}.
+    when:
+      all:
+        - {metric: vuln.confirmed_medium, gt: 0}
+        - {metric: vuln.confirmed_high, lt: 1}
+        - {metric: vuln.confirmed_critical, lt: 1}
+    effort: low
+    evidence: [vuln.confirmed_medium, vuln.confirmed_detail]
+
+  - id: vuln-possible
+    severity: medium
+    title: "{vuln.possible_count} component(s) may be running a vulnerable version: {vuln.possible_ids}"
+    detail: >-
+      These versions were inferred from ?ver= query strings on asset URLs,
+      which is the only signal a site publishes and is not always the
+      component's real version: WordPress substitutes the core version for
+      assets that do not set their own, caching plugins rewrite it, and some
+      themes replace it with a hash. Confirm the installed versions before
+      acting. Possible matches: {vuln.possible_detail}.
+    when:
+      all:
+        - {metric: vuln.possible_count, gt: 0}
+    effort: low
+    remediation: >-
+      Check the actual installed versions in your admin panel, then update
+      anything that matches. Do not treat this as confirmed.
+    wp_rocket_setting: >-
+      Not a WP Rocket setting. Note that WP Rocket's file optimisation
+      rewrites ?ver= strings, which is why this check is inferential on a
+      site that uses it.
+    evidence: [vuln.possible_count, vuln.possible_detail]
+
+  - id: vuln-not-checked
+    severity: info
+    title: "Some components could not be checked for known vulnerabilities"
+    detail: >-
+      {vuln.unchecked_count} detected component(s) are in ecosystems this
+      audit has no vulnerability source for ({vuln.unchecked_detail}). That
+      is not a clean result for them; it means they were not checked. A
+      WordPress plugin and theme source can be configured separately.
+    when:
+      all:
+        - {metric: vuln.unchecked_count, gt: 0}
+    effort: none
+    evidence: [vuln.unchecked_count, vuln.unchecked_detail]
+
+  # --- Exposed endpoints --------------------------------------------------
+  #
+  # Only ever populated when probing was explicitly authorised for the host.
+
+  - id: exposed-secrets
+    severity: critical
+    title: "{exposure.secrets_count} file(s) containing credentials are publicly readable"
+    detail: >-
+      These paths returned content matching a configuration file or database
+      dump: {exposure.secrets_paths}. Anyone on the internet can download
+      them. This
+      is not a theoretical exposure; the files were confirmed by their
+      contents, not merely by a status code.
+    when:
+      all:
+        - {metric: exposure.secrets_count, gt: 0}
+    effort: low
+    remediation: >-
+      Remove the files from the web root immediately, then rotate every
+      credential in them: assume they are already compromised. Configure the
+      server to refuse dotfiles and .sql, .bak and .save extensions.
+    evidence: [exposure.secrets_count, exposure.secrets_paths]
+
+  - id: exposed-vcs
+    severity: critical
+    title: "Version-control metadata is publicly readable"
+    detail: >-
+      {exposure.vcs_paths} is reachable. A .git or .svn directory lets anyone
+      reconstruct your entire source tree, including any credentials that
+      were ever committed and later removed, because the history keeps them.
+    when:
+      all:
+        - {metric: exposure.vcs_count, gt: 0}
+    effort: low
+    remediation: >-
+      Block the directory at the web server, and stop deploying by pulling a
+      repository into the web root. Rotate anything ever committed as a
+      secret.
+    evidence: [exposure.vcs_count, exposure.vcs_paths]
+
+  - id: exposed-diagnostics
+    severity: medium
+    title: "Diagnostic endpoints are publicly readable"
+    detail: >-
+      {exposure.info_paths} is reachable. Server status pages, phpinfo() output
+      and debug logs disclose paths, module versions and sometimes request
+      contents, which is reconnaissance handed over for free.
+    when:
+      all:
+        - {metric: exposure.info_count, gt: 0}
+    effort: low
+    remediation: Restrict these paths to localhost, or remove them.
+    evidence: [exposure.info_count, exposure.info_paths]
+
+  - id: exposed-wp-surface
+    severity: low
+    title: "WordPress exposes more attack surface than it needs to"
+    detail: >-
+      {exposure.wp_surface_paths} is reachable. xmlrpc.php enables password
+      brute-force
+      amplification and pingback-based traffic reflection; the REST users
+      endpoint lists valid usernames, which halves the work of a
+      brute-force attempt.
+    when:
+      all:
+        - {metric: exposure.wp_surface_count, gt: 0}
+    effort: low
+    remediation: >-
+      Disable XML-RPC if nothing uses it, and restrict the REST users
+      endpoint to authenticated requests.
+    evidence: [exposure.wp_surface_count, exposure.wp_surface_paths]
+
+  - id: probe-inconclusive
+    severity: info
+    title: "This site returns success for paths that do not exist"
+    detail: >-
+      A request for a randomly generated path returned
+      {exposure.control_status} instead of a 404, so the endpoint probe
+      cannot distinguish a real file from a catch-all response. Findings
+      were confirmed by content rather than status, which is reliable, but
+      absence of findings is weaker evidence here than usual.
+    when:
+      all:
+        - {metric: exposure.soft_404, is: true}
+    effort: none
+    evidence: [exposure.control_status, exposure.checked]
+
+  - id: probe-blocked-by-firewall
+    severity: info
+    title: "A firewall answered the endpoint probe"
+    detail: >-
+      A web application firewall responded instead of the origin server, so
+      the probe was stopped rather than continued: every path would have
+      returned the same block page and reporting those as findings would be
+      wrong. The origin may still be exposing these files to anything that
+      reaches it directly.
+    when:
+      all:
+        - {metric: exposure.waf_detected, is: true}
+    effort: none
+    evidence: [exposure.waf_detected]

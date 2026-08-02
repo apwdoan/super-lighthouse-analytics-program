@@ -286,6 +286,91 @@ METRIC_REGISTRY: dict[str, Metric] = {
            "Pages discovered but not audited (cap)", False, Scope.ORIGIN),
         _m("discovery.sitemap_urls", Unit.NONE, Source.HTTP, "Sitemaps read",
            None, Scope.ORIGIN),
+        # --- Software components --------------------------------------------
+        # Page-scoped: a plugin that only enqueues assets on the checkout page
+        # is present on the checkout page, and saying so is more useful than
+        # flattening it to a site-level fact.
+        _m("component.count", Unit.COUNT, Source.FINGERPRINT, "Components detected"),
+        _m("component.observed_count", Unit.COUNT, Source.FINGERPRINT,
+           "Components with a browser-observed version"),
+        _m("component.inferred_count", Unit.COUNT, Source.FINGERPRINT,
+           "Components with an inferred version"),
+        _m("component.detected", Unit.NONE, Source.FINGERPRINT, "Detected components"),
+        # --- Known vulnerabilities -------------------------------------------
+        # `confirmed` means the VERSION was observed by a browser, not that the
+        # vulnerability was exploited. `possible` means the version came from a
+        # ?ver= query string and may be wrong.
+        _m("vuln.confirmed_count", Unit.COUNT, Source.FINGERPRINT,
+           "Known vulnerabilities in observed versions", False),
+        _m("vuln.confirmed_critical", Unit.COUNT, Source.FINGERPRINT,
+           "Critical vulnerabilities", False),
+        _m("vuln.confirmed_high", Unit.COUNT, Source.FINGERPRINT,
+           "High-severity vulnerabilities", False),
+        _m("vuln.confirmed_medium", Unit.COUNT, Source.FINGERPRINT,
+           "Medium-severity vulnerabilities", False),
+        _m("vuln.confirmed_detail", Unit.NONE, Source.FINGERPRINT,
+           "Vulnerabilities in observed versions"),
+        # Just the identifiers. The title is the only string that survives
+        # every rendering path (the compact finding list, the CLI's default
+        # output, the web UI's rows all drop the detail), and "2 known
+        # vulnerabilities" is not something a client can act on.
+        _m("vuln.confirmed_ids", Unit.NONE, Source.FINGERPRINT,
+           "Vulnerability identifiers"),
+        _m("vuln.possible_ids", Unit.NONE, Source.FINGERPRINT,
+           "Possible vulnerability identifiers"),
+        _m("vuln.possible_count", Unit.COUNT, Source.FINGERPRINT,
+           "Possible vulnerabilities in inferred versions", False),
+        _m("vuln.possible_detail", Unit.NONE, Source.FINGERPRINT,
+           "Possible vulnerabilities"),
+        # Components in an ecosystem with no configured database. The metric
+        # that stops "nothing found" being read as "nothing there".
+        _m("vuln.unchecked_count", Unit.COUNT, Source.FINGERPRINT,
+           "Components not checked against any database", False),
+        _m("vuln.unchecked_detail", Unit.NONE, Source.FINGERPRINT,
+           "Ecosystems with no vulnerability source"),
+        _m("vuln.db_generated", Unit.NONE, Source.FINGERPRINT,
+           "Vulnerability database date", None, Scope.ORIGIN),
+        _m("vuln.db_age_days", Unit.DAYS, Source.FINGERPRINT,
+           "Vulnerability database age", False, Scope.ORIGIN),
+        _m("vuln.db_sources", Unit.NONE, Source.FINGERPRINT,
+           "Vulnerability sources configured", None, Scope.ORIGIN),
+        # --- Exposed endpoints ------------------------------------------------
+        # Origin-scoped: these are properties of the server, not of a page.
+        _m("exposure.authorised", Unit.BOOL, Source.HTTP,
+           "Endpoint probing authorised for this site", None, Scope.ORIGIN),
+        _m("exposure.checked", Unit.COUNT, Source.HTTP, "Paths probed",
+           None, Scope.ORIGIN),
+        _m("exposure.found_count", Unit.COUNT, Source.HTTP,
+           "Paths that should not be reachable", False, Scope.ORIGIN),
+        _m("exposure.secrets_count", Unit.COUNT, Source.HTTP,
+           "Exposed secrets or database dumps", False, Scope.ORIGIN),
+        _m("exposure.vcs_count", Unit.COUNT, Source.HTTP,
+           "Exposed version-control metadata", False, Scope.ORIGIN),
+        _m("exposure.info_count", Unit.COUNT, Source.HTTP,
+           "Exposed diagnostic endpoints", False, Scope.ORIGIN),
+        _m("exposure.wp_surface_count", Unit.COUNT, Source.HTTP,
+           "Exposed WordPress attack surface", False, Scope.ORIGIN),
+        _m("exposure.paths", Unit.NONE, Source.HTTP, "Reachable paths",
+           None, Scope.ORIGIN),
+        # Per category, because one shared list made every exposure rule
+        # recite every finding: the version-control rule was describing
+        # /.env and /backup.sql as git metadata.
+        _m("exposure.secrets_paths", Unit.NONE, Source.HTTP,
+           "Reachable credential files", None, Scope.ORIGIN),
+        _m("exposure.vcs_paths", Unit.NONE, Source.HTTP,
+           "Reachable version-control paths", None, Scope.ORIGIN),
+        _m("exposure.info_paths", Unit.NONE, Source.HTTP,
+           "Reachable diagnostic endpoints", None, Scope.ORIGIN),
+        _m("exposure.wp_surface_paths", Unit.NONE, Source.HTTP,
+           "Reachable WordPress endpoints", None, Scope.ORIGIN),
+        # How "not found" was decided. A probe run against a site that returns
+        # 200 for everything is much weaker evidence and must say so.
+        _m("exposure.control_status", Unit.COUNT, Source.HTTP,
+           "Status for a path that cannot exist", None, Scope.ORIGIN),
+        _m("exposure.soft_404", Unit.BOOL, Source.HTTP,
+           "Site returns success for missing paths", False, Scope.ORIGIN),
+        _m("exposure.waf_detected", Unit.BOOL, Source.HTTP,
+           "A firewall answered instead of the server", None, Scope.ORIGIN),
     ]
 }
 

@@ -261,10 +261,31 @@ def test_lighthouse_concurrency_is_separate_from_http_concurrency():
 
 
 def test_pipeline_omits_the_lighthouse_stage_when_no_runner_is_given():
+    """Asserted on collector names, not stage counts.
+
+    The count version broke the moment a stage was added for something
+    unrelated (component detection), which is a test failing for a reason
+    that has nothing to do with what it is checking.
+    """
     from slap.collectors import default_pipeline
 
-    assert len(default_pipeline()) == 2
-    assert len(default_pipeline(None, LighthouseRunner(LighthouseConfig()))) == 3
+    def names(pipeline):
+        return {c.name for stage in pipeline for c in stage}
+
+    assert "lighthouse" not in names(default_pipeline())
+    assert "lighthouse" in names(
+        default_pipeline(None, LighthouseRunner(LighthouseConfig())))
+
+
+def test_the_lighthouse_stage_is_separate_from_the_network_stages():
+    """The private semaphore only bounds Chrome if Lighthouse has its own
+    stage: sharing one with the network collectors is the contention mistake
+    that yields plausible, irreproducible scores."""
+    from slap.collectors import default_pipeline
+
+    pipeline = default_pipeline(None, LighthouseRunner(LighthouseConfig()))
+    stage = next(s for s in pipeline if any(c.name == "lighthouse" for c in s))
+    assert [c.name for c in stage] == ["lighthouse"]
 
 
 def test_runner_check_explains_what_is_missing():

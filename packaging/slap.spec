@@ -17,6 +17,10 @@ SRC = ROOT / "src"
 # same relative path inside the bundle or those lookups miss.
 datas = [
     (str(SRC / "slap" / "findings" / "rules.yaml"), "slap/findings"),
+    # The vulnerability database. Without this the bundle starts fine, audits
+    # fine, and reports zero known vulnerabilities forever, which looks
+    # exactly like a clean result. 108KB.
+    (str(SRC / "slap" / "data" / "vulndb.json"), "slap/data"),
     (str(SRC / "slap" / "report" / "templates"), "slap/report/templates"),
     # worker.js is also shipped in runtime/node_worker/ with its
     # dependencies; this copy keeps a source-layout fallback working.

@@ -16,8 +16,8 @@ sitemap-and-crawl page discovery, no-browser collectors running on every
 page, Lighthouse sampling one page per template against a pinned Chromium,
 findings engine running off 50 YAML rules and reported once per rule with the
 pages each affects, client-facing HTML and PDF reports rendering, and both
-front-ends (CLI and a local web app) driving the same core. See `docs/per-page.md`, `docs/ui-redesign.md`, `docs/lighthouse.md`,
-and `docs/reports.md`.
+front-ends (CLI and a local web app) driving the same core. See `docs/per-page.md`, `docs/vulnerabilities.md`, `docs/ui-redesign.md`,
+`docs/lighthouse.md`, and `docs/reports.md`.
 
 ---
 
@@ -74,6 +74,12 @@ slap audit example.com --pages 40           # audit up to 40 pages of the site
 slap audit example.com --no-discover        # just the one URL, as before
 slap audit example.com -l --lh-pages 8      # measure 8 page templates, not 5
 slap audit example.com --page-concurrency 8 # pages in flight WITHIN one site
+
+slap vulndb status                          # what the CVE database covers
+slap vulndb update                          # refresh it from OSV
+slap probe allow client.com --by "Austin"   # authorise endpoint probing
+slap probe list                             # who is authorised, and when
+slap audit client.com --probe               # probe AUTHORISED hosts only
 slap doctor                                 # which backends are available
 slap batches                                # what has been run
 slap runs -b <batch-id>                     # runs in a batch
@@ -141,6 +147,70 @@ reads as full coverage. Pages without a performance score print "not measured"
 rather than a blank cell, because a blank reads as a zero to some people and
 as a pass to others.
 
+## Known vulnerabilities
+
+**The binding constraint is version detection, not the database.** Knowing
+from outside that a site runs Contact Form 7 *5.8.1* rather than *5.9.x* is
+the hard part, and a wrong version produces a confident, specific, wrong CVE
+in a client PDF. So every component carries how its version was determined:
+
+| Confidence | Source | What it may print |
+|---|---|---|
+| **observed** | Lighthouse read the version off the running library, or the software announced itself in a generator tag | the CVE at its real severity |
+| **inferred** | a `?ver=` query string on an asset URL | a *possible* finding, capped at medium, saying how it was determined |
+
+`?ver=` is the standard technique for WordPress plugins and it is wrong often
+enough to matter: the value is frequently the WordPress *core* version, a
+cache-buster timestamp, or a content hash, and optimisers (including WP
+Rocket) strip or rewrite it. **No version means no finding** — not "probably
+fine", silence.
+
+The database is local, dated and curated. Local because a per-audit API call
+would send a client's component inventory to a third party. Dated because a
+bundle built once and run for a year carries a year-old database, and the
+appendix prints the date beside the Lighthouse and Chrome versions. Curated to
+the ~83 packages Lighthouse can name, which is 108KB rather than OSV's 213MB
+npm export.
+
+**Coverage is stated, never implied.** `npm` comes from OSV.dev, which needs
+no key. WordPress plugins and themes are *inventoried and not matched*: WPScan
+forbids caching its data and requires an Enterprise account for commercial
+use, and Wordfence's feed now requires credentials. The report says those
+components were not checked, which is a different sentence from finding
+nothing wrong with them.
+
+## Endpoint probing
+
+Off by default and **authorised per site, never globally** — a global flag
+gets switched on once for a client who agreed and then silently applies to the
+next one. Authorisation is recorded against the site with a timestamp and a
+name.
+
+```bash
+slap probe allow client.com --by "Austin" --note "SOW 2026-08"
+slap audit client.com --probe
+```
+
+Sixteen paths, not a wordlist: `.git/config`, `.env`, config backups, database
+dumps, `server-status`, `phpinfo.php`, `xmlrpc.php` and similar. It should look
+unremarkable in the target's access log.
+
+**Nothing from a probed path is stored.** A 512-byte prefix is read to tell a
+real file from a soft 404 and then dropped; pulling a client's `.env` into a
+SQLite file that later gets zipped and emailed creates a custody problem the
+audit did not start with.
+
+Three independent guards stand between a probe and a false critical, and each
+one was measured rather than assumed. With all three disabled, a site that
+returns 200-with-homepage for every path yields a finding on all 16 probes,
+and so does a site behind a WAF:
+
+| Site | No guards | Shipped |
+|---|---|---|
+| Genuinely exposing 3 files | 3 | **3** |
+| Returns 200 for everything | 16 | **0** |
+| Cloudflare block page | 16 | **0** (probe stops) |
+
 Reports land in `report_dir` (per-user, under `%LOCALAPPDATA%\slap` on
 Windows) unless you pass `-o`. The HTML is the artifact of record and the
 PDF is a rendering of it, so if the PDF backend is missing you still get
@@ -160,16 +230,20 @@ src/slap/
   core.py                THE API. Both front-ends call only this
   config.py              settings from defaults / TOML / environment
   discovery.py           finding a site's pages: sitemap, then crawl
+  vulndb.py              local, dated CVE database and version matching
   collectors/
     base.py              Collector protocol, shared fetch context
     http_probe.py        headers, compression, caching, cookies, redirects
     subresources.py      mixed content, insecure forms, third-party origins
+    components.py        what software runs here, and how sure we are
+    exposure.py          probing for files that should never be served
     tls_probe.py         certificate validity, expiry, protocol
     fingerprint.py       CMS, CDN, page builder, WP Rocket + cache state
     crux.py              CrUX field data, token-bucket rate limited
     lighthouse.py        Lighthouse runner: median-of-N, spread, artifacts
   node_worker/
     worker.js            THE only Node code. Job on stdin, LHR on stdout
+  data/vulndb.json       the bundled vulnerability database
   findings/
     rules.yaml           the rules. DATA, not code
     engine.py            small declarative interpreter (no eval)
@@ -186,6 +260,7 @@ src/slap_web/            the front-end. Depends on slap.core, never back
   templates/             sites, site, findings, run
 packaging/               build script and PyInstaller spec
 docs/per-page.md         page discovery, sampling, and the silent aggregation bugs
+docs/vulnerabilities.md  CVE confidence levels, data sources, probe guardrails
 docs/ui-redesign.md      why the UI is site-centric and browser-based
 docs/packaging.md        building the self-contained distributable
 docs/lighthouse.md       lab runner, concurrency, the LH13 audit-ID trap
@@ -237,6 +312,15 @@ docs/reports.md          report pipeline, palette rules, PDF backend
    "site-wide" rather than "1 of 20 pages".
 14. **State the cap.** Any limit that reduces coverage is printed in the
    report and logged in the CLI. Silent truncation reads as completeness.
+15. **Confidence travels with the claim.** A version a browser observed may
+   name a CVE; a version scraped from a `?ver=` string may only suggest one,
+   capped at medium. The report says which, every time.
+16. **Not checked is not the same as clean.** Components in an ecosystem with
+   no configured source, and a site that was never probed, are stated as
+   such. Silence reads as a pass, and a pass is a claim.
+17. **Probing is authorised per site, by a named person, and stores nothing.**
+   Status and content-length only; response bodies are classified and
+   dropped.
 
 ## Adding a collector
 
@@ -251,7 +335,7 @@ docs/reports.md          report pipeline, palette rules, PDF backend
 ## Tests
 
 ```bash
-pytest -q          # 317 tests, no network and no display required
+pytest -q          # 368 tests, no network and no display required
 ```
 
 The suite runs local HTTP servers for the end-to-end paths, so the whole

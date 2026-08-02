@@ -52,6 +52,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/slap", "src/slap_web"]
+# src/slap/data/vulndb.json rides along with the package: it is data the
+# code reads at runtime, not a build artifact. Without it an installed copy
+# reports zero known vulnerabilities forever and looks clean doing it.
 # The Node worker source ships with the package so `slap` can find it, but
 # node_modules must not: it is ~90MB of platform-specific files and is
 # installed per machine with `npm install --prefix <pkg>/node_worker`.

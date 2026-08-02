@@ -21,6 +21,8 @@ from .lighthouse import (
 )
 from .fingerprint import FingerprintCollector
 from .http_probe import HttpCollector, normalize_url
+from .components import ComponentCollector
+from .exposure import ExposureCollector
 from .subresources import SubresourceCollector
 from .tls_probe import TlsCollector
 
@@ -29,7 +31,8 @@ __all__ = [
     "PageContext", "HttpCollector", "TlsCollector", "FingerprintCollector",
     "CruxCollector", "TokenBucket", "normalize_url", "default_pipeline",
     "Pipeline", "LighthouseCollector", "LighthouseConfig", "LighthouseError",
-    "LighthouseRunner", "SubresourceCollector",
+    "LighthouseRunner", "SubresourceCollector", "ComponentCollector",
+    "ExposureCollector",
 ]
 
 #: A pipeline is a list of stages; collectors within a stage run concurrently,
@@ -39,7 +42,9 @@ Pipeline = list[list[Collector]]
 
 
 def default_pipeline(crux_bucket: TokenBucket | None = None,
-                     lighthouse_runner: "LighthouseRunner | None" = None) -> Pipeline:
+                     lighthouse_runner: "LighthouseRunner | None" = None,
+                     *, vuln_db=None,
+                     exposure: "ExposureCollector | None" = None) -> Pipeline:
     """The collection pipeline.
 
     Stages 1 and 2 are Phase 1: no browser, seconds per site. Stage 3 is
@@ -58,6 +63,16 @@ def default_pipeline(crux_bucket: TokenBucket | None = None,
         [FingerprintCollector(), TlsCollector(), CruxCollector(crux_bucket),
          SubresourceCollector()],
     ]
+    if exposure is not None and exposure.enabled:
+        # Origin-scoped, so `core` runs it once per site however many pages
+        # are audited. Probing fifteen paths twenty times would be twenty
+        # times the noise in the client's access log for the same answer.
+        pipeline[1].append(exposure)
     if lighthouse_runner is not None:
         pipeline.append([LighthouseCollector(lighthouse_runner)])
+    # Last: component detection consumes the browser's view of the running
+    # libraries, which does not exist until Lighthouse has run. It declares
+    # `runs_last`, so `core.split_pipeline` puts it in its own final pass
+    # rather than beside the collectors it depends on.
+    pipeline.append([ComponentCollector(vuln_db)])
     return pipeline

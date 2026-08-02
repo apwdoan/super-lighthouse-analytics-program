@@ -41,7 +41,14 @@ CREATE TABLE IF NOT EXISTS site (
     hostname    TEXT NOT NULL UNIQUE,
     label       TEXT,
     client      TEXT,
-    created_at  TEXT NOT NULL
+    created_at  TEXT NOT NULL,
+    -- Endpoint probing is authorised per SITE, never globally. A global flag
+    -- gets switched on once for a client who agreed and then silently applies
+    -- to the next one, who did not. Recorded with who and when, so the report
+    -- can print it and an audit trail survives the conversation.
+    probe_authorised_at TEXT,
+    probe_authorised_by TEXT,
+    probe_note          TEXT
 );
 
 CREATE TABLE IF NOT EXISTS run (
@@ -214,6 +221,15 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
                 conn.execute(f"ALTER TABLE page ADD COLUMN {column} {ddl}")
                 applied.append(f"page.{column} added")
 
+    # Probe authorisation. Added to `site` rather than to config, so it
+    # survives a config rewrite and travels with the history it belongs to.
+    if "site" in tables:
+        site_columns = {row[1] for row in conn.execute("PRAGMA table_info(site)")}
+        for column in ("probe_authorised_at", "probe_authorised_by", "probe_note"):
+            if column not in site_columns:
+                conn.execute(f"ALTER TABLE site ADD COLUMN {column} TEXT")
+                applied.append(f"site.{column} added")
+
         # A pre-existing run whose page ran Lighthouse should say so, or its
         # report will claim the browser audit was never attempted. The
         # artifact table is the only record of that for historical rows.
@@ -252,6 +268,43 @@ def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
 # --------------------------------------------------------------------------
 # Writes
 # --------------------------------------------------------------------------
+
+def authorise_probe(conn: sqlite3.Connection, hostname: str, *,
+                    by: str, note: str | None = None) -> int:
+    """Record permission to probe one host for exposed endpoints.
+
+    Deliberately per host and deliberately durable. Asking on every run would
+    train people to click through it; a config flag would apply to whoever
+    comes next.
+    """
+    site_id = upsert_site(conn, hostname)
+    conn.execute(
+        "UPDATE site SET probe_authorised_at = ?, probe_authorised_by = ?, "
+        "probe_note = ? WHERE id = ?",
+        (utcnow(), by, note, site_id),
+    )
+    return site_id
+
+
+def revoke_probe(conn: sqlite3.Connection, hostname: str) -> bool:
+    row = conn.execute("SELECT id FROM site WHERE hostname = ?",
+                       (hostname,)).fetchone()
+    if row is None:
+        return False
+    conn.execute(
+        "UPDATE site SET probe_authorised_at = NULL, probe_authorised_by = NULL, "
+        "probe_note = NULL WHERE id = ?", (row["id"],))
+    return True
+
+
+def authorised_probe_hosts(conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
+    """Every host cleared for probing, with who cleared it and when."""
+    rows = conn.execute(
+        "SELECT hostname, probe_authorised_at, probe_authorised_by, probe_note "
+        "FROM site WHERE probe_authorised_at IS NOT NULL"
+    ).fetchall()
+    return {r["hostname"].lower(): dict(r) for r in rows}
+
 
 def upsert_site(conn: sqlite3.Connection, hostname: str, *,
                 label: str | None = None, client: str | None = None) -> int:

@@ -260,6 +260,15 @@
       </div>
     </div>
 
+    {# What was and was not checked, before any result is shown. A section
+       that opens with results reads as "we checked everything and here is
+       what we found", which is exactly what must not be implied when half
+       the components have no configured vulnerability source. #}
+    <p class="secondary" style="margin-top:0">
+      {{ m.coverage.vulnerability_note }}
+      {{ m.coverage.probe_note }}
+    </p>
+
     {% if m.security.tls %}
     <div class="sec-group">
       <h3>Certificate and encryption</h3>
@@ -361,6 +370,18 @@
         {% endif %}
         {% else %}
         <li>No lab audit was run; the figures here are network measurements only</li>
+        {% endif %}
+        {# The database date belongs with the engine versions: it is the same
+           kind of fact and it goes stale the same way. #}
+        {% if m.coverage.vuln_db_sources %}
+        <li>Vulnerability data from {{ m.coverage.vuln_db_sources }}{% if
+            m.coverage.vuln_db_generated %}, generated
+            {{ m.coverage.vuln_db_generated }}{% endif %}{% if
+            m.coverage.vuln_db_age_days is not none %}
+            ({{ m.coverage.vuln_db_age_days }} day(s) old){% endif %}</li>
+        {% endif %}
+        {% if m.coverage.probe_authorised %}
+        <li>Endpoint probing was run with prior authorisation for this site</li>
         {% endif %}
       </ul>
     </div>

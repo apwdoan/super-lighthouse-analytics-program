@@ -33,6 +33,7 @@ import httpx
 from . import SCHEMA_VERSION, __version__, db
 from .collectors import (
     CollectorConfig,
+    ExposureCollector,
     LighthouseError,
     LighthouseRunner,
     PageContext,
@@ -62,6 +63,7 @@ from .discovery import (
     discover,
 )
 from .findings import FindingsEngine
+from .vulndb import VulnDatabase
 from .schema import (
     AuditDepth,
     DiscoveredVia,
@@ -145,30 +147,43 @@ def prepare_urls(raw: Iterable[str]) -> list[str]:
 # Collection
 # --------------------------------------------------------------------------
 
-def split_pipeline(pipeline: Pipeline) -> tuple[Pipeline, Pipeline]:
-    """Separate the browser stage from the no-browser stages.
+def split_pipeline(pipeline: Pipeline) -> tuple[Pipeline, Pipeline, Pipeline]:
+    """Separate the pipeline into three passes by what each collector needs.
 
-    Per-page collection runs in two passes and the split is what makes that
-    possible: the template class of a page is read from its fetched HTML, and
-    the decision about which pages are worth a 90-second browser audit is made
-    from the template classes. So every page gets the cheap pass first, and
-    only the chosen representatives get the second.
+    Per-page collection runs in passes because each one needs what the last
+    produced:
 
-    A collector belongs to the browser stage if it declares ``needs_browser``.
-    Asking the collector is better than assuming it is the last stage: the
-    pipeline is a caller-supplied list and a test that appends a stage would
-    silently turn its collector into the Lighthouse pass.
+    ``light``
+        No browser. Fetches the document, reads headers, TLS, fingerprint and
+        subresources. Runs on every discovered page.
+    ``heavy``
+        Lighthouse. Runs only on the sampled representatives, and it can only
+        be sampled once the light pass has produced a template class per page.
+    ``final``
+        Collectors that consume what the others produced. Component detection
+        is the case: its best version source is the browser's own reading of
+        the running library, which does not exist until Lighthouse has run.
+
+    Membership is declared by the collector (``needs_browser``, ``runs_last``)
+    rather than inferred from stage position, because the pipeline is a
+    caller-supplied list and a test that appends a stage would otherwise have
+    its collector silently promoted into the Lighthouse pass.
     """
     light: Pipeline = []
     heavy: Pipeline = []
+    final: Pipeline = []
     for stage in pipeline:
-        browser = [c for c in stage if getattr(c, "needs_browser", False)]
-        cheap = [c for c in stage if not getattr(c, "needs_browser", False)]
+        last = [c for c in stage if getattr(c, "runs_last", False)]
+        rest = [c for c in stage if not getattr(c, "runs_last", False)]
+        browser = [c for c in rest if getattr(c, "needs_browser", False)]
+        cheap = [c for c in rest if not getattr(c, "needs_browser", False)]
         if cheap:
             light.append(cheap)
         if browser:
             heavy.append(browser)
-    return light, heavy
+        if last:
+            final.append(last)
+    return light, heavy, final
 
 
 def _applies_to(collector: Any, is_home: bool) -> bool:
@@ -245,7 +260,8 @@ async def collect_page(ctx: PageContext, pipeline: Pipeline, *,
 
 def _persist(conn: sqlite3.Connection, *, batch_id: str, url: str,
              results: list[PageResult], engine: FindingsEngine,
-             discovery: DiscoveryResult | None = None) -> SiteOutcome:
+             discovery: DiscoveryResult | None = None,
+             vuln_db: VulnDatabase | None = None) -> SiteOutcome:
     """Write one site's run and every page under it, in a single transaction.
 
     One transaction for the whole site, not one per page. A site audit is
@@ -327,13 +343,16 @@ def _persist(conn: sqlite3.Connection, *, batch_id: str, url: str,
         # the shape of thing that walks around it.
         failed = n_obs == 0
 
-        if discovery is not None and results and not failed:
+        if results and not failed:
             home_id = db.home_page_id(conn, run_id)
             if home_id is not None:
-                db.insert_observations(
-                    conn, home_id,
-                    _discovery_observations(discovery, len(results)),
-                )
+                metadata: list[Any] = []
+                if discovery is not None:
+                    metadata += _discovery_observations(discovery, len(results))
+                if vuln_db is not None:
+                    metadata += _vulndb_observations(vuln_db)
+                if metadata:
+                    db.insert_observations(conn, home_id, metadata)
 
         errors = [e for r in results for e in r.errors]
         db.finish_run(
@@ -349,6 +368,27 @@ def _persist(conn: sqlite3.Connection, *, batch_id: str, url: str,
         pages=len(results), lighthouse_pages=lighthouse_pages,
         pages_dropped=discovery.dropped if discovery else 0,
     )
+
+
+def _vulndb_observations(vuln_db: VulnDatabase) -> list["Observation"]:
+    """How old the vulnerability data is, and what it covers.
+
+    Printed in the appendix beside the Lighthouse and Chrome versions. A
+    bundle built once and run for a year carries a year-old database, and a
+    report that does not say so is wrong in a way nobody can detect.
+    """
+    from .schema import obs
+
+    if not vuln_db.available:
+        return [obs("vuln.db_sources", "none configured")]
+    out = [obs("vuln.db_sources", ", ".join(
+        f"{k} ({v})" for k, v in sorted(vuln_db.sources.items())))]
+    if vuln_db.generated_at:
+        out.append(obs("vuln.db_generated", vuln_db.generated_at))
+    age = vuln_db.age_days
+    if age is not None:
+        out.append(obs("vuln.db_age_days", age))
+    return out
 
 
 def _discovery_observations(found: DiscoveryResult,
@@ -423,8 +463,23 @@ async def run_batch(urls: Iterable[str], settings: Settings, *,
                 bus.log(batch_id, f"Lighthouse disabled: {exc}", "warning")
                 runner = None
 
-    pipeline = pipeline or default_pipeline(bucket, runner)
-    light_pipeline, heavy_pipeline = split_pipeline(pipeline)
+    # Loaded once per batch, not per page. Never raises: a missing database
+    # degrades to "not checked", which the report states, rather than to a
+    # failed audit.
+    vuln_db = VulnDatabase.load(settings.vulndb_path)
+    if settings.probe_enabled:
+        authorised = frozenset(db.authorised_probe_hosts(conn))
+        prober = ExposureCollector(
+            enabled=True, rate_per_second=settings.probe_rate_per_second,
+            authorised_hosts=authorised)
+        bus.log(batch_id, "Endpoint probing enabled for {} authorised host(s)".format(
+            len(authorised)), "warning")
+    else:
+        prober = None
+
+    pipeline = pipeline or default_pipeline(bucket, runner, vuln_db=vuln_db,
+                                            exposure=prober)
+    light_pipeline, heavy_pipeline, final_pipeline = split_pipeline(pipeline)
 
     disc_cfg = settings.discovery
 
@@ -547,6 +602,31 @@ async def run_batch(urls: Iterable[str], settings: Settings, *,
                         result.errors.append(f"{type(exc).__name__}: {exc}")
 
             await asyncio.gather(*(heavy(u) for u in chosen))
+
+            # The final pass consumes what the other two produced: component
+            # detection reads the browser's own view of the running libraries,
+            # which does not exist until Lighthouse has finished. It runs on
+            # every page, including the ones never measured, where it falls
+            # back to the markup and says so.
+            if final_pipeline:
+                async def last(page_url: str) -> None:
+                    async with page_semaphore:
+                        cancel.raise_if_cancelled()
+                        result = results[page_url]
+                        try:
+                            await collect_page(contexts[page_url], final_pipeline,
+                                               bus=bus, batch_id=batch_id,
+                                               cancel=cancel,
+                                               is_home=page_url == home_url,
+                                               result=result)
+                        except BatchCancelled:
+                            raise
+                        except Exception as exc:      # noqa: BLE001
+                            result.errors.append(f"{type(exc).__name__}: {exc}")
+
+                await asyncio.gather(*(last(r.url) for r in ordered
+                                       if r.url in contexts
+                                       and contexts[r.url].document is not None))
             return ordered, found
 
         async def audit(url: str, index: int) -> SiteOutcome:
@@ -572,7 +652,7 @@ async def run_batch(urls: Iterable[str], settings: Settings, *,
                 # respect to the event loop: no second writer can interleave.
                 outcome = _persist(conn, batch_id=batch_id, url=url,
                                    results=pages, engine=engine,
-                                   discovery=found)
+                                   discovery=found, vuln_db=vuln_db)
 
                 counter["done"] += 1
                 bus.emit(SiteFinished(

@@ -328,6 +328,15 @@ class Coverage:
     method: str = "manual"
     method_text: str = "the URL supplied"
     sitemaps: str | None = None
+    #: Vulnerability database provenance. Printed beside the Lighthouse and
+    #: Chrome versions, because a bundle built once and run for a year
+    #: carries a year-old database and a report that does not say so is
+    #: wrong in a way nobody can detect.
+    vuln_db_generated: str | None = None
+    vuln_db_age_days: int | None = None
+    vuln_db_sources: str | None = None
+    unchecked_ecosystems: str | None = None
+    probe_authorised: bool | None = None
 
     @property
     def capped(self) -> bool:
@@ -342,6 +351,50 @@ class Coverage:
                     f"found via {self.method_text}.")
         return (f"{self.pages_audited} pages audited, "
                 f"found via {self.method_text}.")
+
+    @property
+    def vulnerability_note(self) -> str:
+        """What the vulnerability check did and did not cover.
+
+        Never silent. A report that simply omits this reads as "checked, all
+        clear", which is the one thing it must not say when no source is
+        configured for half the components on the page.
+        """
+        if not self.vuln_db_sources or self.vuln_db_sources == "none configured":
+            return ("No vulnerability database was available, so no component "
+                    "was checked against known vulnerabilities. This is not a "
+                    "clean result; it is an absent check.")
+        parts = [f"Components were checked against {self.vuln_db_sources}"]
+        if self.vuln_db_generated:
+            age = (f", last updated {self.vuln_db_age_days} day(s) ago"
+                   if self.vuln_db_age_days is not None else "")
+            parts.append(f"{age}")
+        parts.append(".")
+        note = "".join(parts)
+        if self.unchecked_ecosystems:
+            note += (f" Components in {self.unchecked_ecosystems} have no "
+                     "configured source and were NOT checked, which is not "
+                     "the same as finding nothing wrong with them.")
+        return note
+
+    @property
+    def probe_note(self) -> str:
+        """Whether the site was probed for exposed endpoints.
+
+        Stated even when probing was never switched on. The first version
+        returned "" in that case, which is the failure this whole section
+        exists to prevent one level up: a reader looking at a page headed
+        "Security" reasonably assumes exposed files were among the things
+        checked, and silence lets them keep assuming it. One sentence is a
+        cheap price for not implying a check that never happened.
+        """
+        if self.probe_authorised:
+            return ("This site was probed for a short list of files that "
+                    "should never be publicly readable, with prior "
+                    "authorisation.")
+        return ("Endpoint probing was not run against this site, so nothing "
+                "here speaks to whether files such as .env or .git are "
+                "publicly readable.")
 
     @property
     def measurement_note(self) -> str:
@@ -669,6 +722,8 @@ def build_coverage(values: dict[str, Any], *, pages_audited: int,
         "manual": "the URL supplied",
     }.get(method, method)
     found = values.get("discovery.found")
+    age = values.get("vuln.db_age_days")
+    authorised = values.get("exposure.authorised")
     return Coverage(
         pages_audited=pages_audited,
         pages_found=int(found) if found else pages_audited,
@@ -677,6 +732,11 @@ def build_coverage(values: dict[str, Any], *, pages_audited: int,
         method=method,
         method_text=method_text,
         sitemaps=values.get("discovery.sitemap_urls"),
+        vuln_db_generated=values.get("vuln.db_generated"),
+        vuln_db_age_days=int(age) if age is not None else None,
+        vuln_db_sources=values.get("vuln.db_sources"),
+        unchecked_ecosystems=values.get("vuln.unchecked_detail"),
+        probe_authorised=(bool(authorised) if authorised is not None else None),
     )
 
 

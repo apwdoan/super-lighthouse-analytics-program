@@ -16,7 +16,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from . import __version__, bundle, config, core
+import httpx
+
+from . import __version__, bundle, config, core, db
 from .config import Settings
 from .events import BatchFinished, CollectorFinished, Event, SiteFinished
 from .findings import FindingsEngine, RuleError
@@ -63,6 +65,8 @@ def cmd_audit(args: argparse.Namespace, settings: Settings) -> int:
         settings.lighthouse.concurrency = args.lh_concurrency
     if args.lh_desktop:
         settings.lighthouse.form_factors = ("mobile", "desktop")
+    if getattr(args, "probe", False):
+        settings.probe_enabled = True
     if args.no_discover:
         settings.discovery.enabled = False
     if args.pages:
@@ -216,6 +220,29 @@ def cmd_show(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def _doctor_vulndb(settings: Settings) -> tuple[bool, str]:
+    """The database is a backend like any other, and fails the same way.
+
+    `doctor` exists because every failure mode here is "it silently did less
+    than you think". A missing vulnerability database does not raise: every
+    audit simply reports nothing, forever, and looks clean doing it.
+    """
+    from .vulndb import VulnDatabase
+
+    database = VulnDatabase.load(settings.vulndb_path)
+    if not database.available:
+        return False, ("no vulnerability database at "
+                       f"{settings.vulndb_path}. Run `slap vulndb update`. "
+                       "Until then components are inventoried, not checked.")
+    age = database.age_days
+    detail = f"{database.count} advisories, {database.sources}"
+    if age is not None:
+        detail += f", {age} day(s) old"
+        if age > 30:
+            return False, detail + " -- stale, run `slap vulndb update`"
+    return True, detail
+
+
 def cmd_doctor(args: argparse.Namespace, settings: Settings) -> int:
     """Report on every optional backend, in one place.
 
@@ -263,6 +290,20 @@ def cmd_doctor(args: argparse.Namespace, settings: Settings) -> int:
 
     status = core.pdf_backend_status()
     line("PDF export", bool(status), status.detail)
+
+    vulndb_ok, vulndb_detail = _doctor_vulndb(settings)
+    line("Vulnerability database", vulndb_ok, vulndb_detail)
+
+    # Not a backend, but the same class of surprise: probing that is switched
+    # on globally and authorised for nobody runs against nothing and looks
+    # exactly like probing that found nothing.
+    hosts = db.authorised_probe_hosts(db.init_db(settings.db_path))
+    if settings.probe_enabled or hosts:
+        detail = (f"{len(hosts)} host(s) authorised"
+                  if hosts else "no host authorised; nothing will be probed")
+        line("Endpoint probing", bool(hosts) and settings.probe_enabled,
+             detail + ("" if settings.probe_enabled
+                       else "; probe_enabled is false"))
 
     if bundle.is_frozen():
         # What the bundle actually resolved, printed unconditionally.
@@ -398,6 +439,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--page-concurrency", type=int, metavar="N",
                    help="concurrent pages WITHIN one site (default 5). "
                         "Separate from -c: the two multiply")
+    p.add_argument("--probe", action="store_true",
+                   help="probe for exposed endpoints on AUTHORISED hosts only "
+                        "(see `slap probe allow`)")
     p.add_argument("--lh-desktop", action="store_true",
                    help="also measure the desktop form factor")
     p.set_defaults(func=cmd_audit)
@@ -439,7 +483,115 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-p", "--path", help="alternate rules.yaml")
     p.set_defaults(func=cmd_rules)
 
+    p = sub.add_parser("vulndb", help="the offline vulnerability database")
+    p.add_argument("action", choices=["status", "update"], nargs="?",
+                   default="status")
+    p.set_defaults(func=cmd_vulndb)
+
+    p = sub.add_parser(
+        "probe",
+        help="authorise endpoint probing for a host (off by default)")
+    p.add_argument("action", choices=["list", "allow", "revoke"])
+    p.add_argument("hostname", nargs="?")
+    p.add_argument("--by", help="who authorised it (recorded)")
+    p.add_argument("--note", help="reference for the authorisation, e.g. an SOW")
+    p.set_defaults(func=cmd_probe)
+
     return parser
+
+
+def cmd_vulndb(args: argparse.Namespace, settings: Settings) -> int:
+    from .vulndb import VulnDatabase, build_from_osv
+
+    path = settings.vulndb_path
+    if args.action == "status":
+        db_ = VulnDatabase.load(path)
+        print(f"\nVulnerability database  {path}")
+        if not db_.available:
+            print("  status     not present")
+            print("  Run `slap vulndb update` to build it. Until then,")
+            print("  components are inventoried and NOT checked, and the")
+            print("  report says so rather than implying they are clean.")
+            return 1
+        age = db_.age_days
+        print(f"  advisories {db_.count} across {len(db_.index)} packages")
+        print(f"  generated  {db_.generated_at}"
+              + (f"  ({age} day(s) ago)" if age is not None else ""))
+        print(f"  sources    {', '.join(f'{k}: {v}' for k, v in db_.sources.items())}")
+        # Stale data produces confidently out-of-date findings, which is the
+        # same failure as a wrong version with a slower fuse.
+        if age is not None and age > 30:
+            print(f"  WARNING    {age} days old. Run `slap vulndb update`.")
+        missing = [e for e in ("wordpress", "wordpress-plugin", "wordpress-theme")
+                   if not db_.covers(e)]
+        if missing:
+            print(f"  not covered {', '.join(missing)}")
+            print("             WPScan forbids caching its data and requires an")
+            print("             Enterprise account for commercial use; Wordfence")
+            print("             now requires credentials. Configure a source or")
+            print("             these stay unchecked, and the report says so.")
+        return 0
+
+    print("Querying OSV for every library Lighthouse can identify...")
+    seen = {"n": 0}
+
+    def progress(i, package, message):
+        seen["n"] = i
+        print(f"  [{i:>3}] {package:<26} {message}", flush=True)
+
+    database = build_from_osv(progress=progress)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(database.to_json(), encoding="utf-8")
+    print(f"\n{database.count} advisories across {len(database.index)} packages")
+    print(f"Written to {path} ({path.stat().st_size / 1024:.0f} KB)")
+    return 0
+
+
+def cmd_probe(args: argparse.Namespace, settings: Settings) -> int:
+    """Authorisation for endpoint probing.
+
+    A separate command, and per host, on purpose. Probing requests paths the
+    site hopes are not there; that is a thing to do deliberately for a client
+    who has agreed, not a flag that stays on and applies to whoever is audited
+    next.
+    """
+    conn = db.init_db(settings.db_path)
+
+    if args.action == "list":
+        hosts = db.authorised_probe_hosts(conn)
+        if not hosts:
+            print("No host is authorised for endpoint probing.")
+            return 0
+        print(f"\n{len(hosts)} host(s) authorised for endpoint probing:")
+        for hostname, row in sorted(hosts.items()):
+            print(f"  {hostname:<34} {row['probe_authorised_at']}"
+                  f"  by {row['probe_authorised_by'] or 'unknown'}")
+            if row["probe_note"]:
+                print(f"      {row['probe_note']}")
+        return 0
+
+    if not args.hostname:
+        print("A hostname is required.", file=sys.stderr)
+        return 2
+    hostname = httpx.URL(core.normalize_url(args.hostname)).host
+
+    if args.action == "revoke":
+        found = db.revoke_probe(conn, hostname)
+        conn.commit()
+        print(f"Revoked for {hostname}." if found else f"{hostname} was not authorised.")
+        return 0
+
+    if not args.by:
+        # Recorded, so "who turned this on" has an answer months later.
+        print("--by is required: authorisation is recorded against a person.",
+              file=sys.stderr)
+        return 2
+    db.authorise_probe(conn, hostname, by=args.by, note=args.note)
+    conn.commit()
+    print(f"Endpoint probing authorised for {hostname}.")
+    print("It still needs `probe_enabled = true` in config.toml or --probe "
+          "to actually run.")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
