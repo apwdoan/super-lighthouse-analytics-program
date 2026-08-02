@@ -91,6 +91,7 @@ class ActivityManager:
         self._lock = threading.Lock()
         self._worker: core.BatchWorker | None = None
         self._activity = Activity()
+        self._closed = False
         # One Condition, not one queue per client: a client that closes its
         # tab mid-batch must not leave a queue filling forever behind it.
         self._version = 0
@@ -111,8 +112,12 @@ class ActivityManager:
         seen = -1
         while True:
             with self._changed:
+                if self._closed:
+                    return
                 if self._version == seen:
                     self._changed.wait(timeout)
+                if self._closed:
+                    return
                 changed = self._version != seen
                 seen = self._version
                 payload = self._activity.snapshot() if changed else None
@@ -122,6 +127,20 @@ class ActivityManager:
                 yield f"data: {json.dumps(payload)}\n\n"
                 if not payload["running"] and payload["total"]:
                     return
+
+    def close(self) -> None:
+        """Wake and end every stream. Called once, on the way out.
+
+        Without this, Quit says "SLAP has stopped" and the process lives on
+        for up to 25 more seconds: each open stream's generator runs in a
+        NON-daemon threadpool thread, uvicorn's shutdown timeout cuts the
+        socket but not the thread, and interpreter shutdown then waits out
+        the heartbeat sleep. Measured at 25 silent seconds on the real
+        bundle, which from the outside is a quit button that half works.
+        """
+        with self._changed:
+            self._closed = True
+            self._changed.notify_all()
 
     # -- writing -----------------------------------------------------------
 

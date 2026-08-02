@@ -22,6 +22,16 @@
     <div class="side-foot">
       <div class="hint">Super Lighthouse Analytics Project</div>
       <button class="btn ghost" onclick="toggleTheme()">Toggle theme</button>
+      {% if can_quit %}
+      {# Only rendered when a real server wired a shutdown in: the packaged
+         app has no console and no window, so without this the only exit is
+         Task Manager. Absent under tests and `slap verify`, where quitting
+         would stop the harness, not an app. #}
+      <form method="post" action="/quit"
+            onsubmit="return confirm('Quit SLAP? The server stops and this page goes away.')">
+        <button class="btn ghost" type="submit">Quit SLAP</button>
+      </form>
+      {% endif %}
     </div>
   </nav>
   <div class="main">{% block main %}{% endblock %}</div>

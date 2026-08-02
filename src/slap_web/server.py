@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import socket
+import sys
 import threading
 import webbrowser
 from pathlib import Path
@@ -56,7 +57,14 @@ def make_config(app: object, port: int, *, log_level: str = "warning"):
     from slap.streams import attach_output
 
     attach_output()
-    return uvicorn.Config(app, host="127.0.0.1", port=port, log_level=log_level)
+    # timeout_graceful_shutdown is what makes the Quit button able to work.
+    # Graceful shutdown waits for open connections, and the activity dock
+    # holds a server-sent-events stream open on EVERY page, so an untimed
+    # shutdown waits on an infinite stream forever: a Quit button that
+    # visibly does nothing while the process lives on. Five seconds lets
+    # in-flight requests finish and then cuts the streams loose.
+    return uvicorn.Config(app, host="127.0.0.1", port=port,
+                          log_level=log_level, timeout_graceful_shutdown=5)
 
 
 def main() -> int:
@@ -82,7 +90,20 @@ def main() -> int:
 
     port = free_port(args.port)
     url = f"http://127.0.0.1:{port}/"
-    config = make_config(create_app(settings), port)
+    application = create_app(settings)
+    config = make_config(application, port)
+    server = uvicorn.Server(config)
+    # The Quit button's other half. The route calls this; the activity
+    # streams are woken so their generator threads end, then uvicorn winds
+    # down and `run()` below returns. Only the launcher wires this, so the
+    # button exists exactly where quitting means something: the packaged
+    # app with no console and no window, where the alternative was Task
+    # Manager.
+    def shutdown() -> None:
+        application.state.activity.close()
+        server.should_exit = True
+
+    application.state.shutdown = shutdown
 
     if not args.no_browser:
         threading.Timer(0.7, lambda: webbrowser.open(url)).start()
@@ -92,5 +113,19 @@ def main() -> int:
     # file and waits for the URL waits forever. The CI verification does
     # exactly that, and hung on it.
     print(f"SLAP is at {url}   (ctrl-c to stop)", flush=True)
-    uvicorn.Server(config).run()
-    return 0
+    server.run()
+
+    # Past this line the app is over: uvicorn has drained its connections
+    # and SQLite is WAL-journalled with no writer left. Exiting through the
+    # interpreter instead would wait for any straggler non-daemon thread --
+    # today none, after `activity.close()`, but one future blocking
+    # generator would silently turn Quit back into a 25-second zombie. An
+    # app whose window is a browser tab owes the user a process that is
+    # GONE when the page says goodbye.
+    import contextlib
+    import os
+
+    for stream in (sys.stdout, sys.stderr):
+        with contextlib.suppress(Exception):
+            stream.flush()
+    os._exit(0)

@@ -28,6 +28,19 @@ from .activity import ActivityManager
 
 HERE = Path(__file__).resolve().parent
 
+#: The page served after quitting (and its two refusal variants). A plain
+#: string, not a template: the base layout's scripts poll the server, and
+#: this page outlives it.
+_QUIT_PAGE = """<!doctype html>
+<html><head><meta charset="utf-8"><title>SLAP</title>
+<style>
+  body {{ font: 15px/1.5 system-ui, sans-serif; display: grid;
+         place-items: center; min-height: 90vh; color: #333; }}
+  main {{ text-align: center; }}
+  h1 {{ font-size: 20px; }}
+</style></head>
+<body><main><h1>{title}</h1><p>{body}</p></main></body></html>"""
+
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.load()
@@ -35,6 +48,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     activity = ActivityManager(settings)
     app.state.activity = activity
+    #: Set by the launcher to a callable that stops the server. None
+    #: everywhere else (tests, the verify checks), where there is no server
+    #: to stop -- and the Quit button hides itself accordingly.
+    app.state.shutdown = None
 
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
@@ -43,7 +60,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return templates.TemplateResponse(
             request=request, name=name,
             context={"nav": name.split(".")[0],
-                     "activity": activity.snapshot(), **context},
+                     "activity": activity.snapshot(),
+                     "can_quit": app.state.shutdown is not None, **context},
         )
 
     @app.get("/", response_class=HTMLResponse)
@@ -270,6 +288,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.key_error = None
         app.state.key_check = core.check_crux_key(settings)
         return RedirectResponse("/settings", status_code=303)
+
+    @app.post("/quit", response_class=HTMLResponse)
+    def quit_app() -> HTMLResponse:
+        """Stop the server, which for the bundle means quit the app.
+
+        The distributable is a windowed executable: no console, no window of
+        its own, nothing in the taskbar. Closing the browser tab closes the
+        VIEW of the app and leaves the process running invisibly forever;
+        before this button, quitting meant Task Manager. That is the same
+        class of bug as the export button that wrote to a directory nobody
+        could see: the app must be operable entirely from the page it shows.
+
+        Refused while a batch is running, for the same reason clearing
+        history is: a batch deserves an explicit Stop, not a quit that
+        doubles as one. The goodbye page is self-contained on purpose --
+        extending base.html.j2 would ship the activity-stream script, which
+        would poll a server that no longer exists.
+        """
+        if activity.snapshot()["running"]:
+            return HTMLResponse(_QUIT_PAGE.format(
+                title="An audit is running",
+                body="Stop it first (the Stop button in the dock), then "
+                     'quit. <a href="/">Back to SLAP</a>'), status_code=409)
+        if app.state.shutdown is None:
+            return HTMLResponse(_QUIT_PAGE.format(
+                title="Nothing to quit",
+                body="This instance is not running as the packaged app. "
+                     "Stop it however it was started."), status_code=503)
+        app.state.shutdown()
+        return HTMLResponse(_QUIT_PAGE.format(
+            title="SLAP has stopped",
+            body="The application has quit. You can close this tab."))
 
     @app.post("/branding")
     def set_branding(company_name: str = Form(default=""),

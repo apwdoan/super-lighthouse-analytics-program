@@ -660,3 +660,108 @@ def test_clearing_is_refused_while_a_batch_runs(client, seeded, monkeypatch):
                            data={"confirm": "delete"}, follow_redirects=True)
     assert "audit is running" in response.text
     assert core.history_totals(seeded)["runs"] == 2
+
+
+# --------------------------------------------------------------------------
+# Quitting from the page
+# --------------------------------------------------------------------------
+
+def test_the_quit_button_only_exists_where_quitting_means_something(client):
+    """Under TestClient nothing wired a shutdown in, so the button must not
+    render and the route must decline rather than pretend."""
+    assert "Quit SLAP" not in client.get("/").text
+    response = client.post("/quit")
+    assert response.status_code == 503
+    assert "Nothing to quit" in response.text
+
+
+def test_quit_calls_the_shutdown_exactly_once(client, seeded):
+    calls = []
+    client.app.state.shutdown = lambda: calls.append(1)
+    assert "Quit SLAP" in client.get("/").text     # wired: now it renders
+    response = client.post("/quit")
+    assert response.status_code == 200
+    assert "close this tab" in response.text
+    assert calls == [1]
+
+
+def test_quit_is_refused_while_a_batch_runs(client, monkeypatch):
+    """A batch deserves an explicit Stop, not a quit that doubles as one."""
+    from slap_web import activity as activity_module
+
+    calls = []
+    client.app.state.shutdown = lambda: calls.append(1)
+    monkeypatch.setattr(
+        activity_module.ActivityManager, "snapshot",
+        lambda self: {"running": True, "total": 1, "done": 0, "sites": []})
+    response = client.post("/quit")
+    assert response.status_code == 409
+    assert "audit is running" in response.text
+    assert calls == []
+
+
+def test_a_real_server_dies_within_seconds_even_with_a_stream_open(seeded):
+    """The regression this feature is most likely to grow: graceful shutdown
+    waits for open connections, and the activity dock keeps a server-sent
+    events stream open on EVERY page. Without a shutdown timeout, Quit flips
+    the flag and the process then waits on an infinite stream forever -- a
+    quit button that visibly does nothing."""
+    uvicorn = pytest.importorskip("uvicorn", reason="web extra not installed")
+    import threading
+    import time
+    import urllib.request
+
+    from slap.verify import _free_port
+    from slap_web.server import make_config
+
+    application = create_app(seeded)
+    port = _free_port()
+    server = uvicorn.Server(make_config(application, port, log_level="error"))
+
+    # The launcher's exact shutdown shape: wake the streams, then stop the
+    # server. Waking matters as much as stopping: each open stream's
+    # generator runs in a NON-daemon threadpool thread, and one left inside
+    # its 25-second heartbeat wait held the real bundle's process alive for
+    # 25 silent seconds after the page said goodbye.
+    def shutdown():
+        application.state.activity.close()
+        server.should_exit = True
+
+    application.state.shutdown = shutdown
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 20
+    while not server.started and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert server.started
+
+    # Hold the dock's SSE stream open, exactly as every browser tab does.
+    stream_open = threading.Event()
+
+    def hold_stream():
+        try:
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/activity/stream",
+                    timeout=60) as response:
+                stream_open.set()
+                response.read()                     # blocks until server cut
+        except Exception:
+            stream_open.set()
+
+    holder = threading.Thread(target=hold_stream, daemon=True)
+    holder.start()
+    assert stream_open.wait(10)
+
+    body = urllib.request.urlopen(
+        urllib.request.Request(f"http://127.0.0.1:{port}/quit", method="POST"),
+        timeout=10).read().decode()
+    assert "close this tab" in body
+
+    thread.join(timeout=15)
+    assert not thread.is_alive(), \
+        "the server outlived Quit; the SSE stream held graceful shutdown open"
+    # And the stream generator's thread must end PROMPTLY, not after its
+    # heartbeat: it is what kept the real process alive after goodbye.
+    holder.join(timeout=6)
+    assert not holder.is_alive(), \
+        "the stream thread survived close(); the process would outlive Quit"
