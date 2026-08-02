@@ -109,6 +109,33 @@ def test_resolves_a_macos_app_layout(tmp_path, monkeypatch):
     assert bundle.bundled_worker() == app / "runtime" / "node_worker" / "worker.js"
 
 
+def test_finds_playwrights_node_inside_a_mac_apps_frameworks(tmp_path,
+                                                             monkeypatch):
+    """The check the first full Mac `slap verify` failed. PyInstaller does
+    not put an .app's packages beside the executable: they are split between
+    Contents/Frameworks (binaries) and Contents/Resources (data), and
+    Playwright's driver Node is a binary. Searching only Contents/MacOS and
+    `_internal*` reported "no Node in the bundle" on a bundle that carried
+    it, which also means Lighthouse had silently never worked in a Mac
+    bundle: the audit degrades to no-lab rather than erroring, so only the
+    dedicated lighthouse check ever noticed."""
+    contents = tmp_path / "SLAP.app" / "Contents"
+    macos = contents / "MacOS"
+    macos.mkdir(parents=True)
+    (macos / "SLAP").write_text("")
+    driver = contents / "Frameworks" / "playwright" / "driver"
+    driver.mkdir(parents=True)
+    (driver / "node").write_text("")
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(contents / "Frameworks"),
+                        raising=False)
+    monkeypatch.setattr(sys, "executable", str(macos / "SLAP"))
+
+    assert bundle.playwright_driver_node() == driver / "node"
+    assert bundle.bundled_node() == driver / "node"
+
+
 def test_resolves_a_windows_layout(tmp_path, monkeypatch):
     root = tmp_path / "SLAP"
     chromium = root / "runtime" / "browsers" / "chromium-1194" / "chrome-win"

@@ -210,7 +210,10 @@ def match_all(components: list[Component],
     matches: list[Match] = []
     unchecked: list[Component] = []
     for component in components:
-        if not db.covers(component.ecosystem):
+        # Package-level, not just ecosystem-level: an NVD database covers
+        # exactly its verified CPE map, so "wordpress-plugin" being a
+        # source does not mean THIS plugin was checked.
+        if not db.covers(component.ecosystem, component.package):
             unchecked.append(component)
             continue
         for vulnerability in db.query(component.ecosystem, component.package,
@@ -314,6 +317,10 @@ class ComponentCollector:
                            "; ".join(m.text for m in possible[:12])))
             out.append(obs("vuln.possible_ids", _identifiers(possible)))
         if unchecked:
+            # Named per component, not per ecosystem: with package-level
+            # coverage, "wordpress-plugin" can be a configured source while
+            # THIS plugin is outside the verified CPE map, and the report
+            # has to name what was skipped, not indict the whole ecosystem.
             out.append(obs("vuln.unchecked_detail", ", ".join(
-                sorted({c.ecosystem for c in unchecked}))))
+                sorted({f"{c.name}" for c in unchecked}))))
         return out

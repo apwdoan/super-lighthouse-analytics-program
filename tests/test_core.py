@@ -510,3 +510,33 @@ def test_a_brotli_page_is_read_as_html_not_as_bytes(settings):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_init_db_applies_the_schema_once_per_connection(tmp_path, monkeypatch):
+    """Every core read funnels through init_db, and it used to run the
+    migration probe plus the full DDL script on each call, per row rendered
+    by the web UI. The schema cannot change mid-process; pay once."""
+    calls = []
+    real_migrate = db.migrate
+
+    def counting_migrate(conn):
+        calls.append(1)
+        return real_migrate(conn)
+
+    monkeypatch.setattr(db, "migrate", counting_migrate)
+    path = tmp_path / "once.sqlite3"
+    first = db.init_db(path)
+    second = db.init_db(path)
+    assert first is second
+    assert len(calls) == 1
+
+    # After a close, the same path must initialise again: the file may not
+    # even be the same file by then.
+    db.close_thread_connections()
+    (tmp_path / "once.sqlite3").unlink()
+    conn = db.init_db(path)
+    assert len(calls) == 2
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "run" in tables
+    db.close_thread_connections()

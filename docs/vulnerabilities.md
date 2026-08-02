@@ -82,22 +82,41 @@ Lighthouse and Chrome versions, and `slap doctor` fails the check past 30
 days. A bundle built once and run for a year carries a year-old database, and
 a report that does not say so is wrong in a way nobody can detect.
 
-**Curated.** OSV's full npm export is ~213MB and SLAP can only name the ~83
-packages Lighthouse's detector recognises. Querying OSV for exactly those
-produces **198 advisories in 108KB**, which ships in the bundle. A database
-wider than the detector is dead weight; narrower would be a silent gap.
+**Curated.** A full vulnerability corpus is hundreds of megabytes and SLAP
+can only name the components its detectors recognise. The database holds
+exactly those: **616 advisories in ~460KB** from the NVD build on
+2026-08-02, which ships in the bundle. A database wider than the detection
+is dead weight; narrower would be a silent gap.
 
-### Sources, and why WordPress is not one of them
+### Sources (revised 2026-08-02: NVD is primary)
 
 | Source | Status |
 |---|---|
-| **OSV.dev** (npm) | Used. No key, no auth, no licence obstacle. |
-| **NVD** | Not used. 5 req/30s without a key, 50 with; NIST's own guidance is to mirror rather than query. OSV already carries what we need. |
+| **NIST NVD** | **Primary.** The [CVE API 2.0](https://nvd.nist.gov/developers/vulnerabilities), queried by CPE per tracked product. Keyless at 5 req/30s (a full refresh is ~5 minutes), or 50 req/30s with a free key via `NVD_API_KEY` (~40 seconds). CVSS severity comes from NIST's own analysis, permanent storage is permitted, and it covers what no free WordPress-specific source could: **WordPress core (350 usable CVEs) plus the most common plugins**. Fair use requires the notice in `NVD_NOTICE`; the report appendix prints it. |
+| **OSV.dev** (npm) | Retained as an alternative: `slap vulndb update --source osv`. No key, no CPE map to maintain, npm only. |
 | **WPScan** | **Ruled out on licence.** "Permanent storage of our vulnerability data is not permitted", "API vulnerability data caching is not permitted", and commercial integration requires an Enterprise account. An offline bundled database is precisely what it forbids. |
-| **Wordfence** | Was free and unauthenticated when this was designed. As of 2026-08-02 the v2 endpoints return **410 Gone** and v3 returns **401**, so it needs credentials this project does not ship. |
+| **Wordfence** | Was free and unauthenticated when this was designed. As of 2026-08-02 the v2 endpoints return **410 Gone** and v3 returns **401**. NVD made the question moot. |
 
-So WordPress plugins and themes are **inventoried and not matched**, and
-`vuln.unchecked_count` exists so the report can say that. *"No vulnerabilities
+**The CPE map is verified, not guessed.** NVD answers a wrong CPE with zero
+results, and zero results is exactly what a clean product returns, so an
+unverified guess ships a coverage gap disguised as good news. Every entry
+in `NVD_PRODUCTS` was probed live before being added, with the CVE count at
+verification recorded beside it; candidates that returned zero
+(`vuejs:vue`, `backbone.js_project:backbone.js`, `wp_media:wp_rocket`) were
+dropped, not kept on faith. The flip side is that coverage is **per
+package, not per ecosystem**: `covered_packages` records exactly which
+packages were queried, `covers(ecosystem, package)` answers at that level,
+and a detected plugin outside the map is reported as *not checked*.
+
+Two NVD records shapes worth remembering: old CVEs recorded against version
+`-` ("unknown") with no bounds are **dropped** rather than matched against
+every version forever (jQuery's CVE-2007-2379 would otherwise flag jQuery
+3.7 on every audit), and v2-only records top out at HIGH because CVSS v2
+never defined CRITICAL.
+
+Unmapped WordPress plugins and themes remain **inventoried and not
+matched**, and `vuln.unchecked_count` exists so the report can say that.
+*"No vulnerabilities
 found in your plugins"* and *"your plugins were not checked"* are different
 sentences, and only the second is true. `VulnDatabase.covers()` is what forces
 the caller to pick the right one rather than defaulting to silence.

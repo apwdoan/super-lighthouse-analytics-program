@@ -426,9 +426,15 @@ class Coverage:
         parts.append(".")
         note = "".join(parts)
         if self.unchecked_ecosystems:
-            note += (f" Components in {self.unchecked_ecosystems} have no "
-                     "configured source and were NOT checked, which is not "
+            note += (f" Not covered by the database and therefore NOT "
+                     f"checked: {self.unchecked_ecosystems}. That is not "
                      "the same as finding nothing wrong with them.")
+        if self.vuln_db_sources and "NVD" in self.vuln_db_sources:
+            # NVD's fair-use terms ask for this sentence wherever their
+            # data is presented, and a client report is exactly that.
+            from ..vulndb import NVD_NOTICE
+
+            note += f" {NVD_NOTICE}"
         return note
 
     @property

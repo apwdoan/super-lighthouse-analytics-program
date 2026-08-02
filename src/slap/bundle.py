@@ -72,6 +72,28 @@ def _first_existing(*candidates: Path) -> Path | None:
     return None
 
 
+def package_roots() -> list[Path]:
+    """Every directory bundled Python packages can resolve under.
+
+    One-dir builds put them in ``_internal`` beside the executable. A macOS
+    .app does not: PyInstaller splits an app bundle's contents between
+    ``Contents/Frameworks`` (binaries) and ``Contents/Resources`` (data),
+    while the executable sits alone in ``Contents/MacOS``. Searching only
+    beside the executable is why the first full Mac run of `slap verify`
+    reported "no Node in the bundle" on a bundle that carried Playwright's
+    driver Node in Frameworks the whole time — and why nothing before that
+    run noticed Lighthouse had silently never worked in a Mac bundle.
+    """
+    root = bundle_root()
+    if root is None:
+        return []
+    roots = [root, *root.glob("_internal*")]
+    if root.name == "MacOS" and root.parent.name == "Contents":
+        contents = root.parent
+        roots += [contents / "Frameworks", contents / "Resources"]
+    return [r for r in roots if r.is_dir()]
+
+
 def playwright_driver_node() -> Path | None:
     """Node shipped inside the Playwright package, if it is there.
 
@@ -82,10 +104,7 @@ def playwright_driver_node() -> Path | None:
     too old, so a future Playwright that downgrades its Node cannot break
     the bundle silently.
     """
-    root = bundle_root()
-    if root is None:
-        return None
-    for parent in (root, *root.glob("_internal*")):
+    for parent in package_roots():
         found = _first_existing(
             parent / "playwright" / "driver" / "node.exe",
             parent / "playwright" / "driver" / "node",

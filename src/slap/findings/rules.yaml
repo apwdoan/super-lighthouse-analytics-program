@@ -872,10 +872,10 @@ rules:
     severity: info
     title: "Some components could not be checked for known vulnerabilities"
     detail: >-
-      {vuln.unchecked_count} detected component(s) are in ecosystems this
-      audit has no vulnerability source for ({vuln.unchecked_detail}). That
-      is not a clean result for them; it means they were not checked. A
-      WordPress plugin and theme source can be configured separately.
+      {vuln.unchecked_count} detected component(s) have no entry in this
+      audit's vulnerability database ({vuln.unchecked_detail}). That is not
+      a clean result for them; it means they were not checked. The database
+      covers the components with verified CPE mappings in the NIST NVD.
     when:
       all:
         - {metric: vuln.unchecked_count, gt: 0}

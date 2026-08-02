@@ -72,6 +72,12 @@ def _home_html() -> str:
      must not be read as a version. -->
 <script src="/wp-content/plugins/wp-rocket/assets/js/x.js?ver=1699887600"></script>
 
+<!-- A plugin with a real version but OUTSIDE the verified CPE map, so the
+     database cannot speak to it. This keeps the "inventoried and NOT
+     checked" path exercised end to end now that the NVD source covers the
+     common plugins: coverage is per package, and this one has none. -->
+<script src="/wp-content/plugins/bespoke-booking-widget/js/app.js?ver=2.1.0"></script>
+
 <!-- A content hash, which is what most build pipelines emit. -->
 <link rel="stylesheet" href="/wp-content/themes/astra/style.css?ver=a3f9c2e1">
 </head><body class="home page">

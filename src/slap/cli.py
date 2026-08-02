@@ -513,6 +513,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("vulndb", help="the offline vulnerability database")
     p.add_argument("action", choices=["status", "update"], nargs="?",
                    default="status")
+    p.add_argument("--source", choices=["nvd", "osv"], default="nvd",
+                   help="where `update` builds from: the NIST NVD (default; "
+                        "set NVD_API_KEY for 10x the rate limit) or OSV.dev "
+                        "(npm only, no key)")
     p.set_defaults(func=cmd_vulndb)
 
     p = sub.add_parser(
@@ -572,7 +576,7 @@ def cmd_verify(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def cmd_vulndb(args: argparse.Namespace, settings: Settings) -> int:
-    from .vulndb import VulnDatabase, build_from_osv
+    from .vulndb import NVD_NOTICE, VulnDatabase, build_from_nvd, build_from_osv
 
     path = settings.vulndb_path
     if args.action == "status":
@@ -597,34 +601,43 @@ def cmd_vulndb(args: argparse.Namespace, settings: Settings) -> int:
                    if not db_.covers(e)]
         if missing:
             print(f"  not covered {', '.join(missing)}")
-            print("             WPScan forbids caching its data and requires an")
-            print("             Enterprise account for commercial use; Wordfence")
-            print("             now requires credentials. Configure a source or")
-            print("             these stay unchecked, and the report says so.")
+            print("             Run `slap vulndb update` to build from the NIST")
+            print("             NVD, which covers WordPress core and the most")
+            print("             common plugins. Until then these stay unchecked,")
+            print("             and the report says so.")
         return 0
 
-    print("Querying OSV for every library Lighthouse can identify...")
-    seen = {"n": 0}
-
     def progress(i, package, message):
-        seen["n"] = i
         print(f"  [{i:>3}] {package:<26} {message}", flush=True)
 
     # The existing database is the baseline: a package that had advisories
     # and now returns none is a failed query, not good news.
-    database = build_from_osv(previous=VulnDatabase.load(path), progress=progress)
+    previous = VulnDatabase.load(path)
+    if args.source == "osv":
+        print("Querying OSV for every library Lighthouse can identify...")
+        database = build_from_osv(previous=previous, progress=progress)
+    else:
+        import os
+
+        keyed = bool(os.environ.get("NVD_API_KEY"))
+        print("Querying the NIST NVD for every verified product mapping...")
+        print(f"  ({'keyed: 50' if keyed else 'no NVD_API_KEY: 5'} requests "
+              "per 30s; a key is free at https://nvd.nist.gov/developers/"
+              "request-an-api-key)")
+        print(f"  {NVD_NOTICE}")
+        database = build_from_nvd(previous=previous, progress=progress)
     if database.failures:
-        print(f"\n{len(database.failures)} package(s) could not be queried: "
+        print(f"\n{len(database.failures)} product(s) could not be queried: "
               f"{', '.join(database.failures[:8])}", file=sys.stderr)
         print("Refusing to write a database that is quietly smaller than the "
-              "one it replaces. Try again; OSV rate-limits bursts.",
+              "one it replaces. Try again; both sources rate-limit bursts.",
               file=sys.stderr)
         return 1
     if not database.available:
         # An empty result would overwrite good data with nothing, and the
         # next audit would report zero vulnerabilities and look clean.
-        print("OSV returned no advisories. Keeping the existing database.",
-              file=sys.stderr)
+        print("The source returned no advisories. Keeping the existing "
+              "database.", file=sys.stderr)
         return 1
 
     # NOT `settings.vulndb_path`: that resolves to whichever copy is newer,

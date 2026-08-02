@@ -205,6 +205,10 @@ def close_thread_connections() -> None:
         except sqlite3.Error:
             pass
     _local.conns = {}
+    # And forget which databases were initialised, so the next init_db on
+    # this thread re-checks from scratch. A test that closes, deletes the
+    # file, and reopens the same path must get tables again.
+    _local.initialised = set()
 
 
 def migrate(conn: sqlite3.Connection) -> list[str]:
@@ -288,13 +292,34 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
 
 
 def init_db(path: str | Path) -> sqlite3.Connection:
+    """Connect, migrating and creating tables on first touch only.
+
+    Every core read funnels through here, and the first version ran the
+    migration probe plus the full DDL script on every call: a dozen
+    ``CREATE TABLE IF NOT EXISTS`` statements and a ``PRAGMA table_info``
+    per site-list render, paid again for every row the web UI shows. The
+    schema cannot change between calls within one process, so it is applied
+    once per thread per path and remembered beside the connection cache
+    (and forgotten with it, so ``close_thread_connections`` keeps its
+    "clean slate" meaning).
+    """
+    key = str(Path(path).expanduser())
+    # `is None`, never truthiness: the connection-cache bug two functions up
+    # was `or {}` reading an empty cache as an absent one, and an empty SET
+    # here is the normal state after close_thread_connections.
+    done: set[str] | None = getattr(_local, "initialised", None)
+    if done is None:
+        done = _local.initialised = set()
     conn = connect(path)
+    if key in done:
+        return conn
     # Migrate BEFORE the DDL. Order matters only for clarity here, since
     # CREATE TABLE IF NOT EXISTS would not touch the old table anyway, but
     # it keeps "fix what exists, then create what does not" readable.
     migrate(conn)
     conn.executescript(DDL)
     conn.commit()
+    done.add(key)
     return conn
 
 

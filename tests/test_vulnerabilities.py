@@ -173,10 +173,14 @@ def test_aliased_advisories_are_reported_once():
 
 def test_covers_distinguishes_unchecked_from_clean(vulndb):
     """"No vulnerabilities found in your plugins" and "your plugins were not
-    checked" are different sentences, and only one is true with no WordPress
-    source configured."""
+    checked" are different sentences. With the NVD source the distinction
+    moved down a level: plugin coverage exists, but only for the packages
+    with verified CPE mappings, and `covers` must say no for the rest."""
     assert vulndb.covers("npm")
-    assert not vulndb.covers("wordpress-plugin")
+    assert vulndb.covers("wordpress", "wordpress")
+    assert vulndb.covers("wordpress-plugin", "elementor")
+    assert not vulndb.covers("wordpress-plugin", "bespoke-booking-widget")
+    assert not vulndb.covers("wordpress-theme")
 
 
 def test_a_missing_database_degrades_rather_than_raises(tmp_path):
@@ -289,12 +293,16 @@ def test_an_inferred_version_can_never_print_a_critical():
     assert effective_severity(_match(INFERRED, "low")) == "low"
 
 
-def test_components_in_an_uncovered_ecosystem_are_returned_as_unchecked(vulndb):
-    components = detect(WP_HTML, LIBRARIES)
+def test_components_outside_the_covered_map_are_returned_as_unchecked(vulndb):
+    html = WP_HTML + ('<script src="/wp-content/plugins/'
+                      'bespoke-booking-widget/js/app.js?ver=2.1.0"></script>')
+    components = detect(html, LIBRARIES)
     matches, unchecked = match_all(components, vulndb)
     assert any(m.component.ecosystem == "npm" for m in matches)
-    assert unchecked, "WordPress components must come back as unchecked"
-    assert all(c.ecosystem.startswith("wordpress") for c in unchecked)
+    # WordPress core is covered by the NVD source now; the unmapped plugin
+    # is what must come back unchecked.
+    assert unchecked, "an unmapped plugin must come back as unchecked"
+    assert {c.package for c in unchecked} == {"bespoke-booking-widget"}
 
 
 # --------------------------------------------------------------------------
@@ -318,9 +326,12 @@ def _run_component_collector(html: str, libraries, database) -> dict:
 
 def test_the_collector_separates_confirmed_from_possible(vulndb):
     values = _run_component_collector(WP_HTML, LIBRARIES, vulndb)
-    assert values["vuln.confirmed_count"] >= 1     # jQuery 3.4.1
+    assert values["vuln.confirmed_count"] >= 1     # jQuery 3.4.1, observed
     assert values["component.observed_count"] >= 2
-    assert values["vuln.unchecked_count"] >= 1     # the WordPress plugin
+    # contact-form-7 5.8.1 is an INFERRED version in a covered package, and
+    # the NVD source has advisories for it: the `possible` bucket, which sat
+    # dormant for as long as no WordPress source existed.
+    assert values["vuln.possible_count"] >= 1
     assert "jQuery 3.4.1" in values["component.detected"]
 
 
@@ -610,8 +621,10 @@ def test_a_browser_observed_version_produces_a_confirmed_cve(tmp_path, vulndb):
         detail = values["vuln.confirmed_detail"]
         assert "CVE-2020-11022" in detail and "CVE-2020-11023" in detail
 
-        # The WordPress plugin is inventoried, not matched, and says so.
+        # The unmapped plugin is inventoried, not matched, and says so; the
+        # covered-but-inferred one (contact-form-7) lands in `possible`.
         assert values["vuln.unchecked_count"] >= 1
+        assert values["vuln.possible_count"] >= 1
         rules = {f["rule_id"] for f in db.get_findings(conn, run_id)}
         assert "vuln-not-checked" in rules
         assert any(r.startswith("vuln-confirmed-") for r in rules)
@@ -640,7 +653,8 @@ def test_the_report_states_what_was_not_checked(tmp_path):
         result = asyncio.run(core.run_batch([base], settings))
         model = build_report_model(core.get_run_detail(settings, result.run_ids[0]))
         note = model.coverage.vulnerability_note
-        assert "OSV" in note
+        assert "NVD" in note
+        assert "not endorsed or certified by the NVD" in note
         assert "NOT checked" in note
         assert model.coverage.vuln_db_generated
         # Probing was never authorised here, so the report must say nothing
@@ -756,12 +770,13 @@ def test_an_empty_refresh_does_not_overwrite_good_data(monkeypatch, tmp_path, ca
     before = target.read_text(encoding="utf-8")
 
     monkeypatch.setattr(cli, "config", cli.config)
-    monkeypatch.setattr("slap.vulndb.build_from_osv", lambda **kw: VulnDatabase())
+    monkeypatch.setattr("slap.vulndb.build_from_nvd", lambda **kw: VulnDatabase())
     monkeypatch.setattr(cli.config, "writable_vulndb_path", lambda: target)
 
     settings = Settings()
     settings.vulndb_path = target
-    code = cli.cmd_vulndb(argparse.Namespace(action="update"), settings)
+    code = cli.cmd_vulndb(argparse.Namespace(action="update", source="nvd"),
+                          settings)
     assert code == 1
     assert target.read_text(encoding="utf-8") == before
 
@@ -926,10 +941,11 @@ def test_the_report_does_not_claim_a_check_that_did_not_run(tmp_path):
         result = asyncio.run(core.run_batch([base], settings))
         model = build_report_model(core.get_run_detail(settings, result.run_ids[0]))
         note = model.coverage.vulnerability_note
-        assert "OSV" in note
-        # The fixture runs WordPress, which has no source. If the components
-        # were never detected this sentence goes missing and the report reads
-        # as a clean check.
+        assert "NVD" in note
+        assert "not endorsed or certified by the NVD" in note
+        # The fixture carries a plugin outside the CPE map. If components
+        # were never detected this sentence goes missing and the report
+        # reads as a clean check.
         assert "NOT checked" in note
         assert model.coverage.unchecked_ecosystems
     finally:
@@ -958,3 +974,180 @@ def test_discovery_and_the_component_pass_are_independent(tmp_path):
         finally:
             httpd.shutdown()
             db.close_thread_connections()
+
+
+# --------------------------------------------------------------------------
+# The NIST NVD source
+# --------------------------------------------------------------------------
+
+def _nvd_item(**overrides):
+    """A CVE item shaped like the real API's, from a captured jquery record."""
+    item = {
+        "id": "CVE-2020-11023",
+        "vulnStatus": "Modified",
+        "descriptions": [
+            {"lang": "en", "value": "In jQuery versions greater than or equal "
+             "to 1.0.3 and before 3.5.0, passing HTML containing <option> "
+             "elements from untrusted sources may execute untrusted code."},
+            {"lang": "es", "value": "En jQuery..."},
+        ],
+        "metrics": {
+            "cvssMetricV31": [{
+                "type": "Primary",
+                "cvssData": {"baseScore": 6.1, "baseSeverity": "MEDIUM"},
+            }],
+            "cvssMetricV2": [{
+                "type": "Primary", "baseSeverity": "LOW",
+                "cvssData": {"baseScore": 4.3},
+            }],
+        },
+        "configurations": [{
+            "nodes": [{
+                "cpeMatch": [{
+                    "vulnerable": True,
+                    "criteria": "cpe:2.3:a:jquery:jquery:*:*:*:*:*:*:*:*",
+                    "versionStartIncluding": "1.0.3",
+                    "versionEndExcluding": "3.5.0",
+                }],
+            }],
+        }],
+    }
+    item.update(overrides)
+    return item
+
+
+def test_nvd_records_parse_with_bounds_and_nist_severity():
+    from slap.vulndb import parse_nvd_record
+
+    vuln = parse_nvd_record(_nvd_item(), "jquery", "npm",
+                            "cpe:2.3:a:jquery:jquery")
+    assert vuln is not None
+    assert vuln.id == "CVE-2020-11023"
+    assert vuln.cve == "CVE-2020-11023"
+    assert vuln.severity == "medium"          # v3.1, not the v2 LOW
+    assert vuln.ranges[0].introduced == (1, 0, 3)
+    assert vuln.ranges[0].fixed == (3, 5, 0)
+    assert vuln.affects((3, 4, 1), "3.4.1")
+    assert not vuln.affects((3, 5, 0), "3.5.0")
+    assert "nvd.nist.gov" in vuln.reference
+
+
+def test_nvd_exact_versions_in_the_criteria_are_kept():
+    from slap.vulndb import parse_nvd_record
+
+    item = _nvd_item(configurations=[{"nodes": [{"cpeMatch": [
+        {"vulnerable": True,
+         "criteria": "cpe:2.3:a:jquery:jquery:1.4.2:*:*:*:*:*:*:*"},
+    ]}]}])
+    vuln = parse_nvd_record(item, "jquery", "npm", "cpe:2.3:a:jquery:jquery")
+    assert vuln.versions == ("1.4.2",)
+    assert vuln.affects((1, 4, 2), "1.4.2")
+    assert not vuln.affects((1, 4, 3), "1.4.3")
+
+
+def test_nvd_unbounded_dash_records_are_dropped_not_matched_forever():
+    """CVE-2007-2379 is recorded against jquery version `-` with no bounds:
+    NVD for "version unknown". Matching it would flag every jQuery ever
+    shipped, on every audit, forever. Dropping it trades a 2007-era false
+    negative for not crying wolf on every modern site."""
+    from slap.vulndb import parse_nvd_record
+
+    item = _nvd_item(configurations=[{"nodes": [{"cpeMatch": [
+        {"vulnerable": True,
+         "criteria": "cpe:2.3:a:jquery:jquery:-:*:*:*:*:*:*:*"},
+    ]}]}])
+    assert parse_nvd_record(item, "jquery", "npm",
+                            "cpe:2.3:a:jquery:jquery") is None
+
+
+def test_nvd_other_products_in_the_same_cve_are_ignored():
+    from slap.vulndb import parse_nvd_record
+
+    item = _nvd_item(configurations=[{"nodes": [{"cpeMatch": [
+        {"vulnerable": True,
+         "criteria": "cpe:2.3:a:drupal:drupal:*:*:*:*:*:*:*:*",
+         "versionEndExcluding": "9.0"},
+    ]}]}])
+    assert parse_nvd_record(item, "jquery", "npm",
+                            "cpe:2.3:a:jquery:jquery") is None
+
+
+def test_nvd_v2_only_records_get_a_severity():
+    from slap.vulndb import _nvd_severity
+
+    item = _nvd_item()
+    del item["metrics"]["cvssMetricV31"]
+    assert _nvd_severity(item) == "low"
+
+
+def test_a_package_outside_the_covered_map_reports_unchecked():
+    """The coverage question, one level below ecosystems. An NVD database
+    covers exactly its verified CPE map, so "wordpress-plugin has a source"
+    must not read as "this plugin was checked"."""
+    from slap.collectors.components import INFERRED, Component, match_all
+
+    db = VulnDatabase(
+        generated_at="2026-08-02T00:00:00+00:00",
+        sources={"wordpress-plugin": "NIST NVD"},
+        covered={"wordpress-plugin": ("elementor",)},
+    )
+
+    mapped = Component(name="elementor (plugin)", version="3.0",
+                       confidence=INFERRED, ecosystem="wordpress-plugin",
+                       package="elementor")
+    unmapped = Component(name="obscure-widget (plugin)", version="1.0",
+                         confidence=INFERRED, ecosystem="wordpress-plugin",
+                         package="obscure-widget")
+    matches, unchecked = match_all([mapped, unmapped], db)
+    assert unchecked == [unmapped]
+
+
+def test_covered_packages_survive_the_round_trip():
+    db = VulnDatabase(
+        generated_at="2026-08-02T00:00:00+00:00",
+        sources={"npm": "NIST NVD"},
+        covered={"npm": ("jquery", "lodash")},
+    )
+    from slap.vulndb import AffectedRange, Vulnerability
+
+    db.index[("npm", "jquery")] = [Vulnerability(
+        id="CVE-2020-11023", package="jquery", ecosystem="npm", summary="x",
+        severity="medium", ranges=(AffectedRange(introduced=(1,)),))]
+    loaded = VulnDatabase.from_json(db.to_json())
+    assert loaded.covers("npm", "jquery")
+    assert loaded.covers("npm", "lodash")
+    assert not loaded.covers("npm", "left-pad")
+    assert loaded.covers("npm")               # ecosystem-level question
+
+
+def test_nvd_build_treats_a_suddenly_empty_product_as_a_failure():
+    """The guard the OSV builder learned the hard way, carried over: NVD's
+    rate limiter answers over-eager clients with errors, and an incautious
+    loop records those as "no vulnerabilities"."""
+    from slap.vulndb import AffectedRange, Vulnerability, build_from_nvd
+
+    previous = VulnDatabase(sources={"npm": "NIST NVD"})
+    previous.index[("npm", "jquery")] = [Vulnerability(
+        id="CVE-2020-11023", package="jquery", ecosystem="npm", summary="",
+        severity="medium", ranges=(AffectedRange(introduced=(1,)),))]
+
+    def empty_fetch(params, timeout, api_key):
+        return {"totalResults": 0, "vulnerabilities": []}
+
+    db = build_from_nvd(
+        products=[("npm", "jquery", "cpe:2.3:a:jquery:jquery")],
+        previous=previous, attempts=2, fetch=empty_fetch)
+    assert db.failures == ["npm:jquery"]
+    assert not db.available
+
+
+def test_nvd_build_records_hard_failures():
+    from slap.vulndb import build_from_nvd
+
+    def broken_fetch(params, timeout, api_key):
+        return None
+
+    db = build_from_nvd(
+        products=[("npm", "jquery", "cpe:2.3:a:jquery:jquery")],
+        attempts=2, fetch=broken_fetch)
+    assert db.failures == ["npm:jquery"]

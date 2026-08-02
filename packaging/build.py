@@ -88,7 +88,7 @@ def stage_vulndb(force: bool = False, *, required: bool = False) -> Path | None:
     because a developer building on a train should still get a bundle. CI
     passes ``required=True`` so a release never ships the fallback silently.
     """
-    from slap.vulndb import VulnDatabase, build_from_osv, default_db_path
+    from slap.vulndb import VulnDatabase, build_from_nvd, default_db_path
 
     target = default_db_path()
     existing = VulnDatabase.load(target)
@@ -98,9 +98,10 @@ def stage_vulndb(force: bool = False, *, required: bool = False) -> Path | None:
         log(f"vulnerability database is {age} day(s) old; keeping it")
         return target
 
-    log("refreshing the vulnerability database from OSV")
+    log("refreshing the vulnerability database from the NIST NVD "
+        "(keyless: ~5 min; set NVD_API_KEY to make it ~40s)")
     try:
-        database = build_from_osv(previous=existing)
+        database = build_from_nvd(previous=existing)
     except Exception as exc:                          # noqa: BLE001
         message = f"vulnerability database refresh FAILED: {type(exc).__name__}: {exc}"
         if required:

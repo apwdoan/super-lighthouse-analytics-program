@@ -22,18 +22,32 @@ would be a silent coverage gap.
 Sources
 -------
 
-``npm`` — OSV.dev. No key, no auth, no licence obstacle, and it covers every
-JavaScript library Lighthouse can identify by npm coordinate.
+``NIST NVD`` — the primary source, for every ecosystem at once. The CVE API
+(https://nvd.nist.gov/developers/vulnerabilities) is keyless (5 requests per
+30s) or keyed (free, 50 per 30s via ``NVD_API_KEY``), carries CVSS severity
+from NIST's own analysis, and its permanent CVE storage is explicitly
+permitted. It is queried by CPE, which is the catch: a wrong CPE returns
+zero results, and zero is indistinguishable from a clean product. So the
+map in ``NVD_PRODUCTS`` holds only CPEs verified live against the API, each
+annotated with the CVE count seen at verification, and a package without a
+verified CPE is **not covered** rather than silently unmatched — the
+``covered_packages`` field is how the database says so and how the report
+keeps "not checked" distinct from "clean". Using NVD also unlocks what no
+free WordPress-specific source could: WordPress core (583 CVEs at
+verification) and the most common plugins.
 
-``wordpress`` — deliberately **not bundled**. WPScan's terms forbid exactly
-this ("permanent storage of our vulnerability data is not permitted", "API
-vulnerability data caching is not permitted", commercial integration requires
-an Enterprise account). Wordfence's feed was free and unauthenticated when
-this was designed; as of 2026-08-02 its v2 endpoints return 410 Gone and v3
-returns 401, so it needs credentials this project does not ship. The adapter
-is here and takes a key from config. Until one is configured, WordPress
-components are inventoried and **not** matched, and the report says that
-rather than implying a clean bill of health.
+NVD's fair-use terms require the notice in ``NVD_NOTICE``; the report
+appendix prints it whenever NVD data is in use.
+
+``OSV.dev`` — retained as an alternative (``slap vulndb update --source
+osv``): no key, no CPE mapping to maintain, npm only. Useful when NVD is
+having a bad day, which is not hypothetical for that API.
+
+``WPScan`` — deliberately **not** used. Its terms forbid exactly this
+("permanent storage of our vulnerability data is not permitted", "API
+vulnerability data caching is not permitted"). Wordfence's feed was free
+when this was designed; as of 2026-08-02 its v2 endpoints return 410 Gone
+and v3 returns 401. NVD made both moot.
 """
 
 from __future__ import annotations
@@ -189,6 +203,13 @@ class VulnDatabase:
     sources: dict[str, str] = field(default_factory=dict)
     #: (ecosystem, lowercased package) -> vulnerabilities
     index: dict[tuple[str, str], list[Vulnerability]] = field(default_factory=dict)
+    #: Which packages within an ecosystem were actually queried. An
+    #: ecosystem absent from this dict is covered in full (the OSV npm
+    #: behaviour); one present is covered ONLY for the listed packages.
+    #: Exists because NVD is queried by hand-verified CPE, so "wordpress
+    #: plugins" is never covered as a class -- and a plugin outside the map
+    #: must report as NOT CHECKED, not as clean.
+    covered: dict[str, tuple[str, ...]] = field(default_factory=dict)
     #: Packages whose query failed outright during the last build. Not
     #: serialised: it describes a build, not the data.
     failures: list[str] = field(default_factory=list)
@@ -214,15 +235,23 @@ class VulnDatabase:
             when = when.replace(tzinfo=timezone.utc)
         return max(0, (datetime.now(timezone.utc) - when).days)
 
-    def covers(self, ecosystem: str) -> bool:
-        """Whether this database can speak to an ecosystem at all.
+    def covers(self, ecosystem: str, package: str | None = None) -> bool:
+        """Whether this database can speak to an ecosystem, or one package.
 
         The distinction that keeps the report honest: "no vulnerabilities
         found in your WordPress plugins" and "WordPress plugins were not
         checked" are different sentences, and only one of them is true when
-        no WordPress source is configured.
+        no WordPress source is configured. With a package given, the same
+        distinction one level down: an NVD database covers exactly the
+        CPE-mapped packages, so a plugin outside the map is *not checked*
+        even though its ecosystem has a source.
         """
-        return ecosystem in self.sources
+        if ecosystem not in self.sources:
+            return False
+        restriction = self.covered.get(ecosystem)
+        if restriction is None or package is None:
+            return True
+        return package.lower() in restriction
 
     def query(self, ecosystem: str, package: str,
               version: str) -> list[Vulnerability]:
@@ -244,6 +273,7 @@ class VulnDatabase:
             "schema": SCHEMA,
             "generated_at": self.generated_at,
             "sources": self.sources,
+            "covered_packages": {k: sorted(v) for k, v in self.covered.items()},
             "vulnerabilities": [
                 {
                     "id": v.id, "package": v.package, "ecosystem": v.ecosystem,
@@ -267,7 +297,9 @@ class VulnDatabase:
     def from_json(cls, text: str) -> "VulnDatabase":
         raw = json.loads(text)
         db = cls(generated_at=raw.get("generated_at"),
-                 sources=dict(raw.get("sources") or {}))
+                 sources=dict(raw.get("sources") or {}),
+                 covered={k: tuple(v) for k, v in
+                          (raw.get("covered_packages") or {}).items()})
         for entry in raw.get("vulnerabilities", []):
             ranges = tuple(
                 AffectedRange(
@@ -571,4 +603,253 @@ def build_from_osv(packages: Iterable[str] = DEFAULT_NPM_PACKAGES, *,
                 found += 1
         if progress:
             progress(i, package, f"{found} advisories")
+    return db
+
+
+# --------------------------------------------------------------------------
+# NIST NVD: the primary source.
+# --------------------------------------------------------------------------
+
+NVD_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+
+#: Required by NVD's fair-use terms wherever their data is presented.
+NVD_NOTICE = ("This product uses data from the NVD API but is not endorsed "
+              "or certified by the NVD.")
+
+#: (ecosystem, package as this tool detects it, CPE 2.3 prefix).
+#:
+#: Every prefix was verified LIVE against the API on 2026-08-02, with the
+#: CVE count seen at verification in the comment. Verification is the whole
+#: game: NVD answers a wrong CPE with zero results, and zero results is
+#: exactly what a clean product returns, so an unverified guess ships a
+#: coverage gap disguised as good news. Candidates that returned zero
+#: (vuejs:vue, backbone.js_project:backbone.js, wp_media:wp_rocket) were
+#: DROPPED, not kept on faith.
+#:
+#: Some products appear under two of our package names because detection
+#: sees different slugs for the same software (wpforms vs wpforms-lite).
+NVD_PRODUCTS: tuple[tuple[str, str, str], ...] = (
+    # npm -- the libraries Lighthouse names by coordinate
+    ("npm", "jquery",          "cpe:2.3:a:jquery:jquery"),                    # 11
+    ("npm", "jquery-ui",       "cpe:2.3:a:jqueryui:jquery_ui"),               # 7
+    ("npm", "bootstrap",       "cpe:2.3:a:getbootstrap:bootstrap"),           # 7
+    ("npm", "lodash",          "cpe:2.3:a:lodash:lodash"),                    # 10
+    ("npm", "moment",          "cpe:2.3:a:momentjs:moment"),                  # 4
+    ("npm", "angular",         "cpe:2.3:a:angularjs:angular.js"),             # 1
+    ("npm", "handlebars",      "cpe:2.3:a:handlebars.js_project:handlebars.js"),  # 2
+    ("npm", "react",           "cpe:2.3:a:facebook:react"),                   # 6
+    ("npm", "next",            "cpe:2.3:a:vercel:next.js"),                   # 56
+    ("npm", "socket.io",       "cpe:2.3:a:socket:socket.io"),                 # 2
+    ("npm", "underscore",      "cpe:2.3:a:underscorejs:underscore"),          # 2
+    ("npm", "highcharts",      "cpe:2.3:a:highcharts:highcharts"),            # 2
+    ("npm", "dojo",            "cpe:2.3:a:linuxfoundation:dojo"),             # 2
+    ("npm", "yui",             "cpe:2.3:a:yahoo:yui"),                        # 12
+    ("npm", "knockout",        "cpe:2.3:a:knockoutjs:knockout"),              # 1
+    # WordPress core -- the coverage no free WP-specific source could offer
+    ("wordpress", "wordpress", "cpe:2.3:a:wordpress:wordpress"),              # 583
+    # WordPress plugins, keyed by the asset-path slug detection produces
+    ("wordpress-plugin", "gutenberg",        "cpe:2.3:a:wordpress:gutenberg"),         # 1
+    ("wordpress-plugin", "elementor",        "cpe:2.3:a:elementor:website_builder"),   # 37
+    ("wordpress-plugin", "contact-form-7",   "cpe:2.3:a:rocklobster:contact_form_7"),  # 9
+    ("wordpress-plugin", "woocommerce",      "cpe:2.3:a:woocommerce:woocommerce"),     # 16
+    ("wordpress-plugin", "wordpress-seo",    "cpe:2.3:a:yoast:yoast_seo"),             # 10
+    ("wordpress-plugin", "jetpack",          "cpe:2.3:a:automattic:jetpack"),          # 16
+    ("wordpress-plugin", "akismet",          "cpe:2.3:a:automattic:akismet"),          # 1
+    ("wordpress-plugin", "wpforms",          "cpe:2.3:a:wpforms:wpforms"),             # 9
+    ("wordpress-plugin", "wpforms-lite",     "cpe:2.3:a:wpforms:wpforms"),             # 9
+    ("wordpress-plugin", "wp-super-cache",   "cpe:2.3:a:automattic:wp_super_cache"),   # 6
+    ("wordpress-plugin", "w3-total-cache",   "cpe:2.3:a:boldgrid:w3_total_cache"),     # 14
+    ("wordpress-plugin", "litespeed-cache",  "cpe:2.3:a:litespeedtech:litespeed_cache"),  # 15
+)
+
+
+def _nvd_severity(item: dict[str, Any]) -> str:
+    """NIST's own severity, newest CVSS version first, Primary source first.
+
+    NVD publishes several CVSS generations side by side and old CVEs only
+    have v2. The mapping is direct because NVD already speaks this
+    project's vocabulary (LOW/MEDIUM/HIGH/CRITICAL); v2 has no CRITICAL, so
+    a v2-only record tops out at HIGH, which is the honest reading of a
+    scale that never defined anything higher.
+    """
+    metrics = item.get("metrics") or {}
+    for key in ("cvssMetricV40", "cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
+        entries = metrics.get(key) or []
+        if not entries:
+            continue
+        entry = next((e for e in entries if e.get("type") == "Primary"), entries[0])
+        data = entry.get("cvssData") or {}
+        word = str(data.get("baseSeverity") or entry.get("baseSeverity") or "").upper()
+        rank = SEVERITY_RANK.get(word, 0)
+        if rank:
+            return RANK_SEVERITY[rank]
+    return "info"
+
+
+def parse_nvd_record(item: dict[str, Any], package: str, ecosystem: str,
+                     cpe_prefix: str) -> Vulnerability | None:
+    """One CVE from the API into this project's record, or None.
+
+    Version bounds come from the ``cpeMatch`` entries under our prefix:
+    an exact version in the criteria's version field, or the
+    versionStart/End bounds when the field is a wildcard. A criteria of
+    ``-`` (NVD for "version unknown") with no bounds is skipped: it would
+    match every version of the product forever, and jQuery's CVE-2007-2379
+    would then be reported against jQuery 3.7. Dropping it trades a
+    2007-era false negative for not crying wolf on every modern site,
+    which is the trade a client-facing report has to make.
+    """
+    ranges: list[AffectedRange] = []
+    versions: list[str] = []
+    prefix = cpe_prefix.rstrip(":") + ":"
+    for config in item.get("configurations") or []:
+        for node in config.get("nodes") or []:
+            for cm in node.get("cpeMatch") or []:
+                if not cm.get("vulnerable"):
+                    continue
+                criteria = str(cm.get("criteria", ""))
+                if not criteria.startswith(prefix):
+                    continue
+                exact = criteria[len(prefix):].split(":", 1)[0]
+                start_inc = parse_version(cm.get("versionStartIncluding"))
+                start_exc = parse_version(cm.get("versionStartExcluding"))
+                end_exc = parse_version(cm.get("versionEndExcluding"))
+                end_inc = parse_version(cm.get("versionEndIncluding"))
+                if exact not in ("*", "-"):
+                    if parse_version(exact) is not None:
+                        versions.append(exact)
+                    continue
+                if start_inc or start_exc or end_exc or end_inc:
+                    # startExcluding is rare enough that treating it as
+                    # inclusive is the least-wrong option: the alternative
+                    # (no lower bound) widens the range to every release
+                    # since the beginning.
+                    ranges.append(AffectedRange(
+                        introduced=start_inc or start_exc,
+                        fixed=end_exc, last_affected=end_inc))
+                # exact == "-" with no bounds: skipped, see docstring.
+    if not ranges and not versions:
+        return None
+
+    descriptions = item.get("descriptions") or []
+    summary = next((d.get("value", "") for d in descriptions
+                    if d.get("lang") == "en"), "")
+    return Vulnerability(
+        id=item["id"], package=package, ecosystem=ecosystem,
+        summary=" ".join(summary.split())[:400],
+        severity=_nvd_severity(item),
+        ranges=tuple(ranges), versions=tuple(versions),
+        reference=f"https://nvd.nist.gov/vuln/detail/{item['id']}",
+    )
+
+
+def _nvd_get(params: dict[str, str], timeout: float,
+             api_key: str | None) -> dict[str, Any] | None:
+    """One API request. None means it failed; a dict is the parsed page."""
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    url = f"{NVD_API_URL}?{urllib.parse.urlencode(params)}&noRejected"
+    headers = {"User-Agent": "SLAP"}
+    if api_key:
+        headers["apiKey"] = api_key
+    request = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read())
+    except (urllib.error.URLError, ValueError, OSError):
+        return None
+
+
+def build_from_nvd(products: Iterable[tuple[str, str, str]] = NVD_PRODUCTS, *,
+                   timeout: float = 60.0,
+                   previous: "VulnDatabase | None" = None,
+                   attempts: int = 3,
+                   api_key: str | None = None,
+                   progress=None,
+                   fetch=_nvd_get) -> VulnDatabase:
+    """Query NVD per verified CPE and assemble a database. Network required.
+
+    Efficiency is rate-limit shaped: NVD allows 5 requests per rolling 30
+    seconds without a key and 50 with one (free, instant, via the
+    ``NVD_API_KEY`` environment variable or ``api_key``). The pause between
+    requests is derived from that; ``resultsPerPage=2000`` keeps almost
+    every product to a single request, and ``noRejected`` stops rejected
+    CVEs from being fetched only to be thrown away.
+
+    Carries the guards the OSV builder learned the hard way: a product that
+    fails after retries lands in ``failures`` for the caller to refuse on,
+    and one that suddenly returns nothing where the previous database had
+    entries is treated as a failed query wearing a success, because NVD's
+    rate limiter answers over-eager clients with errors that an incautious
+    loop records as "no vulnerabilities".
+    """
+    import os
+    import time
+
+    if api_key is None:
+        api_key = os.environ.get("NVD_API_KEY") or None
+    pause = 0.8 if api_key else 6.2
+
+    db = VulnDatabase(
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
+    ecosystems: dict[str, set[str]] = {}
+    first_request = True
+
+    for i, (ecosystem, package, cpe) in enumerate(products, 1):
+        ecosystems.setdefault(ecosystem, set()).add(package.lower())
+        had_before = len(previous.index.get((ecosystem, package.lower()), [])) \
+            if previous else 0
+
+        collected: list[dict[str, Any]] | None = None
+        for attempt in range(1, max(1, attempts) + 1):
+            if not first_request:
+                time.sleep(pause * attempt if attempt > 1 else pause)
+            first_request = False
+
+            items: list[dict[str, Any]] = []
+            start, total = 0, None
+            while total is None or start < total:
+                page = fetch({"virtualMatchString": cpe,
+                              "resultsPerPage": "2000",
+                              "startIndex": str(start)}, timeout, api_key)
+                if page is None:
+                    items = None
+                    break
+                total = int(page.get("totalResults") or 0)
+                got = [w.get("cve") or {} for w in page.get("vulnerabilities") or []]
+                items.extend(got)
+                start += max(1, len(got)) if got else 2000
+            collected = items
+            if collected is None or (not collected and had_before):
+                continue                      # retry with a longer pause
+            break
+
+        if collected is None:
+            db.failures.append(f"{ecosystem}:{package}")
+            if progress:
+                progress(i, package, "FAILED after retries")
+            continue
+        if not collected and had_before:
+            db.failures.append(f"{ecosystem}:{package}")
+            if progress:
+                progress(i, package,
+                         f"EMPTY but previously had {had_before}; treating as a failure")
+            continue
+
+        parsed = [v for v in (parse_nvd_record(item, package, ecosystem, cpe)
+                              for item in collected) if v is not None]
+        # NVD keys by CVE already, but two of OUR package names can share a
+        # CPE, and one CVE can carry several cpeMatch blocks; dedupe per
+        # package so counts stay honest.
+        for vuln in deduplicate(parsed):
+            db.index.setdefault((ecosystem, package.lower()), []).append(vuln)
+        if progress:
+            progress(i, package, f"{len(parsed)} CVE(s)")
+
+    for ecosystem, packages in ecosystems.items():
+        db.sources[ecosystem] = "NIST NVD"
+        db.covered[ecosystem] = tuple(sorted(packages))
     return db
