@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+from datetime import timezone
 
 import pytest
 
@@ -402,3 +403,81 @@ def test_activity_log_is_bounded(seeded):
     for _ in range(LOG_LIMIT + 50):
         manager._on_event(BatchStarted(batch_id="b", total=1))
     assert len(manager._activity.log) == LOG_LIMIT
+
+
+# --------------------------------------------------------------------------
+# Platform portability
+# --------------------------------------------------------------------------
+
+def test_no_source_file_uses_a_platform_specific_strftime_code():
+    """`%-d` is a glibc extension. Windows' C runtime rejects the `-` flag
+    with `ValueError: Invalid format string`.
+
+    A static scan rather than a behavioural test, because the whole problem
+    is that Linux cannot reproduce it: the suite runs on Linux for every push
+    and only the release build job runs on Windows, so a Windows-only format
+    bug reaches a tag before anything notices. It reached one twice —
+    `humanise` has carried `%-d %b` since it was written and raises on the
+    site list for any site last audited more than a fortnight ago, which is
+    the machine this project is developed on.
+
+    Walks the AST rather than grepping, because the docstring you are reading
+    contains the very string it is looking for. `%#d` is the Windows spelling
+    of the same idea, non-portable in the other direction.
+    """
+    import ast
+    import pathlib as _pathlib
+    import re as _re
+
+    import slap
+    import slap_web
+
+    pattern = _re.compile(r"%[-#][a-zA-Z]")
+    offenders: list[str] = []
+
+    for package in (slap, slap_web):
+        root = _pathlib.Path(package.__file__).parent
+        for path in sorted(root.rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            docstrings = {
+                id(node.body[0].value)
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                     ast.ClassDef, ast.Module))
+                and node.body and isinstance(node.body[0], ast.Expr)
+                and isinstance(node.body[0].value, ast.Constant)
+                and isinstance(node.body[0].value.value, str)
+            }
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Constant)
+                        and isinstance(node.value, str)
+                        and id(node) not in docstrings
+                        and pattern.search(node.value)):
+                    offenders.append(f"{path.name}:{node.lineno}: {node.value!r}")
+
+    assert offenders == [], (
+        "platform-specific strftime codes found; format the day with an "
+        f"f-string on `when.day` instead: {offenders}")
+
+
+def test_the_date_helpers_work_with_a_stubbed_windows_strftime(monkeypatch):
+    """Simulates the failure directly, so the fix is proven and not assumed.
+
+    Windows raises on the whole format string, so any call that reaches
+    strftime with a `-` flag fails regardless of which field it was for.
+    """
+    import datetime as datetime_module
+
+    real_strftime = datetime_module.datetime.strftime
+
+    class WindowsLike(datetime_module.datetime):
+        def strftime(self, fmt):                       # noqa: D102
+            if "%-" in fmt or "%#" in fmt:
+                raise ValueError("Invalid format string")
+            return real_strftime(self, fmt)
+
+    monkeypatch.setattr(vm, "datetime", WindowsLike)
+    when = WindowsLike(2020, 3, 4, 20, 39, tzinfo=timezone.utc)
+    assert vm.day_month(when) == "4 Mar"
+    assert vm.stamp("2020-03-04T20:39:00+00:00").startswith(("4 Mar", "5 Mar"))
+    assert vm.humanise("2020-03-04T20:39:00+00:00") in ("4 Mar", "5 Mar")

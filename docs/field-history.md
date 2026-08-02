@@ -108,7 +108,32 @@ well clear of it. Auto-scaling to the data alone would put a series that never
 approaches the limit right next to one about to cross it, and the two would
 look identical.
 
-## 7. Not done
+## 7. A Windows-only bug the Linux suite could not see
+
+The stamp fix used `strftime("%-d %b %H:%M")`. `%-d` is a **glibc extension**:
+Windows' C runtime rejects the `-` flag outright with `ValueError: Invalid
+format string`, and macOS accepts it only by accident of BSD libc. Three tests
+failed on the Windows build job and passed everywhere else.
+
+The more serious half was already there. `humanise` has carried `%-d %b` since
+it was written, which means **the site list raises on Windows for any site
+last audited more than a fortnight ago** — on the machine this project is
+developed on. It never fired because every test seeds fresh data and lands in
+the "today" / "N days ago" branches above it, and because nobody had a
+fortnight-old site yet.
+
+Both now go through `day_month()`, which formats the day as an integer and
+lets strftime handle only the month name.
+
+The guard is a **static AST scan** rather than a behavioural test, because the
+whole problem is that Linux cannot reproduce it: the suite runs on Linux for
+every push and only the release build job runs on Windows, so a Windows-only
+format bug reaches a tag before anything notices. It walks the AST rather than
+grepping, because the docstring explaining the trap contains the very string
+it looks for. A second test stubs a Windows-like `strftime` that raises on the
+flag, so the fix is proven rather than assumed.
+
+## 8. Not done
 
 - **No CrUX key exists in this environment**, so every test runs against a
   response built to the documented shape. The collector's request has never

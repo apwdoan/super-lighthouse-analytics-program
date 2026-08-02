@@ -80,6 +80,24 @@ class SiteRow:
         return "1 page" if self.page_count <= 1 else f"{self.page_count} pages"
 
 
+def day_month(when: datetime) -> str:
+    """``"4 Mar"``, without a leading zero, on every platform.
+
+    ``strftime("%-d")`` is a glibc extension. Windows' C runtime rejects the
+    ``-`` flag outright with ``ValueError: Invalid format string``, and macOS
+    accepts it only by accident of BSD libc. Formatting the day as an integer
+    and letting strftime handle only the month name is portable and says what
+    it means.
+
+    This is not a hypothetical. `humanise` has carried ``"%-d %b"`` since it
+    was written and raises on Windows for any site last audited more than a
+    fortnight ago — the site list, on the machine this project is developed
+    on. It never fired because every test seeds fresh data and lands in the
+    "today" / "N days ago" branches above it.
+    """
+    return f"{when.day} {when:%b}"
+
+
 def _num(values: dict[str, Any], key: str) -> float | None:
     value = values.get(key)
     return float(value) if isinstance(value, (int, float)) else None
@@ -113,7 +131,7 @@ def humanise(iso: str | None) -> str:
         return "yesterday"
     if days < 14:
         return f"{days} days ago"
-    return when.strftime("%-d %b")
+    return day_month(when)
 
 
 def stamp(iso: str | None) -> str:
@@ -124,7 +142,7 @@ def stamp(iso: str | None) -> str:
     is how the first render of this screen came out.
 
     The first fix only held for a day. It appended the time when the run was
-    less than 24 hours old and fell back to "%-d %b" after that, so the five
+    less than 24 hours old and fell back to a bare date after that, so the five
     runs seeded in one afternoon read distinctly that afternoon and collapsed
     to five identical "31 Jul" ticks the next morning. Its own test passed on
     the day it was written and failed from the following day onwards, which is
@@ -147,7 +165,7 @@ def stamp(iso: str | None) -> str:
     when = when.astimezone()
     if when.date() == datetime.now(when.tzinfo).date():
         return when.strftime("%H:%M")
-    return when.strftime("%-d %b %H:%M")
+    return f"{day_month(when)} {when:%H:%M}"
 
 
 def sparkline(values: Sequence[float | None], width: float = 88,
