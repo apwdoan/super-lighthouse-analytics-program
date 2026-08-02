@@ -15,7 +15,50 @@ from typing import Any
 from .collectors.base import CollectorConfig
 from .collectors.lighthouse import LighthouseConfig
 from .discovery import DiscoveryConfig
-from .vulndb import default_db_path as default_vulndb_path
+from .vulndb import bundled_db_path, newer_of
+
+
+def user_vulndb_path() -> Path:
+    """The writable copy, in the per-user data directory."""
+    return default_data_dir() / "vulndb.json"
+
+
+def default_vulndb_path() -> Path:
+    """Whichever vulnerability database is newer: bundled or user-refreshed.
+
+    A bundle's copy sits inside the application directory, which may be
+    read-only and is replaced wholesale on upgrade. `slap vulndb update`
+    therefore writes to the user directory, and this picks the fresher of the
+    two by the date each one carries. Preferring the user's copy
+    unconditionally would pin a teammate to a stale refresh forever after
+    they installed a newer bundle.
+    """
+    return newer_of(user_vulndb_path(), bundled_db_path()) or bundled_db_path()
+
+
+def writable_vulndb_path() -> Path:
+    """Where a refresh should be written.
+
+    The user directory when the bundled copy is not writable, which covers a
+    frozen bundle in Program Files and an .app whose signature a write would
+    break. In a source checkout the package directory is writable and is the
+    right place, because that copy is what gets committed.
+    """
+    bundled = bundled_db_path()
+    try:
+        bundled.parent.mkdir(parents=True, exist_ok=True)
+        probe = bundled.parent / ".write-test"
+        probe.touch()
+        probe.unlink()
+    except OSError:
+        return user_vulndb_path()
+    import sys
+
+    if getattr(sys, "frozen", False):
+        # Writable, but inside the bundle: the next upgrade would silently
+        # discard the refresh and nobody would know why their data aged.
+        return user_vulndb_path()
+    return bundled
 
 
 #: The directory this app used before it was renamed from SALP to SLAP.

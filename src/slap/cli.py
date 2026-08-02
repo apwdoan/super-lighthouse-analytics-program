@@ -539,11 +539,37 @@ def cmd_vulndb(args: argparse.Namespace, settings: Settings) -> int:
         seen["n"] = i
         print(f"  [{i:>3}] {package:<26} {message}", flush=True)
 
-    database = build_from_osv(progress=progress)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(database.to_json(), encoding="utf-8")
+    # The existing database is the baseline: a package that had advisories
+    # and now returns none is a failed query, not good news.
+    database = build_from_osv(previous=VulnDatabase.load(path), progress=progress)
+    if database.failures:
+        print(f"\n{len(database.failures)} package(s) could not be queried: "
+              f"{', '.join(database.failures[:8])}", file=sys.stderr)
+        print("Refusing to write a database that is quietly smaller than the "
+              "one it replaces. Try again; OSV rate-limits bursts.",
+              file=sys.stderr)
+        return 1
+    if not database.available:
+        # An empty result would overwrite good data with nothing, and the
+        # next audit would report zero vulnerabilities and look clean.
+        print("OSV returned no advisories. Keeping the existing database.",
+              file=sys.stderr)
+        return 1
+
+    # NOT `settings.vulndb_path`: that resolves to whichever copy is newer,
+    # which inside a frozen bundle is the bundled one. Writing there either
+    # fails (Program Files, a signed .app) or succeeds and is silently
+    # discarded by the next upgrade. `writable_vulndb_path` picks the
+    # per-user copy when that is the case.
+    destination = config.writable_vulndb_path()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(database.to_json(), encoding="utf-8")
     print(f"\n{database.count} advisories across {len(database.index)} packages")
-    print(f"Written to {path} ({path.stat().st_size / 1024:.0f} KB)")
+    print(f"Written to {destination} "
+          f"({destination.stat().st_size / 1024:.0f} KB)")
+    if destination != path:
+        print("This copy is used in preference to the bundled one while it "
+              "is newer, and survives replacing the application.")
     return 0
 
 

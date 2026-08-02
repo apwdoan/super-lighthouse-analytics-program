@@ -213,7 +213,59 @@ are git metadata. Each category has its own path list now.
 
 ---
 
-## 5. What is deliberately not done
+## 5. What building and running the bundle taught
+
+The design was verified against fixtures; the bundle was verified by running
+it. Three bugs only the second found, and one measurement.
+
+**`vulndb update` wrote inside the bundle.** `_internal/slap/data/vulndb.json`
+is inside the application: read-only in Program Files or /Applications,
+signature-breaking in a macOS `.app`, and silently discarded by the next
+upgrade even where the write succeeds. A teammate would have no way to tell
+why their data kept aging. Refreshes go to the per-user data directory now,
+and `default_vulndb_path()` picks **whichever copy is newer by the date it
+carries** — not "the user's copy wins", because a teammate who refreshed in
+January and installs a June bundle should get June's data.
+
+**A rebuild silently produced a smaller database.** Forty minutes after a good
+build, `angular` came back with zero advisories instead of fifteen. No
+exception, no failed request, nothing in the output to distinguish it from a
+package that genuinely has none — OSV rate-limits bursts by answering rather
+than refusing. A quietly smaller database is the same failure as a stale one:
+every audit afterwards reports less and looks clean doing it. `build_from_osv`
+now takes the previous database as a baseline, retries a package that returns
+empty when it previously had entries, and records anything still failing in
+`failures`; both the CLI and the build script refuse to write a degraded
+result. The retry alone recovered the missing fifteen.
+
+**Path resolution cost 5ms per `Settings()`.** It loaded and parsed up to two
+108KB JSON files to compare two dates, on every CLI invocation and every test.
+`read_stamp` does a bounded read for the field, falling back to a real parse
+on an unexpected layout because a wrong answer silently picks the older
+database. 5.1ms → 0.17ms.
+
+The build itself: 919MB, of which 719MB is runtime (Chromium, Node,
+`node_modules`) and the vulnerability database is 108KB. It runs under
+`env -i` with no PATH beyond `/usr/bin`, resolves every backend inside itself,
+and produces the report in §4 from a real browser audit.
+
+### The CI gate
+
+`--require-vulndb` makes a network failure fail the job rather than fall back
+to the committed copy: a developer building on a train should still get a
+bundle, a release must never ship data older than the tag it is named after.
+The verify step asserts `[ok ] Vulnerability database` alongside the existing
+Lighthouse and PDF assertions, and separately asserts the path the bundle
+resolves is **inside the bundle** — a database picked up from the build
+machine's home directory would pass the first check and ship nothing.
+
+`MAX_VULNDB_AGE_DAYS = 14` fails the build outright. The report would still
+print its own date, which is the design working, but nobody reads an appendix
+before trusting a headline.
+
+---
+
+## 6. What is deliberately not done
 
 - **A WordPress vulnerability source.** The adapter shape is there and the
   ecosystem strings are wired through; what is missing is a feed that permits

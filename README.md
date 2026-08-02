@@ -104,6 +104,16 @@ slap-web            # starts a local server and opens your browser
 python packaging/build.py --zip
 ```
 
+The build refreshes the vulnerability database from OSV first, so a bundle
+never ships data older than the day it was built. `--require-vulndb` (used by
+CI) fails the build rather than falling back to the committed copy, and the
+build refuses a database that came back quietly smaller than the last one,
+which is what a rate-limited OSV burst looks like.
+
+`slap vulndb update` from a bundle writes to your per-user data directory, not
+into the application: the app folder may be read-only, and an upgrade would
+discard the refresh. Whichever copy is newer is the one used.
+
 Produces `dist/SLAP/` (~700MB, ~300MB zipped) containing the Python runtime,
 the app, Node, Lighthouse and Chromium. Double-clicking it starts a local
 server and opens the default browser. A teammate unzips it and runs it;
@@ -335,7 +345,7 @@ docs/reports.md          report pipeline, palette rules, PDF backend
 ## Tests
 
 ```bash
-pytest -q          # 368 tests, no network and no display required
+pytest -q          # 376 tests, no network and no display required
 ```
 
 The suite runs local HTTP servers for the end-to-end paths, so the whole

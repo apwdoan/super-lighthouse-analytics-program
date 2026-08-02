@@ -169,9 +169,15 @@ jobs:
       - name: Run the test suite
         run: python -m pytest -q
 
+      # --require-vulndb makes a network failure fail the JOB rather than
+      # silently fall back to the copy committed in the repo. A developer
+      # building on a train should still get a bundle; a release must never
+      # ship data older than the tag it is named after. build.py also
+      # refuses a database that came back quietly smaller than the previous
+      # one, which is what a rate-limited OSV burst looks like.
       - name: Build the distributable
         if: steps.gate.outputs.build == 'true'
-        run: python packaging/build.py --zip
+        run: python packaging/build.py --zip --require-vulndb
 
       # ----------------------------------------------------------------
       # Run the bundle that was just built.
@@ -218,6 +224,23 @@ jobs:
           echo "$DOCTOR"
           echo "$DOCTOR" | grep -q '\[ok \] Lighthouse lab data'
           echo "$DOCTOR" | grep -q '\[ok \] PDF export'
+          # A bundle with no vulnerability database starts fine, audits
+          # fine, and reports zero known vulnerabilities forever, which
+          # looks exactly like a clean result. Same class of lie as the PDF
+          # check that stat-ed a file instead of launching the browser.
+          echo "$DOCTOR" | grep -q '\[ok \] Vulnerability database'
+
+          # And assert it resolves INSIDE the bundle. A database picked up
+          # from the build machine's home directory would pass the line
+          # above and ship nothing.
+          VULNDB="$($CLEAN "$APP" --cli vulndb status)"
+          echo "$VULNDB"
+          echo "$VULNDB" | grep -q 'npm: OSV.dev'
+          case "$VULNDB" in
+            *"$PWD/dist"*) : ;;
+            *) echo "the bundle resolved a vulnerability database outside itself" >&2
+               exit 1 ;;
+          esac
 
           # Every path doctor prints must be inside the bundle. `env -i`
           # should already make borrowing the build machine's browser
@@ -346,6 +369,13 @@ jobs:
             Write-Host $doctor
             if ($doctor -notmatch '\[ok \] Lighthouse lab data') { throw "Lighthouse backend missing" }
             if ($doctor -notmatch '\[ok \] PDF export') { throw "PDF backend missing" }
+            # A bundle with no vulnerability database reports zero known
+            # vulnerabilities forever and looks clean doing it.
+            if ($doctor -notmatch '\[ok \] Vulnerability database') { throw "vulnerability database missing" }
+
+            $vulndb = & $app --cli vulndb status 2>&1 | Out-String
+            Write-Host $vulndb
+            if ($vulndb -notmatch 'npm: OSV.dev') { throw "the bundled database has no npm source" }
 
             # Every path doctor prints must live inside the bundle. Without
             # this the step passes on a bundle that quietly borrowed the

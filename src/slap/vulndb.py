@@ -189,6 +189,9 @@ class VulnDatabase:
     sources: dict[str, str] = field(default_factory=dict)
     #: (ecosystem, lowercased package) -> vulnerabilities
     index: dict[tuple[str, str], list[Vulnerability]] = field(default_factory=dict)
+    #: Packages whose query failed outright during the last build. Not
+    #: serialised: it describes a build, not the data.
+    failures: list[str] = field(default_factory=list)
 
     @property
     def available(self) -> bool:
@@ -306,9 +309,68 @@ class VulnDatabase:
             return cls()
 
 
-def default_db_path() -> Path:
-    """Beside the package, so a PyInstaller bundle carries it as data."""
+def bundled_db_path() -> Path:
+    """Beside the package, so a PyInstaller bundle carries it as data.
+
+    Read-only in practice. A frozen bundle may sit in Program Files or
+    /Applications, and even where it is writable, an update written here is
+    silently discarded the next time the bundle is replaced. See
+    `config.default_vulndb_path` for the copy that is actually used.
+    """
     return Path(__file__).parent / "data" / "vulndb.json"
+
+
+#: Retained under the old name: `default_db_path` is what the first version
+#: exported and what the packaging spec and a few scripts still import.
+default_db_path = bundled_db_path
+
+
+def read_stamp(path: Path | None) -> str | None:
+    """`generated_at` alone, without parsing the whole database.
+
+    `Settings()` resolves the database path on construction, and the first
+    version did it by loading and parsing up to two 108KB JSON files just to
+    compare two dates: 5ms per Settings(), paid by every CLI invocation and
+    every test. The field sits in the first few hundred bytes because the
+    file is written with sorted keys, so a bounded read finds it.
+    """
+    if not path:
+        return None
+    path = Path(path)
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            head = handle.read(4096)
+    except OSError:
+        return None
+    match = re.search(r'"generated_at"\s*:\s*"([^"]*)"', head)
+    if match:
+        return match.group(1)
+    # Not in the first chunk, or an unexpected layout. Fall back to a real
+    # parse rather than guessing: a wrong answer here silently picks the
+    # older database.
+    database = VulnDatabase.load(path)
+    return database.generated_at if database.available else None
+
+
+def newer_of(*paths: Path | None) -> Path | None:
+    """Whichever database was generated most recently.
+
+    Not "the user's copy wins": a teammate who refreshed in January and
+    installs a new bundle in June should get June's data, and one who
+    refreshed yesterday should keep it. Comparing the dates the databases
+    carry is the only rule that cannot regress in either direction.
+    """
+    best: Path | None = None
+    best_stamp = ""
+    for path in paths:
+        if not path or not Path(path).is_file():
+            continue
+        stamp = read_stamp(path)
+        if stamp is None:
+            continue
+        if best is None or stamp > best_stamp:
+            best, best_stamp = Path(path), stamp
+    return best
 
 
 # --------------------------------------------------------------------------
@@ -427,16 +489,46 @@ def parse_osv_record(record: dict[str, Any], package: str,
     )
 
 
+def _query_osv(package: str, timeout: float) -> list[dict[str, Any]] | None:
+    """One OSV query. None means the request failed, [] means no advisories."""
+    import urllib.error
+    import urllib.request
+
+    body = json.dumps({"package": {"name": package, "ecosystem": "npm"}}).encode()
+    request = urllib.request.Request(
+        OSV_QUERY_URL, data=body,
+        headers={"Content-Type": "application/json", "User-Agent": "SLAP"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read())
+    except (urllib.error.URLError, ValueError, OSError):
+        return None
+    return payload.get("vulns") or []
+
+
 def build_from_osv(packages: Iterable[str] = DEFAULT_NPM_PACKAGES, *,
                    timeout: float = 30.0,
+                   previous: "VulnDatabase | None" = None,
+                   attempts: int = 3,
+                   pause: float = 0.4,
                    progress=None) -> VulnDatabase:
     """Query OSV for each package and assemble a database. Network required.
 
     Queried per package rather than by downloading the 213MB npm export,
     because the export is 99.9% packages this tool can never detect.
+
+    **Retried, and checked against the previous database.** A rebuild forty
+    minutes after a good one silently came back with `angular` at zero
+    advisories instead of fifteen, with no exception raised and nothing in
+    the output to distinguish it from a package that genuinely has none. A
+    quietly smaller database is the same failure as a stale one: every audit
+    afterwards reports less and looks clean doing it.
+
+    So a package that returns empty when the previous database had entries is
+    retried, and a package that fails outright is recorded in
+    ``failures`` for the caller to refuse on.
     """
-    import urllib.error
-    import urllib.request
+    import time
 
     db = VulnDatabase(
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -445,19 +537,34 @@ def build_from_osv(packages: Iterable[str] = DEFAULT_NPM_PACKAGES, *,
     for i, package in enumerate(packages, 1):
         if package.startswith("http"):      # the two junk entries upstream
             continue
-        body = json.dumps({"package": {"name": package, "ecosystem": "npm"}}).encode()
-        request = urllib.request.Request(
-            OSV_QUERY_URL, data=body,
-            headers={"Content-Type": "application/json", "User-Agent": "SLAP"})
-        try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                payload = json.loads(response.read())
-        except (urllib.error.URLError, ValueError, OSError) as exc:
+        had_before = len(previous.index.get(("npm", package.lower()), [])) if previous else 0
+
+        records: list[dict[str, Any]] | None = None
+        for attempt in range(1, max(1, attempts) + 1):
+            records = _query_osv(package, timeout)
+            # Retry a hard failure, and retry an empty answer only when we
+            # have reason to expect content. Retrying every genuine zero
+            # would triple the runtime for no information.
+            if records is None or (not records and had_before):
+                if attempt < attempts:
+                    time.sleep(pause * attempt)
+                    continue
+            break
+
+        if records is None:
+            db.failures.append(package)
             if progress:
-                progress(i, package, f"failed: {type(exc).__name__}")
+                progress(i, package, "FAILED after retries")
             continue
+        if not records and had_before:
+            db.failures.append(package)
+            if progress:
+                progress(i, package,
+                         f"EMPTY but previously had {had_before}; treating as a failure")
+            continue
+
         found = 0
-        for record in payload.get("vulns", []) or []:
+        for record in records:
             vuln = parse_osv_record(record, package, "npm")
             if vuln is not None:
                 db.index.setdefault(("npm", package.lower()), []).append(vuln)

@@ -16,7 +16,8 @@ Steps, each skippable with a flag so a rebuild after a code change is fast:
 1. ``npm install --omit=dev`` for the Lighthouse worker
 2. download a Node runtime for this platform
 3. ``playwright install chromium`` into the staging directory
-4. run PyInstaller
+4. refresh the vulnerability database from OSV
+5. run PyInstaller
 
 Sizes, measured: Chromium ~600MB, node_modules ~161MB, Node ~120MB, Python
 and Qt ~150MB. Expect a folder around 1GB and a zip around 350-400MB. That
@@ -67,6 +68,100 @@ def run(command: list[str], **kwargs) -> None:
 # --------------------------------------------------------------------------
 # 1. Lighthouse dependencies
 # --------------------------------------------------------------------------
+
+#: A bundle whose vulnerability data is older than this is not fit to ship.
+#: It would still print its own date in the report appendix, which is the
+#: design working, but nobody reads an appendix before trusting a headline.
+MAX_VULNDB_AGE_DAYS = 14
+
+
+def stage_vulndb(force: bool = False, *, required: bool = False) -> Path | None:
+    """Refresh the bundled vulnerability database from OSV.
+
+    A distributable carries a *dated* database, and the date is baked in at
+    build time. Without this step, a bundle built from an unchanged repo six
+    months from now ships six-month-old data: correct-looking, honestly
+    dated, and stale. The repo's committed copy is the development fallback,
+    not the thing teammates should receive.
+
+    Network failure is reported loudly and falls back to the committed copy,
+    because a developer building on a train should still get a bundle. CI
+    passes ``required=True`` so a release never ships the fallback silently.
+    """
+    from slap.vulndb import VulnDatabase, build_from_osv, default_db_path
+
+    target = default_db_path()
+    existing = VulnDatabase.load(target)
+    age = existing.age_days
+
+    if not force and existing.available and age is not None and age <= 1:
+        log(f"vulnerability database is {age} day(s) old; keeping it")
+        return target
+
+    log("refreshing the vulnerability database from OSV")
+    try:
+        database = build_from_osv(previous=existing)
+    except Exception as exc:                          # noqa: BLE001
+        message = f"vulnerability database refresh FAILED: {type(exc).__name__}: {exc}"
+        if required:
+            raise SystemExit(f"[build] {message}") from exc
+        log(message)
+        log("falling back to the committed copy "
+            f"({existing.count} advisories, {age} day(s) old)")
+        return target if existing.available else None
+
+    if database.failures:
+        # A package that had advisories last time and returns none now is a
+        # failed query wearing a success. Shipping that is shipping a bundle
+        # that reports less and looks clean doing it.
+        message = ("could not query " + ", ".join(database.failures[:8])
+                   + "; refusing to ship a quietly smaller database")
+        if required:
+            raise SystemExit(f"[build] {message}")
+        log(message)
+        return target if existing.available else None
+
+    if not database.available:
+        # An empty result is worse than an error: the bundle would start
+        # fine, audit fine, and report zero known vulnerabilities forever.
+        message = "OSV returned no advisories at all; refusing to ship an empty database"
+        if required:
+            raise SystemExit(f"[build] {message}")
+        log(message)
+        return target if existing.available else None
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(database.to_json(), encoding="utf-8")
+    log(f"vulnerability database: {database.count} advisories across "
+        f"{len(database.index)} packages ({target.stat().st_size / 1024:.0f} KB)")
+    return target
+
+
+def verify_vulndb(dist: Path) -> None:
+    """Confirm the built bundle actually carries usable data.
+
+    Checked against the file inside the bundle, not the one in the source
+    tree, for the same reason `check_backend` launches Chromium rather than
+    stat-ing it: the failure mode is a bundle that starts fine, audits fine,
+    and silently reports nothing forever.
+    """
+    from slap.vulndb import VulnDatabase
+
+    candidates = list(dist.rglob("vulndb.json"))
+    if not candidates:
+        raise SystemExit("[build] the bundle carries no vulndb.json. "
+                         "Check the datas entry in packaging/slap.spec.")
+    database = VulnDatabase.load(candidates[0])
+    if not database.available:
+        raise SystemExit(f"[build] {candidates[0]} holds no advisories")
+    age = database.age_days
+    if age is not None and age > MAX_VULNDB_AGE_DAYS:
+        raise SystemExit(
+            f"[build] the bundled vulnerability database is {age} days old "
+            f"(limit {MAX_VULNDB_AGE_DAYS}). Run with --force-staging.")
+    log(f"bundled vulnerability database: {database.count} advisories, "
+        f"{age} day(s) old")
+
 
 def stage_worker(force: bool = False) -> Path:
     """Install the worker's production dependencies into staging."""
@@ -315,6 +410,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-npm", action="store_true")
     parser.add_argument("--skip-node", action="store_true")
     parser.add_argument("--skip-chromium", action="store_true")
+    parser.add_argument("--skip-vulndb", action="store_true",
+                        help="use the committed vulnerability database as-is")
+    parser.add_argument("--require-vulndb", action="store_true",
+                        help="fail rather than fall back to the committed "
+                             "database. CI passes this so a release never "
+                             "ships stale data by accident")
     parser.add_argument("--force-staging", action="store_true",
                         help="re-download and reinstall everything")
     parser.add_argument("--clean", action="store_true",
@@ -330,9 +431,12 @@ def main(argv: list[str] | None = None) -> int:
         stage_node(args.force_staging)
     if not args.skip_chromium:
         stage_chromium(args.force_staging)
+    if not args.skip_vulndb:
+        stage_vulndb(args.force_staging, required=args.require_vulndb)
 
     dist = run_pyinstaller(clean=args.clean)
     copy_runtime(dist)
+    verify_vulndb(dist)
 
     manifest = {
         "platform": sys.platform,
@@ -341,6 +445,16 @@ def main(argv: list[str] | None = None) -> int:
         "python": sys.version.split()[0],
         "chromium_only": True,
     }
+    # The database date belongs in the manifest as well as the report: it is
+    # the one build input that goes stale on its own after shipping.
+    try:
+        from slap.vulndb import VulnDatabase, default_db_path
+
+        database = VulnDatabase.load(default_db_path())
+        manifest["vulndb_generated"] = database.generated_at
+        manifest["vulndb_advisories"] = database.count
+    except Exception:                                 # noqa: BLE001
+        manifest["vulndb_generated"] = None
     (dist / "build-manifest.json").write_text(json.dumps(manifest, indent=2))
 
     if sys.platform == "darwin":

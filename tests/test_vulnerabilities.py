@@ -10,6 +10,7 @@ reports anything also passes every negative test.
 from __future__ import annotations
 
 import asyncio
+import pathlib
 
 import httpx
 import pytest
@@ -672,3 +673,197 @@ def test_each_exposure_rule_describes_only_its_own_findings():
     secrets_paths = values["exposure.secrets_paths"]
     assert "/.env" in secrets_paths and "/backup.sql" in secrets_paths
     assert "/.git/config" not in secrets_paths
+
+
+# --------------------------------------------------------------------------
+# Where the database lives. Found by running the real bundle, not by reading.
+# --------------------------------------------------------------------------
+
+def test_a_refresh_never_writes_inside_a_frozen_bundle(monkeypatch, tmp_path):
+    """`vulndb update` from the bundle wrote to _internal/slap/data/.
+
+    That path is inside the application. It may be read-only (Program Files,
+    /Applications), writing to a signed .app breaks its signature, and even
+    where it succeeds the next upgrade replaces the folder and silently
+    discards the refresh. The teammate would have no way to tell why their
+    data was aging.
+    """
+    from slap import config, vulndb
+
+    monkeypatch.setattr(vulndb, "bundled_db_path", lambda: tmp_path / "app" / "vulndb.json")
+    monkeypatch.setattr(config, "bundled_db_path", lambda: tmp_path / "app" / "vulndb.json")
+    monkeypatch.setattr(config, "default_data_dir", lambda: tmp_path / "userdata")
+
+    import sys
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    assert config.writable_vulndb_path() == tmp_path / "userdata" / "vulndb.json"
+
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    # A source checkout writes to the package copy, which is what gets
+    # committed.
+    assert config.writable_vulndb_path() == tmp_path / "app" / "vulndb.json"
+
+
+def test_the_newer_database_wins_whichever_copy_it_is(tmp_path):
+    """Not "the user's copy always wins".
+
+    A teammate who refreshed in January and installs a June bundle should get
+    June's data; one who refreshed yesterday should keep theirs. Comparing the
+    dates the files carry is the only rule that cannot regress either way.
+    """
+    from slap.vulndb import VulnDatabase, newer_of
+
+    def write(path, stamp):
+        database = VulnDatabase(generated_at=stamp, sources={"npm": "OSV.dev"})
+        database.index[("npm", "x")] = [
+            Vulnerability(id="X-1", package="x", ecosystem="npm",
+                          summary="", severity="low",
+                          ranges=(AffectedRange(introduced=(0,)),))]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(database.to_json(), encoding="utf-8")
+        return path
+
+    old = write(tmp_path / "user" / "vulndb.json", "2026-01-01T00:00:00+00:00")
+    new = write(tmp_path / "app" / "vulndb.json", "2026-06-01T00:00:00+00:00")
+    assert newer_of(old, new) == new
+    assert newer_of(new, old) == new
+
+    fresher_user = write(tmp_path / "user" / "vulndb.json",
+                         "2026-07-01T00:00:00+00:00")
+    assert newer_of(fresher_user, new) == fresher_user
+
+
+def test_resolution_falls_back_when_neither_copy_exists(monkeypatch, tmp_path):
+    from slap import config
+
+    monkeypatch.setattr(config, "bundled_db_path", lambda: tmp_path / "app" / "vulndb.json")
+    monkeypatch.setattr(config, "default_data_dir", lambda: tmp_path / "userdata")
+    # No file anywhere: returns the bundled path rather than None, so callers
+    # get a Path they can report on rather than a crash.
+    assert config.default_vulndb_path() == tmp_path / "app" / "vulndb.json"
+
+
+def test_an_empty_refresh_does_not_overwrite_good_data(monkeypatch, tmp_path, capsys):
+    """OSV returning nothing must not blank the database: the next audit
+    would report zero vulnerabilities and look clean doing it."""
+    import argparse
+
+    from slap import cli
+    from slap.vulndb import VulnDatabase
+
+    target = tmp_path / "vulndb.json"
+    target.write_text(VulnDatabase.load(default_db_path()).to_json(), encoding="utf-8")
+    before = target.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(cli, "config", cli.config)
+    monkeypatch.setattr("slap.vulndb.build_from_osv", lambda **kw: VulnDatabase())
+    monkeypatch.setattr(cli.config, "writable_vulndb_path", lambda: target)
+
+    settings = Settings()
+    settings.vulndb_path = target
+    code = cli.cmd_vulndb(argparse.Namespace(action="update"), settings)
+    assert code == 1
+    assert target.read_text(encoding="utf-8") == before
+
+
+def test_a_package_that_silently_returns_empty_is_treated_as_a_failure(monkeypatch):
+    """A rebuild forty minutes after a good one came back with `angular` at
+    zero advisories instead of fifteen, with no exception and nothing in the
+    output to distinguish it from a package that genuinely has none.
+
+    A quietly smaller database is the same failure as a stale one: every
+    audit afterwards reports less and looks clean doing it.
+    """
+    from slap import vulndb
+
+    previous = VulnDatabase()
+    previous.index[("npm", "angular")] = [
+        Vulnerability(id="X-1", package="angular", ecosystem="npm",
+                      summary="", severity="high",
+                      ranges=(AffectedRange(introduced=(0,)),))]
+
+    monkeypatch.setattr(vulndb, "_query_osv", lambda package, timeout: [])
+    built = vulndb.build_from_osv(["angular"], previous=previous, attempts=2,
+                                  pause=0)
+    assert built.failures == ["angular"]
+
+
+def test_a_package_that_genuinely_has_no_advisories_is_not_a_failure(monkeypatch):
+    """Retrying every genuine zero would triple the runtime for nothing."""
+    from slap import vulndb
+
+    monkeypatch.setattr(vulndb, "_query_osv", lambda package, timeout: [])
+    built = vulndb.build_from_osv(["some-clean-package"], previous=VulnDatabase(),
+                                  attempts=2, pause=0)
+    assert built.failures == []
+
+
+def test_a_transient_empty_is_retried_and_recovers(monkeypatch):
+    from slap import vulndb
+
+    previous = VulnDatabase()
+    previous.index[("npm", "angular")] = [
+        Vulnerability(id="X-1", package="angular", ecosystem="npm",
+                      summary="", severity="high",
+                      ranges=(AffectedRange(introduced=(0,)),))]
+
+    calls = {"n": 0}
+    real_record = {
+        "id": "GHSA-real", "affected": [
+            {"package": {"name": "angular", "ecosystem": "npm"},
+             "ranges": [{"type": "SEMVER",
+                         "events": [{"introduced": "1.0.0"}, {"fixed": "1.8.0"}]}]}],
+        "database_specific": {"severity": "HIGH"},
+    }
+
+    def flaky(package, timeout):
+        calls["n"] += 1
+        return [] if calls["n"] == 1 else [real_record]
+
+    monkeypatch.setattr(vulndb, "_query_osv", flaky)
+    built = vulndb.build_from_osv(["angular"], previous=previous, attempts=3,
+                                  pause=0)
+    assert built.failures == []
+    assert built.count == 1
+
+
+def test_a_hard_failure_is_retried_then_recorded(monkeypatch):
+    from slap import vulndb
+
+    monkeypatch.setattr(vulndb, "_query_osv", lambda package, timeout: None)
+    built = vulndb.build_from_osv(["jquery"], previous=VulnDatabase(),
+                                  attempts=2, pause=0)
+    assert built.failures == ["jquery"]
+
+
+def test_reading_the_stamp_does_not_parse_the_whole_database(tmp_path):
+    """Settings() resolves the database path on construction, so this runs on
+    every CLI invocation and every test. Loading two 108KB files just to
+    compare two dates cost 5ms a time."""
+    from slap.vulndb import read_stamp
+
+    real = default_db_path()
+    assert read_stamp(real) == VulnDatabase.load(real).generated_at
+
+
+def test_the_stamp_falls_back_to_a_real_parse_on_an_odd_layout(tmp_path):
+    """A wrong answer here silently picks the older database."""
+    from slap.vulndb import read_stamp
+
+    path = tmp_path / "odd.json"
+    # generated_at pushed past the bounded read by a wall of padding.
+    padding = " " * 6000
+    path.write_text(
+        '{"schema": 1,' + padding + '"sources": {"npm": "OSV.dev"},'
+        '"generated_at": "2026-05-05T00:00:00+00:00", "vulnerabilities": []}',
+        encoding="utf-8")
+    # The database has no advisories, so the fallback reports nothing usable
+    # rather than a date it cannot stand behind.
+    assert read_stamp(path) is None
+
+
+def test_the_stamp_of_a_missing_file_is_none():
+    from slap.vulndb import read_stamp
+
+    assert read_stamp(None) is None
+    assert read_stamp(pathlib.Path("/nonexistent/vulndb.json")) is None
