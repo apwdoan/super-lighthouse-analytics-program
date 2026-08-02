@@ -35,6 +35,30 @@ def free_port(preferred: int = 8765) -> int:
         return int(probe.getsockname()[1])
 
 
+def make_config(app: object, port: int, *, log_level: str = "warning"):
+    """The uvicorn configuration, built in one place.
+
+    One place because `slap verify` builds it here too, and a verifier that
+    assembles its own copy proves only that *its* copy works. This one did:
+    it drove uvicorn from a process that always had a console, and so never
+    met the crash that made every double-click of SLAP.exe fail before SLAP
+    ran a line of its own code.
+
+    Constructing a ``Config`` is not the inert step it looks like. It calls
+    ``configure_logging()``, which builds uvicorn's formatters, one of which
+    asks ``sys.stdout.isatty()`` -- and a windowed build has no stdout to
+    ask. Hence :func:`~slap.streams.attach_output` here rather than only at
+    the entry point: this is the last moment before something looks at a
+    stream, and it is a moment both callers pass through.
+    """
+    import uvicorn
+
+    from slap.streams import attach_output
+
+    attach_output()
+    return uvicorn.Config(app, host="127.0.0.1", port=port, log_level=log_level)
+
+
 def main() -> int:
     import uvicorn
 
@@ -58,6 +82,8 @@ def main() -> int:
 
     port = free_port(args.port)
     url = f"http://127.0.0.1:{port}/"
+    config = make_config(create_app(settings), port)
+
     if not args.no_browser:
         threading.Timer(0.7, lambda: webbrowser.open(url)).start()
 
@@ -66,6 +92,5 @@ def main() -> int:
     # file and waits for the URL waits forever. The CI verification does
     # exactly that, and hung on it.
     print(f"SLAP is at {url}   (ctrl-c to stop)", flush=True)
-    uvicorn.run(create_app(settings),
-                host="127.0.0.1", port=port, log_level="warning")
+    uvicorn.Server(config).run()
     return 0

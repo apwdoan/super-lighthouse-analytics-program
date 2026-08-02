@@ -312,6 +312,55 @@ Chromium cannot launch.
   same care. On macOS and Linux the shell waits for any child regardless,
   so this is genuinely Windows-only.
 
+### `console=False` also means no `sys.stdout` at all
+
+The second, worse edge of the same flag. Launched from Explorer, the process
+has no console, and so `sys.stdout`, `sys.stderr` and `sys.stdin` are all
+`None`. Double-clicking `SLAP.exe` produced:
+
+```
+File "uvicorn\logging.py", line 42, in __init__
+    self.use_colors = sys.stdout.isatty()
+AttributeError: 'NoneType' object has no attribute 'isatty'
+
+ValueError: Unable to configure formatter 'default'
+```
+
+`print()` is a documented no-op when `sys.stdout` is `None`, which is why
+nothing complained for months. Code that *asks a stream a question* rather
+than writing to it dies instead, and uvicorn asks on its first line:
+constructing a `uvicorn.Config` configures logging, which builds a formatter,
+which calls `isatty()`. That is every double-click of the executable failing
+before a line of SLAP's own code runs — on the single path the bundle exists
+to provide.
+
+**Why nothing caught it, which is the part worth remembering.** CI, `slap
+verify` and every manual test launched the executable *from a shell*. On
+Windows a GUI-subsystem process started from a console inherits that
+console's handles, so `sys.stdout` is a real stream and the crash cannot
+happen. There is no console only when there is no parent console. No CI
+runner will ever be Explorer, so no amount of running the executable in CI
+would have found this.
+
+The fix is `slap/streams.py`: `attach_output()` replaces missing streams with
+a log file at `%LOCALAPPDATA%\slap\slap.log` (overridable with `SLAP_LOG`),
+falling back to `os.devnull` if it cannot be opened, because failing to open
+a log must never be the reason the app fails to start. It is called from
+`packaging/entry.py`, from `slap.cli.main`, and from
+`slap_web.server.make_config` — the last of those being the one that matters,
+because that is the function `slap verify` also calls.
+
+`verify` gained a `headless launch` check that takes the process's streams
+away with `slap.streams.detached()` and starts the server anyway. It does not
+repair them itself, deliberately: the repair has to come from the launch
+path, or the check would pass a build nobody can start. Remove the
+`attach_output()` call from `make_config` and the check reproduces the
+original `ValueError` exactly.
+
+A useful side effect: a bundle that dies on launch now leaves a traceback in
+a file the user can send, instead of a message box saying "Unhandled
+exception in script" and nothing else. `slap doctor` prints the log path.
+
 ## Rebuilding after a code change
 
 Staging is cached, so a code-only rebuild skips the downloads:
@@ -378,11 +427,20 @@ What it checks, and why each is a doing rather than a stat-ing:
 | audit | audits a page it **serves itself**, so it works offline |
 | html + pdf report | exports both and asserts the files exist on disk |
 | web server | starts uvicorn on a loopback port and requests real routes |
+| headless launch | does it again with the process's streams taken away |
 
 The web check is what catches uvicorn resolving its event loop, HTTP protocol
 and lifespan implementations **by string** at runtime: a bundle missing them
 starts perfectly and dies on the first request, and `doctor` would never
 notice.
+
+The headless check was added after a shipped build crashed on every
+double-click while CI stayed green — see *`console=False` also means no
+`sys.stdout` at all* above. It exists because **no CI step can reproduce
+Explorer**: launching the executable from a shell hands a Windows
+GUI-subsystem process the parent console's handles, so the failing condition
+never occurs there. The check has to remove the streams itself, and it must
+not put them back before starting the server, or it proves nothing.
 
 The path check exists because a stripped environment is supposed to make it
 unnecessary. Windows has no `env -i`, so its step clears variables by name;

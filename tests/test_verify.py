@@ -11,6 +11,9 @@ something and asserts the failure.
 
 from __future__ import annotations
 
+import os
+import sys
+
 import pytest
 
 from slap import bundle, verify as verify_module
@@ -240,6 +243,67 @@ def test_the_web_check_makes_real_requests(settings):
     check = report.checks[0]
     assert check.ok, check.detail
     assert "/healthz" in check.detail
+
+
+def test_the_headless_check_starts_with_no_console(settings):
+    """The check that was missing. `SLAP.exe` double-clicked from Explorer is
+    a process with no streams at all, and uvicorn's first act is to ask
+    `sys.stdout` whether it is a terminal. CI and `slap verify` both launched
+    the executable from a shell, where a Windows GUI-subsystem process
+    inherits the parent console's handles, so both proved the one case that
+    was never in doubt while the common one crashed."""
+    pytest.importorskip("uvicorn", reason="web extra not installed")
+    from slap_web.verify import check_headless_launch
+
+    report = VerifyReport()
+    check_headless_launch(report, settings)
+    check = report.checks[0]
+    assert check.ok, check.detail
+    assert "no console" in check.detail
+
+
+def test_the_headless_check_puts_the_streams_back(settings, capsys):
+    """It takes the process's stdout away to do its job. Leaving it that way
+    would take the rest of `slap verify`'s output with it."""
+    pytest.importorskip("uvicorn", reason="web extra not installed")
+    from slap_web.verify import check_headless_launch
+
+    before = sys.stdout
+    check_headless_launch(VerifyReport(), settings)
+    assert sys.stdout is before
+    print("still audible")
+    assert "still audible" in capsys.readouterr().out
+
+
+def test_the_headless_check_does_not_touch_the_users_log(settings, monkeypatch,
+                                                         tmp_path):
+    """Verifying a build must not append to a log the user may be reading,
+    and must leave SLAP_LOG as it found it."""
+    pytest.importorskip("uvicorn", reason="web extra not installed")
+    from slap_web.verify import check_headless_launch
+
+    theirs = tmp_path / "theirs.log"
+    monkeypatch.setenv("SLAP_LOG", str(theirs))
+    check_headless_launch(VerifyReport(), settings)
+    assert not theirs.exists()
+    assert os.environ["SLAP_LOG"] == str(theirs)
+
+
+def test_the_headless_check_fails_when_the_repair_is_gone(settings, monkeypatch):
+    """A check that cannot fail is decoration. Neutralise the stream repair
+    and this must report the crash rather than passing anyway, which is what
+    it would do if it repaired the streams itself before starting."""
+    pytest.importorskip("uvicorn", reason="web extra not installed")
+    from slap import streams
+    from slap_web.verify import check_headless_launch
+
+    monkeypatch.setattr(streams, "attach_output", lambda path=None: None)
+    report = verify(settings, lighthouse=False,
+                    extra_checks=[check_headless_launch])
+    failed = {c.name: c.detail for c in report.failures}
+    assert "headless launch" in failed
+    assert "formatter" in failed["headless launch"] or \
+           "isatty" in failed["headless launch"]
 
 
 def test_the_web_check_lives_outside_slap():

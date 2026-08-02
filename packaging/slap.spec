@@ -48,6 +48,12 @@ hiddenimports = [
     "pypdf",
     "h2",
     "httpx",
+    # Named explicitly despite being a plain function-level import, because
+    # of what its absence looks like: this is what gives a windowed build a
+    # stdout, so a bundle without it fails on launch with no console to
+    # print the ImportError to. Every other missing module here announces
+    # itself; this one would be a silent close.
+    "slap.streams",
     # uvicorn resolves its loop, protocol and lifespan implementations by
     # STRING at runtime, so PyInstaller's static analysis sees none of them
     # and the bundle starts, then dies on the first request.

@@ -206,6 +206,14 @@ jobs:
       # drives the real web server over a real socket, which is what catches
       # uvicorn resolving its event loop and protocol implementations by
       # string at runtime. `doctor` alone would never notice.
+      #
+      # It also starts the server a second time with the process's streams
+      # taken away, because THIS STEP CANNOT REPRODUCE A DOUBLE-CLICK. It
+      # launches the executable from a shell, and on Windows a GUI-subsystem
+      # process inherits the parent console's handles, so the build that
+      # crashed for every user who opened it from Explorer passed here
+      # green. Nothing about a CI runner will ever be Explorer; the check has
+      # to remove the streams itself.
       # ----------------------------------------------------------------
       - name: Verify the bundle
         if: steps.gate.outputs.build == 'true' && runner.os != 'Windows'
@@ -257,7 +265,8 @@ jobs:
           # trusting this list to be complete.
           foreach ($name in @("PLAYWRIGHT_BROWSERS_PATH", "PLAYWRIGHT_DRIVER_PATH",
                               "NODE_PATH", "PYTHONPATH", "PYTHONHOME",
-                              "CHROME_PATH", "SLAP_DB", "SALP_DB", "CRUX_API_KEY")) {
+                              "CHROME_PATH", "SLAP_DB", "SALP_DB", "SLAP_LOG",
+                              "CRUX_API_KEY")) {
             Remove-Item "env:$name" -ErrorAction SilentlyContinue
           }
 

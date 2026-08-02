@@ -317,6 +317,21 @@ def cmd_doctor(args: argparse.Namespace, settings: Settings) -> int:
         for key, value in bundle.describe().items():
             print(f"          {key + ':':<14}{value}")
 
+    # Where output goes when there is nowhere for it to go. A user whose
+    # bundle dies on launch sees a message box and nothing else; this is the
+    # one line that turns "it just closes" into a traceback somebody can
+    # read. Printed always, because the moment it is needed is the moment
+    # the user cannot run `doctor` to find out.
+    from .streams import attachment, default_log_path
+
+    print()
+    attached = attachment()
+    print(f"  [log]   {default_log_path()}")
+    print("          Written only when the app is launched with no console, "
+          "which is")
+    print("          what a double-click does."
+          + ("  In use now." if attached and attached.attached else ""))
+
     if config.using_legacy_data_dir():
         # Not a failure, so it does not touch ok_all. But someone wondering
         # where their audits went should find the answer here rather than
@@ -540,9 +555,9 @@ def cmd_verify(args: argparse.Namespace, settings: Settings) -> int:
         extra = []
         if not args.no_web:
             try:
-                from slap_web.verify import check_web_server
+                from slap_web.verify import check_headless_launch, check_web_server
 
-                extra.append(check_web_server)
+                extra.extend([check_web_server, check_headless_launch])
             except ImportError:
                 pass
 
@@ -678,6 +693,14 @@ def cmd_probe(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # A no-op with a console, which is how the CLI is nearly always run. It
+    # matters for the bundle: `SLAP.exe --cli ...` from a shortcut is a
+    # windowed process with no streams, and argparse's own `--help` and
+    # error paths write to stdout and stderr before any of our code runs.
+    from .streams import attach_output
+
+    attach_output()
+
     args = build_parser().parse_args(argv)
     settings = Settings.load(args.config)
     if args.db:
