@@ -540,3 +540,86 @@ def test_init_db_applies_the_schema_once_per_connection(tmp_path, monkeypatch):
         "SELECT name FROM sqlite_master WHERE type='table'")}
     assert "run" in tables
     db.close_thread_connections()
+
+
+# --------------------------------------------------------------------------
+# Clearing all history: the one deliberate exception to append-only
+# --------------------------------------------------------------------------
+
+def test_clear_history_removes_everything_and_only_ours(server, settings,
+                                                        tmp_path):
+    """Complete or not at all: rows without blobs leak orphaned megabytes,
+    blobs without rows are unreachable forever. And "ours" has a boundary:
+    artifact paths are absolute, so one corrupt row must never be able to
+    delete a file outside the artifact directory."""
+    worker = core.BatchWorker([server], settings).start()
+    worker.wait(60)
+    conn = db.connect(settings.db_path)
+
+    # A recorded artifact blob, a stray in the same directory, and a file
+    # OUTSIDE it that a corrupt row points at.
+    settings.artifact_dir.mkdir(parents=True, exist_ok=True)
+    blob = settings.artifact_dir / "run-1-lhr.json.gz"
+    blob.write_bytes(b"x" * 2048)
+    stray = settings.artifact_dir / "orphaned.json.gz"
+    stray.write_bytes(b"y" * 1024)
+    precious = tmp_path / "precious.txt"
+    precious.write_text("an unrelated file", encoding="utf-8")
+    run_id = core.list_runs(settings)[0]["id"]
+    with db.transaction(conn):
+        conn.execute("INSERT INTO artifact (run_id, kind, path) VALUES (?,?,?)",
+                     (run_id, "lhr", str(blob)))
+        conn.execute("INSERT INTO artifact (run_id, kind, path) VALUES (?,?,?)",
+                     (run_id, "lhr", str(precious)))
+        conn.execute("""INSERT INTO crux_history
+                        (origin, form_factor, period_end, period_start,
+                         metric_key, p75, fetched_at)
+                        VALUES ('https://x.test','PHONE','2026-07-25',
+                                '2026-06-28','crux.lcp.p75',1200,'now')""")
+
+    before = core.history_totals(settings)
+    assert before["runs"] >= 1 and before["crux_weeks"] == 1
+
+    result = core.clear_history(settings)
+
+    after = core.history_totals(settings)
+    assert all(v == 0 for v in after.values()), after
+    assert result.runs == before["runs"]
+    assert result.artifact_files == 2            # the blob and the stray
+    assert not blob.exists() and not stray.exists()
+    assert precious.exists(), "a path outside the artifact dir was deleted"
+    assert "Exported reports were not touched" in result.text
+
+
+def test_clear_history_leaves_exported_reports_alone(server, settings):
+    worker = core.BatchWorker([server], settings).start()
+    worker.wait(60)
+    run_id = core.list_runs(settings)[0]["id"]
+    exported = core.export_report(settings, run_id, pdf=False)
+    assert exported.html_path.is_file()
+
+    core.clear_history(settings)
+    assert exported.html_path.is_file(), \
+        "a history wipe must never eat delivered documents"
+
+
+def test_clear_history_vacuums_the_file_back_down(server, settings):
+    """A "cleared" database still occupying its old size looks like a wipe
+    that did not take."""
+    worker = core.BatchWorker([server], settings).start()
+    worker.wait(60)
+    conn = db.connect(settings.db_path)
+    with db.transaction(conn):
+        conn.executemany(
+            """INSERT INTO crux_history (origin, form_factor, period_end,
+               period_start, metric_key, p75, fetched_at)
+               VALUES (?,?,?,?,?,?,?)""",
+            [(f"https://pad-{i}.test", "PHONE", f"2026-{(i % 12) + 1:02d}-01",
+              "2026-01-01", f"crux.lcp.p75", float(i), "now" + "x" * 200)
+             for i in range(4000)])
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    fat = settings.db_path.stat().st_size
+
+    core.clear_history(settings)
+    db.connect(settings.db_path).execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    assert settings.db_path.stat().st_size < fat

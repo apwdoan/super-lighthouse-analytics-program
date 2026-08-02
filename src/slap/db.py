@@ -845,3 +845,58 @@ def count_sites_with_a_completed_run(conn: sqlite3.Connection) -> int:
     return int(conn.execute(
         f"SELECT COUNT(DISTINCT site_id) FROM run WHERE {_COMPLETED}"
     ).fetchone()[0])
+
+
+# --------------------------------------------------------------------------
+# Clearing everything. The one deliberate exception to append-only.
+# --------------------------------------------------------------------------
+
+def history_totals(conn: sqlite3.Connection) -> dict[str, int]:
+    """What a wipe would remove. Shown BEFORE the confirmation, because
+    "delete everything" is only an informed decision when "everything" is a
+    number."""
+    def count(table: str) -> int:
+        return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+
+    return {
+        "sites": count("site"),
+        "runs": count("run"),
+        "pages": count("page"),
+        "observations": count("observation"),
+        "findings": count("finding"),
+        "artifacts": count("artifact"),
+        "crux_weeks": count("crux_history"),
+    }
+
+
+def clear_history(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Delete every row of audit history. Returns counts and artifact paths.
+
+    Runs are immutable and append-only; that is a promise about what the
+    APP does to history, not a lock against the operator choosing a fresh
+    start. The rule this operation answers to instead is the confirmation
+    seam above it: the caller shows what exists, requires a typed word, and
+    refuses while a batch is writing.
+
+    Deletion order leans on the schema's own cascades: removing `run` takes
+    pages, observations, findings and artifact rows with it, so a future
+    table hung off `page` is cleared automatically rather than leaked by a
+    hand-maintained list here. `site` and `crux_history` do not hang off
+    runs and go explicitly. The artifact FILES are returned for the caller
+    to remove -- this layer knows their recorded paths, not which directory
+    the caller wants swept.
+
+    VACUUM afterwards, outside the transaction because SQLite requires
+    that: a history of hundreds of runs is most of the file, and a "cleared"
+    database that still occupies half a gigabyte looks like a wipe that
+    did not take.
+    """
+    totals = history_totals(conn)
+    artifact_paths = [str(r[0]) for r in
+                      conn.execute("SELECT path FROM artifact").fetchall()]
+    with transaction(conn):
+        conn.execute("DELETE FROM run")
+        conn.execute("DELETE FROM site")
+        conn.execute("DELETE FROM crux_history")
+    conn.execute("VACUUM")
+    return {**totals, "artifact_paths": artifact_paths}

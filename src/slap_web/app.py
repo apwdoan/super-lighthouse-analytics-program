@@ -211,7 +211,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             report_dir=str(settings.report_dir),
             vulndb_path=str(settings.vulndb_path),
             pdf_backend=core.pdf_backend_status(),
+            totals=core.history_totals(settings),
+            clear_result=getattr(app.state, "clear_result", None),
+            clear_error=getattr(app.state, "clear_error", None),
         )
+
+    @app.post("/settings/clear-history")
+    def clear_history(confirm: str = Form(default="")) -> RedirectResponse:
+        """Delete all audit history, after the operator typed the word.
+
+        The confirmation is checked HERE, not only in the browser: a JS
+        confirm() can be clicked through in half a second and disappears
+        entirely when someone scripts the endpoint. Typing "delete" is the
+        smallest act that cannot happen by accident.
+
+        Refused while a batch is running, because wiping tables under a
+        writer mid-transaction turns "fresh start" into "corrupted run that
+        looks like a bug next week".
+        """
+        app.state.clear_result = None
+        app.state.clear_error = None
+        if activity.snapshot()["running"]:
+            app.state.clear_error = ("An audit is running. Stop it first; "
+                                     "clearing history under a live batch "
+                                     "corrupts the run being written.")
+        elif confirm.strip().lower() != "delete":
+            app.state.clear_error = ('Not cleared: type "delete" in the '
+                                     "confirmation box to confirm.")
+        else:
+            app.state.clear_result = core.clear_history(settings).text
+        return RedirectResponse("/settings", status_code=303)
 
     @app.post("/settings/crux")
     def save_crux(key: str = Form(default="")) -> RedirectResponse:

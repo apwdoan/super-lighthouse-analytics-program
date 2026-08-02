@@ -103,5 +103,57 @@
     </div>
   {% endif %}
 
+  <div class="card">
+    <header>
+      <div class="grow">
+        <h2>Clear all history</h2>
+        <div class="hint">
+          {% if totals.runs %}
+            This database holds {{ totals.sites }} site{{ '' if totals.sites == 1 else 's' }},
+            {{ totals.runs }} run{{ '' if totals.runs == 1 else 's' }},
+            {{ totals.findings }} finding{{ '' if totals.findings == 1 else 's' }} and
+            {{ totals.observations }} observation{{ '' if totals.observations == 1 else 's' }},
+            plus {{ totals.artifacts }} stored Lighthouse artifact{{ '' if totals.artifacts == 1 else 's' }}
+            and {{ totals.crux_weeks }} week{{ '' if totals.crux_weeks == 1 else 's' }} of field-data history.
+          {% else %}
+            The database is empty. There is nothing to clear.
+          {% endif %}
+        </div>
+      </div>
+    </header>
+
+    {% if clear_result %}
+      <div class="card notice">
+        <span class="badge"><span class="sw good"></span>Cleared</span>
+        {{ clear_result }}
+      </div>
+    {% endif %}
+    {% if clear_error %}
+      <div class="card notice">
+        <span class="badge"><span class="sw poor"></span>Not cleared</span>
+        {{ clear_error }}
+      </div>
+    {% endif %}
+
+    {% if totals.runs %}
+      <p class="hint">
+        Deletes every site, run, finding, observation, stored Lighthouse
+        artifact and cached field-data week, permanently. There is no undo.
+        Exported reports already on disk are not touched.
+      </p>
+      <form method="post" action="/settings/clear-history" class="row">
+        <label>
+          Type <b>delete</b> to confirm
+          <input name="confirm" autocomplete="off" spellcheck="false"
+                 placeholder="delete">
+        </label>
+        <button class="btn" type="submit"
+                style="border-color: var(--serious); color: var(--serious)">
+          Clear all findings and history
+        </button>
+      </form>
+    {% endif %}
+  </div>
+
 </div>
 {% endblock %}

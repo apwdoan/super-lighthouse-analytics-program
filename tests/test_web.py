@@ -605,3 +605,58 @@ def test_the_env_override_is_disclosed(client, monkeypatch):
     assert "CRUX_API_KEY" in body
     assert "precedence" in body
     assert "AIzaSyENVENVENVENV_1234567890env" not in body
+
+
+# --------------------------------------------------------------------------
+# Clearing history from the app
+# --------------------------------------------------------------------------
+
+def test_the_settings_page_says_what_a_wipe_would_remove(client):
+    body = client.get("/settings").text
+    assert "Clear all history" in body
+    assert "2 runs" in body                      # the seeded fixture
+    assert "no undo" in body.lower()
+
+
+def test_clearing_requires_the_typed_word(client, seeded):
+    """A confirm() dialog can be clicked through in half a second and
+    disappears entirely when someone scripts the endpoint. The word is
+    checked server-side or it is decoration."""
+    response = client.post("/settings/clear-history", data={"confirm": ""},
+                           follow_redirects=True)
+    assert "Not cleared" in response.text
+    assert core.history_totals(seeded)["runs"] == 2
+
+    response = client.post("/settings/clear-history",
+                           data={"confirm": "yes please"},
+                           follow_redirects=True)
+    assert "Not cleared" in response.text
+    assert core.history_totals(seeded)["runs"] == 2
+
+
+def test_clearing_with_the_word_removes_everything(client, seeded):
+    response = client.post("/settings/clear-history",
+                           data={"confirm": "  DELETE  "},
+                           follow_redirects=True)
+    assert "Cleared" in response.text
+    assert "2 run(s)" in response.text
+    totals = core.history_totals(seeded)
+    assert all(v == 0 for v in totals.values()), totals
+    # And the site list agrees with the database. Not asserted on
+    # "example.com": the empty page's audit form uses that as its
+    # placeholder text. The client name only ever renders on a site row.
+    assert "Acme" not in client.get("/").text
+
+
+def test_clearing_is_refused_while_a_batch_runs(client, seeded, monkeypatch):
+    """Wiping tables under a live writer turns "fresh start" into "corrupted
+    run that looks like a bug next week"."""
+    from slap_web import activity as activity_module
+
+    monkeypatch.setattr(
+        activity_module.ActivityManager, "snapshot",
+        lambda self: {"running": True, "total": 1, "done": 0, "sites": []})
+    response = client.post("/settings/clear-history",
+                           data={"confirm": "delete"}, follow_redirects=True)
+    assert "audit is running" in response.text
+    assert core.history_totals(seeded)["runs"] == 2

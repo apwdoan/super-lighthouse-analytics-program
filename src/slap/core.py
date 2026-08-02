@@ -1032,6 +1032,76 @@ def pdf_backend_status() -> "report.BackendStatus":
     return report.check_backend()
 
 
+def history_totals(settings: Settings) -> dict[str, int]:
+    """What the database currently holds, for the screen that offers to
+    delete it."""
+    return db.history_totals(_conn(settings))
+
+
+@dataclass(slots=True)
+class ClearResult:
+    sites: int = 0
+    runs: int = 0
+    findings: int = 0
+    observations: int = 0
+    artifact_files: int = 0
+    artifact_bytes: int = 0
+
+    @property
+    def text(self) -> str:
+        mb = self.artifact_bytes / 1_048_576
+        return (f"Removed {self.sites} site(s), {self.runs} run(s), "
+                f"{self.findings} finding(s) and {self.observations} "
+                f"observation(s), and deleted {self.artifact_files} stored "
+                f"artifact(s) ({mb:.0f} MB). Exported reports were not "
+                "touched.")
+
+
+def clear_history(settings: Settings) -> ClearResult:
+    """Delete all audit history: every site, run, finding, and artifact blob.
+
+    The deliberate exception to append-only, for the operator who wants a
+    fresh start. The caller owns the confirmation; this owns doing it
+    completely or not at all. "Completely" includes the gzipped LHR blobs on
+    disk: rows without blobs leak half a gigabyte of orphans, blobs without
+    rows are unreachable forever. Exported reports are NOT touched -- those
+    are deliverables the operator may have already sent to clients, and a
+    history wipe that eats documents is a different and worse operation.
+
+    Artifact files are removed by their recorded paths, then the artifact
+    directory is swept for strays, and only files inside that directory are
+    ever deleted: `artifact.path` is absolute and trusting it blindly would
+    let one corrupt row delete an arbitrary file.
+    """
+    result = db.clear_history(_conn(settings))
+
+    removed_files = 0
+    removed_bytes = 0
+    artifact_dir = Path(settings.artifact_dir).resolve()
+    recorded = [Path(p) for p in result["artifact_paths"]]
+    strays = list(artifact_dir.rglob("*")) if artifact_dir.is_dir() else []
+    for path in (*recorded, *strays):
+        try:
+            resolved = path.resolve()
+            resolved.relative_to(artifact_dir)
+        except (ValueError, OSError):
+            continue                     # outside the artifact dir: not ours
+        if resolved.is_file():
+            size = resolved.stat().st_size
+            try:
+                resolved.unlink()
+            except OSError:
+                continue
+            removed_files += 1
+            removed_bytes += size
+
+    return ClearResult(
+        sites=result["sites"], runs=result["runs"],
+        findings=result["findings"], observations=result["observations"],
+        artifact_files=removed_files, artifact_bytes=removed_bytes,
+    )
+
+
 def check_crux_key(settings: Settings) -> tuple[bool, str]:
     """Live-test the configured CrUX key against the real API.
 
