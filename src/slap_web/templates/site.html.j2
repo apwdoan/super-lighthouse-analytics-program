@@ -90,6 +90,39 @@
         {% endif %}
       </div>
 
+      {% if not field_trend.empty %}
+      <div class="card">
+        <header>
+          <div class="grow"><h2>Real visitors, {{ field_trend.weeks }} weeks</h2></div>
+          {{ m.badge(field_trend.status, field_trend.status_word) }}
+        </header>
+        {# Separate from the run-derived chart above on purpose. One is what
+           we measured on our machine, the other is what visitors actually
+           experienced; a single line splicing them would be indefensible the
+           first time the two disagreed. #}
+        <svg viewBox="0 0 {{ field_trend.width }} {{ field_trend.height }}"
+             width="100%" height="{{ field_trend.height }}" role="img"
+             aria-label="Largest Contentful Paint over {{ field_trend.weeks }} weeks">
+          <line x1="0" y1="{{ field_trend.threshold_y | round(1) }}"
+                x2="{{ field_trend.width }}" y2="{{ field_trend.threshold_y | round(1) }}"
+                stroke="var(--de-emphasis)" stroke-width="1" stroke-dasharray="4 4"/>
+          <path d="{{ field_trend.path }}" fill="none" stroke="var(--series-1)"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div class="row between sub">
+          <span>{{ field_trend.first_label }} &middot; {{ field_trend.first_value }}</span>
+          <span>Good is {{ field_trend.threshold_text }} or less</span>
+          <span>{{ field_trend.last_label }} &middot; {{ field_trend.last_value }}</span>
+        </div>
+        <p class="hint">
+          Largest Contentful Paint for real visitors. Each point is a 28-day
+          average and the points advance weekly, so they overlap: a change
+          shows up spread over about four weeks rather than on the week it
+          happened.
+        </p>
+      </div>
+      {% endif %}
+
       <div class="card">
         <header>
           <div class="grow"><h2>Findings</h2></div>

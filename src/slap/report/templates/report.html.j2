@@ -55,9 +55,46 @@
           <span class="dot {{ t.status }}"></span>{{ t.status_word }}
         </div>
         <div class="threshold">{{ t.threshold_text }}</div>
+
+        {% if t.spark_path %}
+        {# Real users, week by week. The dashed line is the threshold the
+           value is judged against, drawn so a series sitting comfortably
+           inside the limit cannot look like one about to cross it. #}
+        <div class="spark">
+          <svg viewBox="0 0 150 34" width="100%" height="34"
+               preserveAspectRatio="none" role="img"
+               aria-label="{{ t.spark_weeks }} weeks of real-user {{ t.label }}">
+            {% if t.spark_threshold_y is not none %}
+            <line x1="0" y1="{{ t.spark_threshold_y | round(1) }}"
+                  x2="150" y2="{{ t.spark_threshold_y | round(1) }}"
+                  class="spark-threshold"/>
+            {% endif %}
+            <path d="{{ t.spark_path }}" class="spark-line"/>
+          </svg>
+          <div class="spark-meta">
+            <span>{{ t.spark_weeks }} weeks</span>
+            {# The word, not just the line's direction. Two steps of the
+               status palette are ΔE 13.6 apart, so hue never carries meaning
+               on its own anywhere in this report. #}
+            {% if t.trend_word %}<strong>{{ t.trend_word }}</strong>{% endif %}
+          </div>
+        </div>
+        {% endif %}
       </div>
       {% endfor %}
     </div>
+    {% endif %}
+
+    {% if v.tiles and v.tiles[0].spark_path %}
+    {# The disclosure that keeps the chart honest. Each point is a 28-day
+       average and the periods advance weekly, so consecutive points overlap
+       by three weeks. A week-over-week step is not "what happened that
+       week", and a reader who takes it that way is reading it wrong. #}
+    <p class="secondary" style="margin-top:-6px">
+      Each point above is a 28-day average of real visitor data, and the
+      points advance one week at a time, so they overlap. A change shows up
+      spread over about four weeks rather than on the week it happened.
+    </p>
     {% endif %}
 
     {% if v.categories %}

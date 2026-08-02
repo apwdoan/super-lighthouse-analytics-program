@@ -113,6 +113,34 @@ CREATE TABLE IF NOT EXISTS finding (
 );
 CREATE INDEX IF NOT EXISTS idx_finding_page ON finding(page_id);
 
+-- Field-data history: 25 weekly periods per origin from the CrUX History API.
+--
+-- The first table in this schema that does NOT hang off a run, and that is
+-- the point. The CrUX record for an origin in a given week is the same fact
+-- whoever fetched it and whenever; two audits a week apart share 24 of their
+-- 25 periods. Keying it to runs would duplicate ~96% of it, and every trend
+-- query would need a dedup pass to avoid plotting the same week five times.
+--
+-- Immutability still holds. A run is immutable history of what SLAP did; this
+-- is a cache of an external series keyed by its own identity, so re-fetching
+-- a period overwrites it with the same values. `fetched_at` records when we
+-- last saw it, which is the provenance that matters.
+CREATE TABLE IF NOT EXISTS crux_history (
+    origin       TEXT NOT NULL,
+    form_factor  TEXT NOT NULL,
+    period_end   TEXT NOT NULL,          -- ISO date; the natural period key
+    period_start TEXT NOT NULL,
+    metric_key   TEXT NOT NULL,
+    p75          REAL,
+    good         REAL,
+    needs_improvement REAL,
+    poor         REAL,
+    fetched_at   TEXT NOT NULL,
+    PRIMARY KEY (origin, form_factor, period_end, metric_key)
+);
+CREATE INDEX IF NOT EXISTS idx_crux_history_origin
+    ON crux_history(origin, form_factor, metric_key, period_end);
+
 CREATE TABLE IF NOT EXISTS artifact (
     id       INTEGER PRIMARY KEY,
     run_id   INTEGER NOT NULL REFERENCES run(id) ON DELETE CASCADE,
@@ -373,6 +401,57 @@ def get_artifacts(conn: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]
         "SELECT * FROM artifact WHERE run_id = ? ORDER BY id", (run_id,)
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def insert_crux_history(conn: sqlite3.Connection, origin: str,
+                        form_factor: str, points: Iterable[dict[str, Any]]) -> int:
+    """Upsert weekly periods for one origin.
+
+    ON CONFLICT REPLACE rather than IGNORE: Google can revise a recent period
+    as late data lands, and the newer answer is the better one. Older periods
+    are stable, so in practice this rewrites the same values.
+    """
+    rows = [
+        (origin, form_factor, p["period_end"], p["period_start"], p["metric_key"],
+         p.get("p75"), p.get("good"), p.get("needs_improvement"), p.get("poor"),
+         utcnow())
+        for p in points
+    ]
+    if not rows:
+        return 0
+    conn.executemany(
+        "INSERT INTO crux_history (origin, form_factor, period_end, period_start, "
+        "metric_key, p75, good, needs_improvement, poor, fetched_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(origin, form_factor, period_end, metric_key) DO UPDATE SET "
+        "p75=excluded.p75, good=excluded.good, "
+        "needs_improvement=excluded.needs_improvement, poor=excluded.poor, "
+        "period_start=excluded.period_start, fetched_at=excluded.fetched_at",
+        rows,
+    )
+    return len(rows)
+
+
+def crux_history(conn: sqlite3.Connection, origin: str, metric_key: str, *,
+                 form_factor: str = "PHONE",
+                 limit: int = 40) -> list[dict[str, Any]]:
+    """One metric's weekly series for an origin, oldest first.
+
+    Oldest first because it is plotted left to right, and reversing a list in
+    a template is the kind of computation templates must not do.
+    """
+    rows = conn.execute(
+        "SELECT period_start, period_end, p75, good, needs_improvement, poor "
+        "FROM crux_history WHERE origin = ? AND form_factor = ? AND metric_key = ? "
+        "ORDER BY period_end DESC LIMIT ?",
+        (origin, form_factor, metric_key, limit),
+    ).fetchall()
+    return [dict(r) for r in reversed(rows)]
+
+
+def crux_history_origins(conn: sqlite3.Connection) -> list[str]:
+    return [r[0] for r in conn.execute(
+        "SELECT DISTINCT origin FROM crux_history ORDER BY origin")]
 
 
 def create_page(conn: sqlite3.Connection, run_id: int, url: str,

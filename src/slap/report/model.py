@@ -62,6 +62,14 @@ CWV_TILES: list[tuple[str, str, str]] = [
     ("crux.cls.p75", "Cumulative Layout Shift", "How much the page jumps around while loading"),
 ]
 
+#: (word when the value rose, word when it fell). Rising is worse for all
+#: three, but "slower" only means something for the two that measure time.
+TREND_WORDS: dict[str, tuple[str, str]] = {
+    "crux.lcp.p75": ("Slower", "Faster"),
+    "crux.inp.p75": ("Less responsive", "More responsive"),
+    "crux.cls.p75": ("Less stable", "More stable"),
+}
+
 EFFORT_LABELS = {
     "low": "Low effort", "medium": "Medium effort", "high": "High effort",
     "varies": "Effort varies", "none": "No action needed",
@@ -171,6 +179,52 @@ class MetricTile:
     status_word: str
     meter_fraction: float
     threshold_text: str
+    #: Real-user history: an SVG path, plus the threshold's y position so the
+    #: chart can draw the line the value is judged against. Empty when the
+    #: origin has no CrUX history, which is most small sites.
+    spark_path: str = ""
+    spark_threshold_y: float | None = None
+    spark_weeks: int = 0
+    spark_first: str = ""
+    spark_last: str = ""
+    #: Which way it moved across the window, in words. A colour alone cannot
+    #: carry this: the palette's two middle steps are ΔE 13.6 apart.
+    trend_word: str = ""
+
+
+def field_sparkline(series: list[dict[str, Any]], threshold: float | None,
+                    *, width: float = 150.0, height: float = 34.0
+                    ) -> tuple[str, float | None]:
+    """An SVG path for a weekly p75 series, plus the threshold's y position.
+
+    The y scale always includes the threshold, even when every point sits
+    well clear of it. Auto-scaling to the data alone would put a line that
+    never approaches the limit right next to one that is about to cross it,
+    and the two would look identical.
+    """
+    points = [p["p75"] for p in series if p.get("p75") is not None]
+    if len(points) < 2:
+        return "", None
+
+    low, high = min(points), max(points)
+    if threshold is not None:
+        low, high = min(low, threshold), max(high, threshold)
+    # A flat series would divide by zero; give it a band so it draws level.
+    span = (high - low) or max(abs(high) * 0.1, 1.0)
+    pad = span * 0.12
+    low, high = low - pad, high + pad
+    span = high - low
+
+    step = (width - 4) / (len(points) - 1)
+    coords = [
+        (2 + i * step, height - 2 - ((value - low) / span) * (height - 4))
+        for i, value in enumerate(points)
+    ]
+    path = " ".join(f"{'M' if i == 0 else 'L'}{x:.1f} {y:.1f}"
+                    for i, (x, y) in enumerate(coords))
+    threshold_y = (height - 2 - ((threshold - low) / span) * (height - 4)
+                   if threshold is not None else None)
+    return path, threshold_y
 
 
 @dataclass(slots=True)
@@ -459,13 +513,39 @@ def _format_metric(metric_key: str, value: Any) -> str:
     return format_value(metric_key, value)
 
 
-def build_verdict(values: dict[str, Any]) -> Verdict:
-    has_field = bool(values.get("crux.available"))
+def build_verdict(values: dict[str, Any],
+                  history: dict[str, list[dict[str, Any]]] | None = None) -> Verdict:
+    # History counts as field data, and forgetting that produced a page that
+    # announced "No real-user data is available for this site" directly above
+    # a paragraph explaining how to read its eight-week real-user chart, with
+    # the tiles suppressed in between.
+    #
+    # `crux.available` answers "did the point-in-time endpoint return a
+    # record", which is a question about one API call, not about whether this
+    # report has real-user data to show. The two came apart the moment a
+    # second source of the same data existed.
+    has_history = any(
+        any(p.get("p75") is not None for p in series)
+        for series in (history or {}).values()
+    )
+    has_field = bool(values.get("crux.available")) or has_history
 
     tiles: list[MetricTile] = []
     failing: list[str] = []
     for key, label, caption in CWV_TILES:
         value = values.get(key)
+        series = (history or {}).get(key) or []
+        measured_points = [p for p in series if p.get("p75") is not None]
+
+        # A tile reading "No data" above its own eight-week trend line is a
+        # contradiction the reader has to resolve, and they will resolve it
+        # by trusting neither. The latest history period IS the current
+        # figure: both endpoints report the p75 of the most recent 28-day
+        # window, so falling back to it is the same measurement by another
+        # route, not a substitute for it.
+        if value is None and measured_points:
+            value = measured_points[-1]["p75"]
+
         status = cwv_status(key, value)
         good_max, poor_min = CWV_BANDS[key]
         if key == "crux.cls.p75":
@@ -476,11 +556,36 @@ def build_verdict(values: dict[str, Any]) -> Verdict:
             threshold = f"Good is {format_ms(good_max)} or less"
         if status in ("needs-improvement", "poor"):
             failing.append(label)
+        spark_path, threshold_y = field_sparkline(series, good_max)
+        measured = measured_points
+        trend_word = ""
+        if len(measured) >= 2:
+            first, last = measured[0]["p75"], measured[-1]["p75"]
+            was_good, is_good = first <= good_max, last <= good_max
+            if was_good and not is_good:
+                trend_word = "Crossed into failing"
+            elif is_good and not was_good:
+                trend_word = "Improved into good"
+            elif abs(last - first) < good_max * 0.05:
+                trend_word = "Broadly flat"
+            else:
+                # CLS is not a speed. "Faster" under a Cumulative Layout
+                # Shift heading is a category error, and the sort a client
+                # notices because it reads as though we do not know what the
+                # metric is.
+                worse, better = TREND_WORDS.get(key, ("Worse", "Better"))
+                trend_word = worse if last > first else better
+
         tiles.append(MetricTile(
             key=key, label=label, caption=caption, value_text=value_text,
             status=status, status_word=STATUS_WORDS[status],
             meter_fraction=meter_fraction(key, value),
             threshold_text=threshold,
+            spark_path=spark_path, spark_threshold_y=threshold_y,
+            spark_weeks=len(measured),
+            spark_first=measured[0]["period_end"] if measured else "",
+            spark_last=measured[-1]["period_end"] if measured else "",
+            trend_word=trend_word,
         ))
 
     passes = values.get("crux.cwv_pass")
@@ -914,7 +1019,7 @@ def build_report_model(detail: dict[str, Any], *,
         run_id=run["id"],
         generated_at=stamp.strftime("%d %B %Y"),
         audited_at=str(run["started_at"]).replace("T", " ").replace("+00:00", " UTC"),
-        verdict=build_verdict(values),
+        verdict=build_verdict(values, detail.get("crux_history")),
         top_findings=top,
         other_findings=other,
         security=build_security_section(values),

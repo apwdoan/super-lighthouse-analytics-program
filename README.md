@@ -16,8 +16,8 @@ sitemap-and-crawl page discovery, no-browser collectors running on every
 page, Lighthouse sampling one page per template against a pinned Chromium,
 findings engine running off 50 YAML rules and reported once per rule with the
 pages each affects, client-facing HTML and PDF reports rendering, and both
-front-ends (CLI and a local web app) driving the same core. See `docs/per-page.md`, `docs/vulnerabilities.md`, `docs/ui-redesign.md`,
-`docs/lighthouse.md`, and `docs/reports.md`.
+front-ends (CLI and a local web app) driving the same core. See `docs/per-page.md`, `docs/vulnerabilities.md`, `docs/field-history.md`,
+`docs/ui-redesign.md`, `docs/lighthouse.md`, and `docs/reports.md`.
 
 ---
 
@@ -157,6 +157,24 @@ reads as full coverage. Pages without a performance score print "not measured"
 rather than a blank cell, because a blank reads as a zero to some people and
 as a pass to others.
 
+## Real-user history
+
+Every audit also pulls 25 weekly periods of Core Web Vitals for the origin
+from the CrUX History API, so the first report on a site already shows six
+months of what its actual visitors experienced. Needs `CRUX_API_KEY`.
+
+Two rules fire on a **threshold crossing**, never a raw change: a site whose
+LCP went 1.2s → 2.4s doubled and still passes, while 2.4s → 2.6s barely moved
+and now fails. The improvement rule is the one worth having — a vital that was
+failing and now passes is "we fixed it, here is proof" from real users.
+
+The series lives in its own table keyed by origin, not by run: two audits a
+week apart share 24 of their 25 periods.
+
+**Each point is a 28-day average and the points advance weekly, so they
+overlap.** A change appears spread over about four weeks rather than on the
+week it happened, and the report says so under every chart.
+
 ## Known vulnerabilities
 
 **The binding constraint is version detection, not the database.** Knowing
@@ -271,6 +289,7 @@ src/slap_web/            the front-end. Depends on slap.core, never back
 packaging/               build script and PyInstaller spec
 docs/per-page.md         page discovery, sampling, and the silent aggregation bugs
 docs/vulnerabilities.md  CVE confidence levels, data sources, probe guardrails
+docs/field-history.md    25 weeks of real-user data, and how not to misread it
 docs/ui-redesign.md      why the UI is site-centric and browser-based
 docs/packaging.md        building the self-contained distributable
 docs/lighthouse.md       lab runner, concurrency, the LH13 audit-ID trap
@@ -345,7 +364,7 @@ docs/reports.md          report pipeline, palette rules, PDF backend
 ## Tests
 
 ```bash
-pytest -q          # 382 tests, no network and no display required
+pytest -q          # 415 tests, no network and no display required
 ```
 
 The suite runs local HTTP servers for the end-to-end paths, so the whole

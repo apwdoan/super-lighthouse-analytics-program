@@ -277,6 +277,40 @@ def build_trend(history: list[dict[str, Any]], metric: str = "lh.score.performan
     }
 
 
+def build_field_trend(history: dict[str, list[dict[str, Any]]],
+                      metric: str = "crux.lcp.p75") -> dict[str, Any]:
+    """Real-user weekly series for the site page.
+
+    Separate from `build_trend`, which plots SLAP's own runs. They answer
+    different questions and must not be merged into one line: one is what we
+    measured on our machine, the other is what visitors experienced, and a
+    chart that silently splices them would be indefensible the first time
+    they disagreed.
+    """
+    from slap.report.model import CWV_BANDS, field_sparkline
+
+    series = history.get(metric) or []
+    measured = [p for p in series if p.get("p75") is not None]
+    if len(measured) < 2:
+        return {"empty": True}
+
+    threshold = CWV_BANDS.get(metric, (None, None))[0]
+    path, threshold_y = field_sparkline(measured, threshold, width=560, height=90)
+    first, last = measured[0], measured[-1]
+    return {
+        "empty": False, "path": path, "threshold_y": threshold_y,
+        "width": 560, "height": 90,
+        "weeks": len(measured),
+        "first_label": first["period_end"], "last_label": last["period_end"],
+        "first_value": format_value(metric, first["p75"]),
+        "last_value": format_value(metric, last["p75"]),
+        "threshold_text": format_value(metric, threshold) if threshold else "",
+        "status": ("good" if threshold and last["p75"] <= threshold else "poor"),
+        "status_word": ("Good" if threshold and last["p75"] <= threshold
+                        else "Outside target"),
+    }
+
+
 def decorate_findings(findings: list[dict[str, Any]], *,
                       pages_total: int = 1) -> list[dict[str, Any]]:
     """Group by rule, attach the swatch class and the mandatory word.

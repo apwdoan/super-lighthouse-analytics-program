@@ -377,6 +377,38 @@ td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--grid); vertical-alig
 td.num, th.num { text-align: right; padding-left: 14px; font-variant-numeric: tabular-nums; }
 tr { break-inside: avoid; }
 
+/* ------------------------------------------------------ field-data trend */
+
+.spark { margin-top: 8px; }
+.spark svg { display: block; overflow: visible; }
+/* A hairline, not a series colour: the threshold is context, and it must not
+ * compete with the data drawn against it. */
+.spark-threshold {
+  stroke: var(--ink-muted);
+  stroke-width: 0.75;
+  stroke-dasharray: 3 3;
+  opacity: 0.55;
+}
+.spark-line {
+  fill: none;
+  stroke: var(--series-1, #2a78d6);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* preserveAspectRatio="none" scales the stroke horizontally with the box;
+   * this keeps it an even weight at any tile width. */
+  vector-effect: non-scaling-stroke;
+}
+.spark-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 3px;
+  font-size: 9px;
+  color: var(--ink-muted);
+}
+.spark-meta strong { color: var(--ink-secondary); font-weight: 600; }
+
 /* ------------------------------------------------- page inventory & scope */
 
 /* A path is data the reader compares character by character (/shop/widget vs

@@ -13,6 +13,7 @@ from .base import (
     PageContext,
 )
 from .crux import CruxCollector, TokenBucket
+from .crux_history import CruxHistoryCollector
 from .lighthouse import (
     LighthouseCollector,
     LighthouseConfig,
@@ -32,7 +33,7 @@ __all__ = [
     "CruxCollector", "TokenBucket", "normalize_url", "default_pipeline",
     "Pipeline", "LighthouseCollector", "LighthouseConfig", "LighthouseError",
     "LighthouseRunner", "SubresourceCollector", "ComponentCollector",
-    "ExposureCollector",
+    "ExposureCollector", "CruxHistoryCollector",
 ]
 
 #: A pipeline is a list of stages; collectors within a stage run concurrently,
@@ -44,7 +45,8 @@ Pipeline = list[list[Collector]]
 def default_pipeline(crux_bucket: TokenBucket | None = None,
                      lighthouse_runner: "LighthouseRunner | None" = None,
                      *, vuln_db=None,
-                     exposure: "ExposureCollector | None" = None) -> Pipeline:
+                     exposure: "ExposureCollector | None" = None,
+                     crux_history: bool = True) -> Pipeline:
     """The collection pipeline.
 
     Stages 1 and 2 are Phase 1: no browser, seconds per site. Stage 3 is
@@ -63,6 +65,11 @@ def default_pipeline(crux_bucket: TokenBucket | None = None,
         [FingerprintCollector(), TlsCollector(), CruxCollector(crux_bucket),
          SubresourceCollector()],
     ]
+    if crux_history:
+        # Same bucket as the point-in-time collector: the 150/min quota is
+        # shared across both CrUX endpoints, so two independent limiters
+        # would let a wide batch burst straight through it.
+        pipeline[1].append(CruxHistoryCollector(crux_bucket))
     if exposure is not None and exposure.enabled:
         # Origin-scoped, so `core` runs it once per site however many pages
         # are audited. Probing fifteen paths twenty times would be twenty

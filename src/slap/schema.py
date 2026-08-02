@@ -218,6 +218,40 @@ METRIC_REGISTRY: dict[str, Metric] = {
         _m("crux.inp.good", Unit.RATIO, Source.CRUX, "Share of INP visits rated good", True, Scope.ORIGIN),
         _m("crux.cls.good", Unit.RATIO, Source.CRUX, "Share of CLS visits rated good", True, Scope.ORIGIN),
         _m("crux.cwv_pass", Unit.BOOL, Source.CRUX, "Passes Core Web Vitals", True, Scope.ORIGIN),
+        # --- CrUX history: 25 weekly periods --------------------------------
+        # The series itself lives in its own table; these are the run-level
+        # facts rules fire on. Origin-scoped, like everything else from CrUX.
+        _m("crux.history.available", Unit.BOOL, Source.CRUX_HISTORY,
+           "Field-data history exists", True, Scope.ORIGIN),
+        _m("crux.history.weeks", Unit.COUNT, Source.CRUX_HISTORY,
+           "Weekly periods available", None, Scope.ORIGIN),
+        _m("crux.history.lcp.delta", Unit.MS, Source.CRUX_HISTORY,
+           "LCP change across the period", False, Scope.ORIGIN),
+        _m("crux.history.inp.delta", Unit.MS, Source.CRUX_HISTORY,
+           "INP change across the period", False, Scope.ORIGIN),
+        _m("crux.history.cls.delta", Unit.SCORE, Source.CRUX_HISTORY,
+           "CLS change across the period", False, Scope.ORIGIN),
+        _m("crux.history.lcp.first", Unit.MS, Source.CRUX_HISTORY,
+           "LCP at the start of the period", False, Scope.ORIGIN),
+        _m("crux.history.inp.first", Unit.MS, Source.CRUX_HISTORY,
+           "INP at the start of the period", False, Scope.ORIGIN),
+        _m("crux.history.cls.first", Unit.SCORE, Source.CRUX_HISTORY,
+           "CLS at the start of the period", False, Scope.ORIGIN),
+        # Crossed a Core Web Vitals threshold the wrong way. Not a raw delta:
+        # 1.2s -> 2.4s doubled and still passes; 2.4s -> 2.6s barely moved and
+        # now fails, and only the second is worth telling a client about.
+        _m("crux.history.regressed", Unit.BOOL, Source.CRUX_HISTORY,
+           "A vital crossed from good to failing", False, Scope.ORIGIN),
+        _m("crux.history.regressed_metrics", Unit.NONE, Source.CRUX_HISTORY,
+           "Which vitals regressed", None, Scope.ORIGIN),
+        _m("crux.history.improved", Unit.BOOL, Source.CRUX_HISTORY,
+           "A vital crossed from failing to good", True, Scope.ORIGIN),
+        _m("crux.history.improved_metrics", Unit.NONE, Source.CRUX_HISTORY,
+           "Which vitals improved", None, Scope.ORIGIN),
+        _m("crux.history.first_period", Unit.NONE, Source.CRUX_HISTORY,
+           "Earliest period covered", None, Scope.ORIGIN),
+        _m("crux.history.last_period", Unit.NONE, Source.CRUX_HISTORY,
+           "Latest period covered", None, Scope.ORIGIN),
         # --- Lighthouse: category scores (0-100) --------------------------
         _m("lh.score.performance", Unit.SCORE, Source.LIGHTHOUSE, "Performance score", True),
         _m("lh.score.accessibility", Unit.SCORE, Source.LIGHTHOUSE, "Accessibility score", True),

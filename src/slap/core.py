@@ -291,6 +291,17 @@ def _persist(conn: sqlite3.Connection, *, batch_id: str, url: str,
             )
             n_obs += db.insert_observations(conn, page_id, result.observations)
 
+            # CrUX history is a time series, which the observation table
+            # cannot hold: it is one row per week per metric, keyed by origin
+            # rather than by this run. It goes to its own table, where two
+            # audits a week apart share 24 of their 25 periods instead of
+            # storing them twice.
+            history = result.extras.get("crux_history")
+            if history:
+                db.insert_crux_history(
+                    conn, history["origin"], history["form_factor"],
+                    history["points"])
+
             # Lighthouse hands back things observations cannot carry: the
             # gzipped LHR blobs and the engine versions that make a run
             # reproducible.
@@ -812,13 +823,23 @@ def get_run_detail(settings: Settings, run_id: int) -> dict[str, Any] | None:
     if run is None:
         return None
     home_id = db.home_page_id(conn, run_id)
+    values = db.observations_as_dict(conn, home_id) if home_id else {}
+
+    # The field-data series is keyed by ORIGIN, not by this run, so it is
+    # fetched separately rather than joined: the same 25 weeks back every
+    # audit of the same site, which is the point of storing it once.
+    origin = origin_for(values, run.get("hostname"))
+    history = field_history_for(conn, origin)
+
     return {
         "run": run,
         "observations": db.get_observations(conn, run_id),
         "findings": db.get_findings(conn, run_id),
         "pages": db.run_pages(conn, run_id),
         "home_page_id": home_id,
-        "home_values": db.observations_as_dict(conn, home_id) if home_id else {},
+        "home_values": values,
+        "crux_history": history,
+        "origin": origin,
     }
 
 
@@ -845,6 +866,45 @@ def list_sites(settings: Settings, limit: int = 500) -> list[dict[str, Any]]:
 
 def _rule_ids(findings: Iterable[dict[str, Any]]) -> set[str]:
     return {f["rule_id"] for f in findings}
+
+
+#: The three metrics a field-data chart ever plots.
+FIELD_METRICS: tuple[str, ...] = ("crux.lcp.p75", "crux.inp.p75", "crux.cls.p75")
+
+
+def origin_for(values: dict[str, Any], hostname: str | None) -> str | None:
+    """The origin an audit stored its field history under.
+
+    Derived from the final URL the audit actually reached, because that is
+    what the collector used. Rebuilding it from the hostname instead drops
+    the port, so a site on anything but 80 or 443 stores under
+    ``http://host:8080`` and is looked up under ``http://host`` — which
+    returns nothing and renders as "this site has no field data".
+
+    Shared by the run detail and the site detail rather than written twice:
+    the two came apart immediately when they were, and the symptom was
+    silence rather than an error.
+    """
+    final_url = values.get("redirect.final_url")
+    if final_url:
+        parsed = httpx.URL(final_url)
+        netloc = parsed.netloc.decode() if isinstance(parsed.netloc, bytes) \
+            else str(parsed.netloc)
+        if netloc:
+            return f"{parsed.scheme}://{netloc}"
+    return f"https://{hostname}" if hostname else None
+
+
+def field_history_for(conn: sqlite3.Connection,
+                      origin: str | None) -> dict[str, list[dict[str, Any]]]:
+    if not origin:
+        return {}
+    out: dict[str, list[dict[str, Any]]] = {}
+    for metric_key in FIELD_METRICS:
+        series = db.crux_history(conn, origin, metric_key)
+        if series:
+            out[metric_key] = series
+    return out
 
 
 def get_site_detail(settings: Settings, site_id: int) -> dict[str, Any] | None:
@@ -874,22 +934,29 @@ def get_site_detail(settings: Settings, site_id: int) -> dict[str, Any] | None:
     prior = db.get_findings(conn, previous["id"]) if previous else []
 
     current_ids, prior_ids = _rule_ids(current), _rule_ids(prior)
+
+    # The home page's observations, not "whichever page came back first".
+    # `LIMIT 1` with no ORDER BY was correct while a run held exactly one page
+    # and became a coin toss the moment it held twenty: the site's headline
+    # score and CWV tiles would come from an arbitrary product page, and
+    # change between runs for no reason a reader could see.
+    latest_values = (
+        db.observations_as_dict(conn, db.home_page_id(conn, latest["id"]) or 0)
+        if latest else {}
+    )
     return {
         "site": site,
         "runs": runs,
         "latest": latest,
         "previous": previous,
         "history": db.site_metric_history(conn, site_id, TREND_METRICS),
-        # The home page's observations, not "whichever page came back first".
-        # `LIMIT 1` with no ORDER BY was correct while a run held exactly one
-        # page and became a coin toss the moment it held twenty: the site's
-        # headline score and CWV tiles would come from an arbitrary product
-        # page, and change between runs for no reason a reader could see.
-        "observations": (
-            db.observations_as_dict(conn, db.home_page_id(conn, latest["id"]) or 0)
-            if latest else {}
-        ),
+        "observations": latest_values,
         "pages": db.run_pages(conn, latest["id"]) if latest else [],
+        # Real-user history, keyed by origin rather than by any of these
+        # runs. On a site audited once this is still 25 weeks deep, which
+        # the run-derived trend beside it cannot be until next spring.
+        "field_history": field_history_for(
+            conn, origin_for(latest_values, site["hostname"])),
         "open": current,
         "new": [f for f in current if previous and f["rule_id"] not in prior_ids],
         "fixed": [f for f in prior if f["rule_id"] not in current_ids],

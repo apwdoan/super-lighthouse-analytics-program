@@ -85,6 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             score_word=word,
             tiles=vm.build_tiles(detail["observations"]),
             trend=vm.build_trend(detail["history"]),
+            field_trend=vm.build_field_trend(detail.get("field_history") or {}),
             open_findings=vm.decorate_findings(detail["open"], pages_total=pages_total),
             fixed_findings=vm.decorate_findings(detail["fixed"], pages_total=pages_total),
             new_findings=vm.decorate_findings(detail["new"], pages_total=pages_total),

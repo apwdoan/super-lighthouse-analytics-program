@@ -977,3 +977,45 @@ rules:
         - {metric: exposure.waf_detected, is: true}
     effort: none
     evidence: [exposure.waf_detected]
+
+  # --- Field-data history -------------------------------------------------
+  #
+  # Both rules fire on a THRESHOLD CROSSING, not on a raw delta. A site whose
+  # LCP went 1.2s -> 2.4s doubled and still passes; one that went 2.4s -> 2.6s
+  # barely moved and now fails. Only the second is worth a client's attention,
+  # and only a threshold comparison tells them apart.
+
+  - id: crux-history-regression
+    severity: high
+    title: "Real-user performance has regressed since {crux.history.first_period}"
+    detail: >-
+      {crux.history.regressed_metrics} was within Google's "good" threshold at
+      the start of the {crux.history.weeks}-week window and is outside it now.
+      This is measured on your actual visitors, not in a lab, so it reflects
+      what people experienced. Each data point is a 28-day average, so the
+      change began earlier than the chart appears to show.
+    when:
+      all:
+        - {metric: crux.history.regressed, is: true}
+    effort: varies
+    remediation: >-
+      Compare what shipped during this window. The lab findings in this report
+      are the most likely causes; fix those first and the field data will
+      follow within about four weeks.
+    evidence: [crux.history.regressed_metrics, crux.history.weeks,
+               crux.history.lcp.first, crux.history.lcp.delta]
+
+  - id: crux-history-improvement
+    severity: info
+    title: "Real-user performance has improved since {crux.history.first_period}"
+    detail: >-
+      {crux.history.improved_metrics} was outside Google's "good" threshold at
+      the start of the {crux.history.weeks}-week window and is within it now.
+      Measured on your actual visitors rather than in a lab, so this is
+      evidence the work landed, not a projection.
+    when:
+      all:
+        - {metric: crux.history.improved, is: true}
+    effort: none
+    evidence: [crux.history.improved_metrics, crux.history.weeks,
+               crux.history.lcp.first, crux.history.lcp.delta]
