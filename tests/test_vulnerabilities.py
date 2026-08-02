@@ -867,3 +867,94 @@ def test_the_stamp_of_a_missing_file_is_none():
 
     assert read_stamp(None) is None
     assert read_stamp(pathlib.Path("/nonexistent/vulndb.json")) is None
+
+
+# --------------------------------------------------------------------------
+# The default configuration. Lighthouse is opt-in; this is what most runs do.
+# --------------------------------------------------------------------------
+
+def test_component_detection_runs_when_lighthouse_is_off(tmp_path):
+    """The pass that reads components is independent of the pass that
+    measures them.
+
+    `collect_site` used to return early when the browser pipeline was empty,
+    which skipped the final pass with it. Lighthouse is opt-in, so that is
+    the DEFAULT: every audit without --lighthouse, including every audit the
+    web UI starts, did no component detection and no CVE matching at all.
+    Nothing raised, the run completed, and the report said "components were
+    checked against OSV" having checked nothing.
+
+    Every existing test missed it because the ones that exercised components
+    through `run_batch` all enabled Lighthouse, and the ones that ran with it
+    off called the collector directly.
+    """
+    httpd, base = start_vulnerable("normal")
+    settings = Settings()
+    settings.db_path = tmp_path / "x.sqlite3"
+    settings.artifact_dir = tmp_path / "a"
+    settings.report_dir = tmp_path / "r"
+    settings.collector.crux_api_key = None
+    settings.lighthouse.enabled = False          # the default
+    try:
+        result = asyncio.run(core.run_batch([base], settings))
+        conn = db.connect(settings.db_path)
+        values = db.observations_as_dict(
+            conn, db.home_page_id(conn, result.run_ids[0]))
+        assert "component.count" in values, "the component pass did not run"
+        assert values["component.count"] >= 1
+        assert "WordPress" in values["component.detected"]
+        # And the honest-scope metric, which is what the report reads.
+        assert values["vuln.unchecked_count"] >= 1
+    finally:
+        httpd.shutdown()
+        db.close_thread_connections()
+
+
+def test_the_report_does_not_claim_a_check_that_did_not_run(tmp_path):
+    """The visible symptom of the bug above: the report named OSV as a source
+    while no component had been looked at."""
+    from slap.report.model import build_report_model
+
+    httpd, base = start_vulnerable("normal")
+    settings = Settings()
+    settings.db_path = tmp_path / "x.sqlite3"
+    settings.artifact_dir = tmp_path / "a"
+    settings.report_dir = tmp_path / "r"
+    settings.collector.crux_api_key = None
+    settings.lighthouse.enabled = False
+    try:
+        result = asyncio.run(core.run_batch([base], settings))
+        model = build_report_model(core.get_run_detail(settings, result.run_ids[0]))
+        note = model.coverage.vulnerability_note
+        assert "OSV" in note
+        # The fixture runs WordPress, which has no source. If the components
+        # were never detected this sentence goes missing and the report reads
+        # as a clean check.
+        assert "NOT checked" in note
+        assert model.coverage.unchecked_ecosystems
+    finally:
+        httpd.shutdown()
+        db.close_thread_connections()
+
+
+def test_discovery_and_the_component_pass_are_independent(tmp_path):
+    """Both orderings, because the early return was found with discovery on
+    and Lighthouse off, and the CLI check that passed had it the other way."""
+    for discover in (True, False):
+        httpd, base = start_vulnerable("normal")
+        settings = Settings()
+        settings.db_path = tmp_path / f"x{discover}.sqlite3"
+        settings.artifact_dir = tmp_path / "a"
+        settings.report_dir = tmp_path / "r"
+        settings.collector.crux_api_key = None
+        settings.lighthouse.enabled = False
+        settings.discovery.enabled = discover
+        try:
+            result = asyncio.run(core.run_batch([base], settings))
+            conn = db.connect(settings.db_path)
+            values = db.observations_as_dict(
+                conn, db.home_page_id(conn, result.run_ids[0]))
+            assert "component.count" in values, f"discovery={discover}"
+        finally:
+            httpd.shutdown()
+            db.close_thread_connections()

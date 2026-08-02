@@ -244,10 +244,31 @@ result. The retry alone recovered the missing fifteen.
 on an unexpected layout because a wrong answer silently picks the older
 database. 5.1ms → 0.17ms.
 
+**The component pass never ran in the default configuration.** Driving the
+bundled *web server* rather than its CLI, an audit came back with no
+`component.*` observations at all. `collect_site` returned early when the
+browser pipeline was empty, and that early return skipped the final pass along
+with it. Lighthouse is opt-in, so that is the DEFAULT: every audit without
+`--lighthouse`, including every audit the web UI starts, did no component
+detection and no CVE matching. Nothing raised, the run completed, and the
+report printed *"components were checked against npm (OSV.dev)"* having
+checked nothing.
+
+Every test missed it for one reason: the ones that exercised components
+through `run_batch` all enabled Lighthouse, and the ones that ran with it off
+called the collector directly. Neither shape covered the configuration almost
+every real run uses. Three regression tests now do, each verified to fail
+against the old code.
+
+The two passes are independent — the browser pass needs pages to *measure*,
+the final pass needs pages to *read* — and only the first is conditional now.
+
 The build itself: 919MB, of which 719MB is runtime (Chromium, Node,
 `node_modules`) and the vulnerability database is 108KB. It runs under
 `env -i` with no PATH beyond `/usr/bin`, resolves every backend inside itself,
-and produces the report in §4 from a real browser audit.
+and produces the report in §4 from a real browser audit. The bundled **web
+server** was driven too, not just the CLI: it is what a teammate gets when
+they double-click, and it is the path that surfaced the bug above.
 
 ### The CI gate
 

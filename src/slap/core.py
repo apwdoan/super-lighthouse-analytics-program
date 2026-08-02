@@ -569,8 +569,20 @@ async def run_batch(urls: Iterable[str], settings: Settings, *,
             await asyncio.gather(*(light(u) for u in urls))
 
             ordered = [results[u] for u in urls if u in results]
-            if not heavy_pipeline:
-                return ordered, found
+
+            # NO early return when the browser pass is absent.
+            #
+            # This used to `return ordered, found` when `heavy_pipeline` was
+            # empty, which skipped the final pass along with it. Lighthouse is
+            # opt-in, so that is the DEFAULT configuration: every audit
+            # without `--lighthouse`, including every audit the web UI starts,
+            # silently did no component detection and no CVE matching at all.
+            # Nothing raised, the run completed, and the report said
+            # "components were checked against OSV" having checked nothing.
+            #
+            # The two passes are independent: the browser pass needs pages to
+            # measure, the final pass needs pages to read. Only the first is
+            # conditional.
 
             # Only pages that were actually fetched can be measured, and only
             # one representative per template class is worth measuring.
@@ -581,7 +593,7 @@ async def run_batch(urls: Iterable[str], settings: Settings, *,
             chosen = choose_lighthouse_pages(
                 fetched, limit=disc_cfg.lighthouse_pages_per_site,
                 home_url=home_url if home_url in fetched else None,
-            )
+            ) if heavy_pipeline else []
 
             async def heavy(page_url: str) -> None:
                 async with page_semaphore:
