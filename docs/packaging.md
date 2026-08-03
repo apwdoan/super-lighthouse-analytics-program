@@ -227,10 +227,12 @@ rule needs no platform-specific code.
 - **Zipped with `ditto`, not `shutil.make_archive`.** `ditto` preserves
   symlinks, resource forks and the executable bit inside a `.app`. A plain
   zip loses the exec bit and the result will not open.
-- **The bundle must be re-signed after `runtime/` is copied in, and the
-  build now fails if it will not seal.** This is the single most expensive
-  bug this packaging has produced: see *"SLAP is damaged and can't be
-  opened"* below.
+- **The main executable is re-signed after `runtime/` is copied in; the
+  whole-bundle seal is attempted best-effort.** The executable's signature
+  is the arm64 launch gate and its failure fails the build; the seal cannot
+  be produced for this layout and the app does not need it. This is the
+  single most expensive bug this packaging has produced: see *"SLAP is
+  damaged and can't be opened"* below.
 - **Gatekeeper will block an unsigned app** downloaded from anywhere. Which
   message it shows depends on the signature: a properly signed but
   unnotarised app gets *"SLAP" cannot be opened because the developer
@@ -267,31 +269,45 @@ signature was invalid before the build finished. On Apple Silicon that is
 fatal rather than cosmetic: the kernel enforces signatures on every
 executable, so a broken seal is an app that cannot start at all.
 
-**Why nothing caught it.** Every check in `slap verify` launches
-`Contents/MacOS/SLAP` directly, and running the inner executable does not
-consult the bundle seal. Double-clicking the `.app` does. Precisely the
-same shape as the `console=False` crash on Windows: the one launch every
-user performs was the one nothing exercised.
+**Two signatures, and only one of them matters.** The first fix conflated
+them, and the first real Mac build (nothing here has a Mac; CI is the only
+place this code runs) failed on the one that doesn't:
 
-Three changes, so it cannot come back:
+- **The main executable** must carry a valid signature or the Apple Silicon
+  kernel refuses to `exec` it. That is the launch gate. `Contents/MacOS/SLAP`
+  is a single Mach-O, PyInstaller ad-hoc signs it, and copying `runtime/`
+  beside it does not touch that embedded signature.
+- **The whole-bundle seal** (`Contents/_CodeSignature`) is what Gatekeeper
+  reads on a quarantined download. But this app is ad-hoc signed — no Apple
+  Developer certificate, no notarisation — so the seal *never* satisfies
+  Gatekeeper however perfect it is. The only thing that gets a user past
+  Gatekeeper is stripping quarantine, which the first-run helper does.
 
-1. `sign_macos_app()` runs **last** in `build.py`, after every write into
-   the bundle, and ad-hoc signs it (`codesign --force --deep --sign -`).
-   `--deep` because every Mach-O in the bundle needs its own signature on
-   arm64, including the Chromium and Node copied in whole; if `--deep`
-   chokes on something inside Chromium's framework it falls back to
-   sealing the outer bundle alone, which is what actually fixes *damaged*.
-2. The build **fails** if `codesign --verify --strict` does not pass, and
-   the error names the likely layout cause. Apple expects only executables
-   in `Contents/MacOS`; if codesign ever objects to `runtime/` living
-   there, moving it to `Contents/Resources` and teaching
-   `bundle.runtime_dir()` to look there is the fix.
-3. `slap verify` gained a **`code signature`** check that asks Gatekeeper's
-   question about the `.app` rather than the executable, so the macOS CI
-   job goes red instead of uploading a bundle nobody can open.
+So the seal does nothing the app needs, and codesign cannot even produce
+it: `runtime/node_worker/node_modules` contains directories like
+`@types/node/ts5.7` that its bundle scanner rejects with **"bundle format
+unrecognized, invalid, or unsuitable"**, failing both `--deep` and a plain
+seal. The first Mac CI run died there, on a signature nothing would ever
+have used.
 
-A test asserts the ordering in `build.py`'s `main()`, because the bug was
-never in the signing command; it was in what ran after it.
+What `sign_macos_app()` does now, still **last** in `build.py`:
+
+1. Signs the **main executable** ad-hoc (`codesign --force --sign - SLAP`).
+   A single Mach-O; codesign never chokes on it. If this fails the build
+   fails, because the app genuinely cannot start without it.
+2. Attempts the whole-bundle seal **best-effort** and logs a note on
+   failure instead of dying. The app launches without it.
+3. `slap verify`'s **`code signature`** check verifies the *executable*
+   (the launch gate); it reports the bundle seal as an advisory **`bundle
+   seal`** note that never gates the build.
+
+The Apple-correct way to make the seal succeed would be to move `runtime/`
+out of `Contents/MacOS` into `Contents/Resources` and teach
+`bundle.runtime_dir()` to look there — worth doing only if a real
+certificate ever makes notarisation, and therefore sealing, worthwhile. A
+test still asserts signing runs after every write into the bundle, because
+that ordering bug (copying `runtime/` in *after* PyInstaller sealed the
+app) is what started all of this.
 
 - **Two separate Mac builds, and they are not interchangeable.** The bundled
   Chromium and Node are downloaded per architecture, so an arm64 build

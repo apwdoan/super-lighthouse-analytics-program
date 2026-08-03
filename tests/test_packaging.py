@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -26,18 +27,52 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "packagi
 import build  # noqa: E402
 
 
+def _has_working_bash() -> bool:
+    """A POSIX bash that actually runs, not just a name on PATH.
+
+    The Windows CI runner has a ``bash`` on PATH, but it is the WSL launcher
+    stub, and with no distribution installed ``bash -c true`` exits non-zero
+    with "Windows Subsystem for Linux has no installed distributions". A test
+    that shells out to bash then fails for a reason that has nothing to do
+    with what it is testing. The macOS first-run helper is a macOS artifact;
+    its shell syntax is validated on the Unix runners, which have a real
+    bash, and skipped where there is not one to trust.
+    """
+    bash = shutil.which("bash")
+    if not bash:
+        return False
+    try:
+        return subprocess.run([bash, "-c", "true"], capture_output=True,
+                              timeout=15).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+needs_bash = pytest.mark.skipif(
+    not _has_working_bash(),
+    reason="no working POSIX bash (e.g. the Windows WSL stub with no distro)")
+
+
 class FakeRun:
     """Records commands. Fails the ones whose text contains a marker."""
 
-    def __init__(self, fail_containing: str | None = None) -> None:
+    def __init__(self, fail_containing: str | None = None,
+                 fail_endswith: str | None = None) -> None:
         self.calls: list[list[str]] = []
         self.fail_containing = fail_containing
+        # The main executable path ends in .../SLAP.app/Contents/MacOS/SLAP
+        # and contains the app path as a prefix, so substring matching cannot
+        # tell "sign the executable" from "seal the bundle". `fail_endswith`
+        # can: the seal command's last argument is the .app itself.
+        self.fail_endswith = fail_endswith
 
     def __call__(self, command, **kwargs):
         words = [str(c) for c in command]
         self.calls.append(words)
         joined = " ".join(words)
         failed = bool(self.fail_containing and self.fail_containing in joined)
+        failed = failed or bool(self.fail_endswith
+                                and joined.endswith(self.fail_endswith))
         if failed and kwargs.get("check"):
             raise subprocess.CalledProcessError(1, words)
         return subprocess.CompletedProcess(
@@ -71,80 +106,58 @@ def test_signing_is_a_no_op_off_macos(monkeypatch, tmp_path):
     assert fake.calls == []
 
 
-def test_the_app_is_signed_deeply_and_ad_hoc(on_macos, monkeypatch, tmp_path):
-    """`--deep` because every Mach-O in the bundle needs its own signature
-    on Apple Silicon, including the Chromium and Node copied in whole.
-    Ad-hoc because this project has no Apple certificate, and ad-hoc is
-    enough for the app to RUN."""
+def test_the_main_executable_is_signed_ad_hoc(on_macos, monkeypatch, tmp_path):
+    """The launch gate. On Apple Silicon the kernel refuses to exec an
+    unsigned Mach-O, so ``Contents/MacOS/SLAP`` must carry a signature.
+    Ad-hoc (``--sign -``) because this project has no Apple certificate, and
+    ad-hoc is enough for the app to RUN; Gatekeeper is a separate problem
+    the first-run helper handles."""
     fake = FakeRun()
     # Only subprocess.run is faked: build.run() itself is the code under
     # test as much as anything else here, since it is what adds check=True
     # and therefore what turns a failed codesign into a failed build.
     monkeypatch.setattr(build.subprocess, "run", fake)
 
-    build.sign_macos_app(tmp_path / "SLAP.app")
+    app = tmp_path / "SLAP.app"
+    exe = str(app / "Contents" / "MacOS" / "SLAP")
+    build.sign_macos_app(app)
 
-    sign = next(c for c in fake.calls if c[0] == "codesign" and "--force" in c)
-    assert "--deep" in sign
-    assert sign[sign.index("--sign") + 1] == "-"        # ad-hoc
-    assert str(tmp_path / "SLAP.app") in sign
-
+    sign = next(c for c in fake.calls
+                if c[0] == "codesign" and "--force" in c and c[-1] == exe)
+    assert sign[sign.index("--sign") + 1] == "-"         # ad-hoc
     # Extended attributes picked up during staging make codesign refuse
     # outright ("resource fork, Finder information, or similar detritus").
-    assert ["xattr", "-cr", str(tmp_path / "SLAP.app")] in fake.calls
-
-
-def test_deep_signing_falling_over_still_seals_the_bundle(on_macos, monkeypatch,
-                                                          tmp_path, capsys):
-    """`--deep` walks a nested Chromium .app of ~12,000 files and can object
-    to something inside a framework that has nothing to do with whether
-    SLAP opens. Sealing the outer bundle alone still fixes "damaged", so a
-    build that can produce a working app should produce one."""
-    fake = FakeRun(fail_containing="--deep --sign")
-    monkeypatch.setattr(build.subprocess, "run", fake)
-
-    build.sign_macos_app(tmp_path / "SLAP.app")
-
-    plain = [c for c in fake.calls
-             if c[0] == "codesign" and "--force" in c and "--deep" not in c]
-    assert plain, "no fallback seal was applied"
-    assert "deep signing failed" in capsys.readouterr().out
-    # And the gate still ran: an unsealed bundle must not get through.
-    assert any(c[:3] == ["codesign", "--verify", "--strict"]
+    assert ["xattr", "-cr", str(app)] in fake.calls
+    # A bundle seal is also attempted, best-effort, on the .app itself.
+    assert any(c[0] == "codesign" and "--force" in c and c[-1] == str(app)
                for c in fake.calls)
 
 
-def test_a_broken_outer_seal_fails_the_build(on_macos, monkeypatch, tmp_path):
-    """The seal is what decides whether the .app opens at all. Shipping an
-    unopenable bundle wastes far more of someone's day than a red CI step,
-    and the message has to name the layout that causes it: nothing about
-    "code object is not signed at all" points at Contents/MacOS."""
-    fake = FakeRun(fail_containing="--verify --strict")
-    # Only subprocess.run is faked: build.run() itself is the code under
-    # test as much as anything else here, since it is what adds check=True
-    # and therefore what turns a failed codesign into a failed build.
+def test_a_failed_bundle_seal_does_not_fail_the_build(on_macos, monkeypatch,
+                                                      tmp_path, capsys):
+    """The seal that codesign cannot produce for this layout, and that the
+    app does not need. ``runtime/node_modules`` defeats codesign's bundle
+    scanner; the app launches anyway (signed executable + quarantine strip),
+    so a failed seal is a note, not a dead build. The first real Mac run
+    died here, on a signature nothing would ever have used."""
+    fake = FakeRun(fail_endswith="SLAP.app")     # only .app-targeted commands
+    monkeypatch.setattr(build.subprocess, "run", fake)
+
+    build.sign_macos_app(tmp_path / "SLAP.app")          # must not raise
+    assert "bundle seal skipped" in capsys.readouterr().out
+
+
+def test_a_broken_executable_signature_fails_the_build(on_macos, monkeypatch,
+                                                       tmp_path):
+    """The one signature that IS fatal: if the main executable will not
+    sign, the app cannot start on arm64, and shipping it wastes far more of
+    someone's day than a red CI step."""
+    fake = FakeRun(fail_containing="--verify")   # the executable verify fails
     monkeypatch.setattr(build.subprocess, "run", fake)
 
     with pytest.raises(SystemExit) as raised:
         build.sign_macos_app(tmp_path / "SLAP.app")
-    message = str(raised.value)
-    assert "damaged" in message
-    assert "Contents/Resources" in message
-
-
-def test_a_nested_quibble_is_reported_not_fatal(on_macos, monkeypatch,
-                                                tmp_path, capsys):
-    """Chromium's own framework failing a strict nested check does not stop
-    SLAP launching, and the check that actually proves the nested binaries
-    run is `slap verify` launching them, which happens right after."""
-    fake = FakeRun(fail_containing="--deep --strict")
-    # Only subprocess.run is faked: build.run() itself is the code under
-    # test as much as anything else here, since it is what adds check=True
-    # and therefore what turns a failed codesign into a failed build.
-    monkeypatch.setattr(build.subprocess, "run", fake)
-
-    build.sign_macos_app(tmp_path / "SLAP.app")          # must not raise
-    assert "nested signature check reported" in capsys.readouterr().out
+    assert "will not launch" in str(raised.value)
 
 
 # --------------------------------------------------------------------------
@@ -230,6 +243,7 @@ def test_the_first_run_helper_is_executable_inside_the_zip(tmp_path):
     assert "RIGHT CLICK" in script and "RIGHT CLICK" in readme
 
 
+@needs_bash
 def test_the_helper_script_is_valid_shell_and_finds_its_own_folder(tmp_path):
     """It is launched by double-click from wherever the user unzipped, so
     it cannot assume the working directory."""

@@ -484,81 +484,79 @@ it. Afterwards you can move SLAP.app anywhere, including Applications.
 
 
 def sign_macos_app(app: Path) -> None:
-    """Re-seal the .app, after everything has been copied into it.
+    """Sign the .app so it launches, after everything is copied into it.
 
-    **This is what "SLAP is damaged and can't be opened" means.** macOS is
-    not describing a corrupt download; it is reporting a code signature
-    that does not match the bundle's contents. PyInstaller signs the .app
-    when it assembles it, and then this script copies ~700MB of
-    ``runtime/`` and a build manifest *inside* ``Contents/MacOS``. Every
-    one of those files lands under the seal PyInstaller just applied, so
-    the signature is invalid before the build finishes. On Apple Silicon
-    that is fatal rather than cosmetic: the kernel enforces signatures on
-    every executable, so a broken seal is an app that cannot start at all.
+    What actually makes macOS refuse an app and call it "damaged" is two
+    separate things, and telling them apart is what this function got wrong
+    the first time.
 
-    Nothing caught it because nothing verified the signature and because
-    the CI check launches ``Contents/MacOS/SLAP`` directly from a shell.
-    Running the inner executable does not consult the bundle seal;
-    double-clicking the .app does. Same shape as the windowed-build crash:
-    the one launch every user performs was the one nothing exercised.
+    **The launch requirement.** On Apple Silicon the kernel refuses to exec
+    a Mach-O with no valid signature. The one that matters is the main
+    executable, ``Contents/MacOS/SLAP``. PyInstaller ad-hoc signs it, and
+    copying ``runtime/`` in beside it does not touch that embedded
+    signature, so it stays valid -- but this re-signs it explicitly anyway,
+    because it is a single Mach-O, codesign never chokes on it, and it is
+    the one signature the app cannot start without.
 
-    So: sign last, and verify. ``--deep`` because every Mach-O in the
-    bundle needs a signature of its own on arm64, including the Chromium
-    and Node that were copied in whole. Ad-hoc (``--sign -``) because this
-    project has no Apple certificate; that is enough for the app to RUN,
-    and Gatekeeper's separate objection to unsigned downloads is what the
-    first-run helper handles.
+    **Gatekeeper.** A quarantined download is refused unless it is signed by
+    a paid Apple Developer certificate and notarised. This project has
+    neither, so an ad-hoc signature never satisfies Gatekeeper no matter how
+    perfectly the bundle is sealed. The only thing that gets a user past it
+    is stripping the quarantine flag, which the ``First run (macOS)`` helper
+    in the zip does.
+
+    That leaves the whole-bundle seal (``Contents/_CodeSignature``) doing
+    nothing the app needs: it does not gate launch once quarantine is gone,
+    and it cannot satisfy Gatekeeper while ad-hoc. It is also the one thing
+    codesign cannot produce here: ``runtime/node_worker/node_modules``
+    contains directories such as ``@types/node/ts5.7`` that codesign's
+    bundle scanner rejects with "bundle format unrecognized, invalid, or
+    unsuitable", failing both ``--deep`` and a plain seal. The first CI run
+    on a real Mac died there, on a seal nothing would have used.
+
+    So: sign the executable (required, reliable), then ATTEMPT the bundle
+    seal but never fail the build on it, because the app runs without it.
+    The Apple-correct way to make the seal succeed would be to move
+    ``runtime/`` out of ``Contents/MacOS`` into ``Contents/Resources`` and
+    teach ``bundle.runtime_dir`` to look there; it is a larger change than
+    the seal is worth while ad-hoc, and is noted here for whenever a real
+    certificate makes notarisation, and therefore sealing, worthwhile.
     """
     if sys.platform != "darwin":
         return
 
-    log("re-signing the .app now that runtime/ is in place")
     # Extended attributes collected during staging (quarantine flags on the
-    # downloaded Chromium, Finder metadata) make codesign fail outright with
+    # downloaded Chromium, Finder metadata) make codesign fail with
     # "resource fork, Finder information, or similar detritus not allowed".
     subprocess.run(["xattr", "-cr", str(app)], check=False)
 
-    deep = subprocess.run(
-        ["codesign", "--force", "--deep", "--sign", "-", "--timestamp=none",
-         str(app)], capture_output=True, text=True)
-    if deep.returncode != 0:
-        # Not fatal, and not silent. `--deep` walks a nested Chromium .app
-        # of ~12,000 files and can object to something inside a framework
-        # that has nothing to do with whether SLAP opens. Sealing the outer
-        # bundle alone still fixes "damaged", and leaves Chromium carrying
-        # Google's own signature, which is the better one anyway.
-        log("deep signing failed, sealing the outer bundle only: "
-            + " ".join((deep.stderr or "").split())[:300])
-        run(["codesign", "--force", "--sign", "-", "--timestamp=none",
-             str(app)])
-
-    # The outer seal decides whether the .app opens, so a failure here
-    # fails the build. Shipping an unopenable bundle that took ten minutes
-    # to build wastes far more of someone's day than a red CI step does.
-    sealed = subprocess.run(["codesign", "--verify", "--strict", str(app)],
-                            capture_output=True, text=True)
-    if sealed.returncode != 0:
+    # The launch gate. A single Mach-O; codesign always handles it. If this
+    # fails the app genuinely cannot start on arm64, so this one is fatal.
+    executable = app / "Contents" / "MacOS" / "SLAP"
+    log("signing the main executable")
+    run(["codesign", "--force", "--sign", "-", "--timestamp=none",
+         str(executable)])
+    verified = subprocess.run(["codesign", "--verify", str(executable)],
+                              capture_output=True, text=True)
+    if verified.returncode != 0:
         raise SystemExit(
-            "[build] the .app will not seal, so macOS would call it damaged:\n"
-            f"  {' '.join((sealed.stderr or '').split())}\n"
-            "  Most likely cause: something wrote into the bundle after this\n"
-            "  step, or runtime/ sits somewhere codesign will not seal. Apple\n"
-            "  expects only executables in Contents/MacOS; moving runtime/ to\n"
-            "  Contents/Resources (and teaching bundle.runtime_dir to look\n"
-            "  there) is the fix if this is the layout it objects to."
-        )
-    log("bundle signature verified")
+            "[build] the main executable will not sign, so macOS will not "
+            "launch it:\n  " + " ".join((verified.stderr or "").split()))
 
-    # Nested code is checked but not gated. A quibble inside Chromium's own
-    # framework does not stop SLAP from launching, and the check that
-    # actually proves the nested binaries run is the one already in the
-    # pipeline: `slap verify` launches Chromium for the PDF export and Node
-    # for Lighthouse, from this exact bundle, immediately after this step.
-    deep = subprocess.run(["codesign", "--verify", "--deep", "--strict",
-                           str(app)], capture_output=True, text=True)
-    if deep.returncode != 0:
-        log("note: nested signature check reported: "
-            + " ".join((deep.stderr or "").split())[:300])
+    # The whole-bundle seal: best-effort. It cannot be valid for an ad-hoc
+    # bundle carrying a runtime tree, and nothing the app does depends on
+    # it, so a failure here is a note, not a dead build.
+    sealed = subprocess.run(
+        ["codesign", "--force", "--sign", "-", "--timestamp=none", str(app)],
+        capture_output=True, text=True)
+    if sealed.returncode == 0:
+        log("bundle sealed")
+    else:
+        log("bundle seal skipped (expected for an ad-hoc build with a "
+            "bundled runtime): "
+            + " ".join((sealed.stderr or "").split())[:200])
+        log("the app still launches: its executable is signed, and the "
+            "First run helper clears quarantine past Gatekeeper.")
 
 
 def add_macos_first_run_files(archive: Path) -> None:

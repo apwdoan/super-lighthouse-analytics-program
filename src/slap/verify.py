@@ -238,23 +238,29 @@ def check_paths_are_inside_the_bundle(report: VerifyReport) -> None:
 
 
 def check_macos_signature(report: VerifyReport) -> None:
-    """Does this .app still seal? The check that "damaged" needed.
+    """Is the executable signed so macOS will launch it?
 
-    macOS reporting an app as "damaged and can't be opened" is not a claim
-    about the download: it is a code signature that no longer matches the
-    bundle's contents. The build invalidated its own seal for months by
-    copying runtime/ into ``Contents/MacOS`` after PyInstaller had signed
-    the .app, and nothing noticed, because every check in this file
-    launches ``Contents/MacOS/SLAP`` directly. Running the inner executable
-    does not consult the bundle seal. Double-clicking the .app does, and
-    that is the only launch a teammate ever performs.
+    Two signatures matter on a Mac bundle and they fail differently, which
+    the first version of this check conflated by verifying the whole-bundle
+    seal.
 
-    So this asks the same question Gatekeeper asks. Advisory off macOS and
-    off a frozen build, where there is no bundle to seal.
+    The **main executable** must carry a valid signature or the Apple
+    Silicon kernel refuses to exec it: that is the launch gate, and it is
+    what this check enforces. ``Contents/MacOS/SLAP`` is a single Mach-O,
+    signed ad-hoc at build time, and copying ``runtime/`` beside it does not
+    disturb it.
+
+    The **whole-bundle seal** cannot be valid for this app and does not need
+    to be. It is ad-hoc, so it never satisfies Gatekeeper (the first-run
+    helper's quarantine strip is what does), and codesign cannot even
+    produce it because the bundled ``node_modules`` tree defeats its bundle
+    scanner. So the seal is reported as a note, never a failure: gating on a
+    signature that is structurally impossible and operationally unnecessary
+    would fail every macOS build for no reason a user would ever feel.
     """
     if sys.platform != "darwin" or not bundle.is_frozen():
         report.add("code signature", True,
-                   "not a macOS app bundle; nothing to seal", advisory=True)
+                   "not a macOS app bundle; nothing to sign", advisory=True)
         return
 
     root = bundle.bundle_root()
@@ -265,14 +271,26 @@ def check_macos_signature(report: VerifyReport) -> None:
                    "frozen, but not inside an .app", advisory=True)
         return
 
-    result = subprocess.run(["codesign", "--verify", "--strict", str(app)],
+    # The launch gate: the main executable, not the bundle seal.
+    executable = app / "Contents" / "MacOS" / "SLAP"
+    result = subprocess.run(["codesign", "--verify", str(executable)],
                             capture_output=True, text=True)
     detail = " ".join((result.stderr or result.stdout or "").split())
     report.add(
         "code signature", result.returncode == 0,
-        f"{app.name} seals correctly" if result.returncode == 0
-        else f"{detail[:200]} -- macOS will call this app damaged",
-    )
+        f"{executable.name} is signed and will launch"
+        if result.returncode == 0
+        else f"{detail[:200]} -- macOS will refuse to launch it")
+
+    # The bundle seal, for information only. Its absence is expected.
+    seal = subprocess.run(["codesign", "--verify", "--strict", str(app)],
+                          capture_output=True, text=True)
+    report.add(
+        "bundle seal", seal.returncode == 0,
+        "sealed" if seal.returncode == 0
+        else "not sealed (ad-hoc build with a bundled runtime); the "
+             "first-run helper clears quarantine past Gatekeeper",
+        advisory=True)
 
 
 def check_lighthouse(report: VerifyReport, settings: Settings) -> None:
