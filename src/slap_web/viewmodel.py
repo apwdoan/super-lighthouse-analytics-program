@@ -432,3 +432,36 @@ def mask_key(key: str | None) -> str | None:
     if len(key) < 12:
         return "•" * len(key)
     return f"{key[:6]}...{key[-3:]}"
+
+
+def probe_state(enabled: bool, hosts: list[dict[str, Any]]) -> dict[str, Any]:
+    """What endpoint probing will actually do, in one sentence.
+
+    Probing needs two keys turned at once: the global switch, and a
+    recorded authorisation for the specific host. Either one alone probes
+    nothing, and a screen that shows only the switch would read as "on"
+    while every audit quietly skipped the whole check. Both halves of the
+    state, and the consequence, belong in the sentence.
+    """
+    count = len(hosts)
+    plural = "" if count == 1 else "s"
+    # The switch's own position, so the template picks a button rather than
+    # deducing one from the status word. Rule 7: templates compute nothing.
+    state = {"enabled": bool(enabled), "hosts": count}
+    if enabled and count:
+        return {**state, "status": "good", "word": "Active",
+                "text": f"Probing is on and {count} host{plural} "
+                        f"{'is' if count == 1 else 'are'} authorised. "
+                        "Audits of those hosts will probe for exposed files."}
+    if enabled:
+        return {**state, "status": "needs-improvement", "word": "Nothing to probe",
+                "text": "Probing is on, but no host is authorised, so no "
+                        "audit will probe anything. Authorise a host below."}
+    if count:
+        return {**state, "status": "muted", "word": "Off",
+                "text": f"{count} host{plural} authorised, but probing is "
+                        "switched off, so no audit will probe anything."}
+    return {**state, "status": "muted", "word": "Off",
+            "text": "Probing is off, and no host is authorised. Audits check "
+                    "headers, TLS and components only, and the report says "
+                    "that exposed files were not checked."}

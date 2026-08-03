@@ -699,8 +699,12 @@ def cmd_probe(args: argparse.Namespace, settings: Settings) -> int:
     db.authorise_probe(conn, hostname, by=args.by, note=args.note)
     conn.commit()
     print(f"Endpoint probing authorised for {hostname}.")
-    print("It still needs `probe_enabled = true` in config.toml or --probe "
-          "to actually run.")
+    # This advice was false until config.toml actually grew a reader for
+    # probe_enabled: the field existed on Settings and nothing ever loaded
+    # it, so the one route this message recommends did nothing at all.
+    print("It still needs the global switch: turn it on in the app's "
+          "Settings page,")
+    print("set `probe_enabled = true` in config.toml, or pass --probe.")
     return 0
 
 

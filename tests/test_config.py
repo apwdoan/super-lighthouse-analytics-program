@@ -109,3 +109,69 @@ def test_settings_load_records_where_it_read_from(tmp_path):
     path = tmp_path / "somewhere.toml"
     assert Settings.load(path).config_path == path
     assert Settings().config_path is None
+
+
+# --------------------------------------------------------------------------
+# Endpoint probing: a top-level setting, which has a TOML trap in it
+# --------------------------------------------------------------------------
+
+def test_probe_enabled_round_trips(tmp_path):
+    """It never did. `probe_enabled` was a field on Settings that nothing
+    ever read from config.toml, so `slap probe allow` closed by telling
+    people to "set probe_enabled = true in config.toml" and that
+    instruction did nothing at all."""
+    from slap.config import save_probe_enabled
+
+    path = tmp_path / "config.toml"
+    save_probe_enabled(True, path)
+    assert Settings.load(path).probe_enabled is True
+
+    save_probe_enabled(False, path)
+    assert Settings.load(path).probe_enabled is False
+
+
+def test_a_top_level_setting_is_not_appended_after_a_section(tmp_path):
+    """The trap. In TOML a bare key written after [collector] belongs to
+    *collector*, so appending probe_enabled to the end of this file would
+    store collector.probe_enabled and the loader would never see it."""
+    from slap.config import save_probe_enabled
+
+    path = tmp_path / "config.toml"
+    path.write_text(HAND_WRITTEN, encoding="utf-8")
+    save_probe_enabled(True, path)
+
+    import tomllib
+    parsed = tomllib.loads(path.read_text(encoding="utf-8"))
+    assert parsed["probe_enabled"] is True
+    assert "probe_enabled" not in parsed["collector"]
+    assert "probe_enabled" not in parsed["branding"]
+    # And the hand-written file is intact.
+    assert Settings.load(path).lighthouse.runs == 5
+    assert "# My config. Do not lose this comment." in path.read_text()
+
+
+def test_a_boolean_is_written_as_a_boolean_not_a_string(tmp_path):
+    """`probe_enabled = "True"` parses as a string, which is truthy for
+    every value including "false"."""
+    from slap.config import save_probe_enabled
+
+    path = tmp_path / "config.toml"
+    save_probe_enabled(False, path)
+    assert "probe_enabled = false" in path.read_text(encoding="utf-8")
+
+
+def test_both_settings_coexist_in_one_file(tmp_path):
+    from slap.config import save_crux_api_key, save_probe_enabled
+
+    path = tmp_path / "config.toml"
+    save_crux_api_key("AIzaSyFAKE-KEY_1234567890", path)
+    save_probe_enabled(True, path)
+    loaded = Settings.load(path)
+    assert loaded.collector.crux_api_key == "AIzaSyFAKE-KEY_1234567890"
+    assert loaded.probe_enabled is True
+
+
+def test_the_probe_rate_is_read_too(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text("probe_rate_per_second = 0.5\n", encoding="utf-8")
+    assert Settings.load(path).probe_rate_per_second == 0.5

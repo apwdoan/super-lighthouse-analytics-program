@@ -151,9 +151,28 @@ there.
 
 **Authorised per site, never globally.** A global flag gets switched on once
 for a client who agreed and then silently applies to the next one.
-Authorisation lives on the `site` row with a timestamp and a name, `--by` is
-required, and the report prints it. `probe_enabled` *and* per-host
-authorisation are both required, so a config left switched on probes nothing.
+Authorisation lives on the `site` row with a timestamp and a name, the
+approver is required, and the report prints it. `probe_enabled` *and*
+per-host authorisation are both required, so a config left switched on
+probes nothing.
+
+**Both switches live on the Settings page** (2026-08-03), alongside `slap
+probe allow/revoke` and `audit --probe`. The card states what the pair of
+them will actually do, because that is where the two-key design can
+mislead: a screen showing only the global switch reads as "on" while every
+audit quietly probes nothing. "Probing is on, but no host is authorised, so
+no audit will probe anything" is the sentence that stops someone believing
+a check ran.
+
+Adding the UI turned up why nobody had used the feature: **`Settings.load`
+never read `probe_enabled` from `config.toml`.** The field existed, the
+audit pipeline honoured it, `slap probe allow` closed by telling people to
+set it in `config.toml`, and that instruction did nothing whatsoever. The
+only working route was `audit --probe`. The loader reads it now, and a
+round-trip test covers the setting the tool had been recommending for
+months. One TOML trap is worth knowing if this is extended: a bare key
+written after `[collector]` belongs to *collector*, so a top-level setting
+cannot be appended to the end of the file.
 
 **Origin-scoped**, so it runs once per site however many pages are audited.
 Probing sixteen paths twenty times is twenty times the noise in the client's

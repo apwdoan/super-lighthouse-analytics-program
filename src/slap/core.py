@@ -1102,6 +1102,52 @@ def clear_history(settings: Settings) -> ClearResult:
     )
 
 
+def set_probe_enabled(settings: Settings, enabled: bool) -> Path:
+    """Persist the global probing switch and apply it to this session."""
+    from dataclasses import replace as _replace       # noqa: F401  (symmetry)
+
+    from . import config
+
+    path = config.save_probe_enabled(bool(enabled), settings.config_path)
+    settings.probe_enabled = bool(enabled)
+    return path
+
+
+def probe_authorisations(settings: Settings) -> list[dict[str, Any]]:
+    """Every host cleared for probing, newest first, with who cleared it."""
+    hosts = db.authorised_probe_hosts(_conn(settings))
+    return sorted(hosts.values(),
+                  key=lambda r: (r.get("probe_authorised_at") or ""),
+                  reverse=True)
+
+
+def authorise_probe(settings: Settings, hostname: str, *, by: str,
+                    note: str | None = None) -> str:
+    """Record permission to probe one host. Returns the normalised hostname.
+
+    ``by`` is required rather than optional because the question this record
+    answers is not "is probing on" but "who said we could, and when". A
+    blank attribution six months later is the same as no record.
+    """
+    if not (by or "").strip():
+        raise ValueError("Authorisation is recorded against a person: "
+                         "say who approved it.")
+    host = httpx.URL(normalize_url(hostname)).host
+    if not host:
+        raise ValueError(f"{hostname!r} is not a hostname.")
+    conn = _conn(settings)
+    db.authorise_probe(conn, host, by=by.strip(), note=(note or "").strip() or None)
+    conn.commit()
+    return host
+
+
+def revoke_probe(settings: Settings, hostname: str) -> bool:
+    conn = _conn(settings)
+    found = db.revoke_probe(conn, hostname)
+    conn.commit()
+    return found
+
+
 def check_crux_key(settings: Settings) -> tuple[bool, str]:
     """Live-test the configured CrUX key against the real API.
 

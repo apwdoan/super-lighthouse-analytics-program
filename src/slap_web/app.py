@@ -232,7 +232,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             totals=core.history_totals(settings),
             clear_result=getattr(app.state, "clear_result", None),
             clear_error=getattr(app.state, "clear_error", None),
+            probe_hosts=core.probe_authorisations(settings),
+            probe=vm.probe_state(settings.probe_enabled,
+                                 core.probe_authorisations(settings)),
+            probe_error=getattr(app.state, "probe_error", None),
+            probe_note=getattr(app.state, "probe_note", None),
+            humanise=vm.humanise,
         )
+
+    # ----------------------------------------------------------------
+    # Endpoint probing. Two separate switches, deliberately: the global
+    # one below, and a recorded authorisation per host. Neither alone
+    # probes anything, which is the whole design -- a single flag gets
+    # switched on once for a client who agreed and then silently applies
+    # to the next one, who did not.
+    # ----------------------------------------------------------------
+    @app.post("/settings/probe")
+    def set_probing(enabled: str = Form(default="")) -> RedirectResponse:
+        app.state.probe_error = None
+        core.set_probe_enabled(settings, bool(enabled))
+        app.state.probe_note = (
+            "Probing switched on. It still only touches hosts authorised "
+            "below." if enabled else "Probing switched off.")
+        return RedirectResponse("/settings", status_code=303)
+
+    @app.post("/settings/probe/authorise")
+    def authorise_probing(hostname: str = Form(default=""),
+                          by: str = Form(default=""),
+                          note: str = Form(default="")) -> RedirectResponse:
+        app.state.probe_error = None
+        app.state.probe_note = None
+        try:
+            host = core.authorise_probe(settings, hostname, by=by, note=note)
+        except ValueError as exc:
+            app.state.probe_error = str(exc)
+        else:
+            app.state.probe_note = f"Probing authorised for {host}."
+        return RedirectResponse("/settings", status_code=303)
+
+    @app.post("/settings/probe/revoke")
+    def revoke_probing(hostname: str = Form(default="")) -> RedirectResponse:
+        app.state.probe_error = None
+        found = core.revoke_probe(settings, hostname)
+        app.state.probe_note = (f"Authorisation withdrawn for {hostname}."
+                                if found else
+                                f"{hostname} was not authorised.")
+        return RedirectResponse("/settings", status_code=303)
 
     @app.post("/settings/clear-history")
     def clear_history(confirm: str = Form(default="")) -> RedirectResponse:

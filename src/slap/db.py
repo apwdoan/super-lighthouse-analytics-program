@@ -355,8 +355,17 @@ def authorise_probe(conn: sqlite3.Connection, hostname: str, *,
 
 
 def revoke_probe(conn: sqlite3.Connection, hostname: str) -> bool:
-    row = conn.execute("SELECT id FROM site WHERE hostname = ?",
-                       (hostname,)).fetchone()
+    """Returns whether an authorisation was actually withdrawn.
+
+    Keyed on the authorisation, not on the site row: the first version
+    asked only whether the hostname was known, so revoking a site that had
+    never been authorised reported "Revoked for example.com". Telling
+    somebody you withdrew permission that never existed is a small lie in
+    the one part of this feature that exists to keep an honest record.
+    """
+    row = conn.execute(
+        "SELECT id FROM site WHERE hostname = ? "
+        "AND probe_authorised_at IS NOT NULL", (hostname,)).fetchone()
     if row is None:
         return False
     conn.execute(

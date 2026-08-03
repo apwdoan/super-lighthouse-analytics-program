@@ -1151,3 +1151,43 @@ def test_nvd_build_records_hard_failures():
         products=[("npm", "jquery", "cpe:2.3:a:jquery:jquery")],
         attempts=2, fetch=broken_fetch)
     assert db.failures == ["npm:jquery"]
+
+
+def test_probing_switched_on_the_way_the_app_switches_it_on(tmp_path):
+    """The whole loop, through the file the app writes.
+
+    `probe_enabled` lived on Settings, the pipeline honoured it, and
+    `slap probe allow` told people to set it in config.toml -- but
+    `Settings.load` never read it, so the recommended route did nothing and
+    the only way in was `audit --probe`. This audits with the switch turned
+    on exactly as the Settings page turns it on: written to config.toml,
+    loaded back, and honoured by a real run.
+    """
+    from slap.config import save_probe_enabled
+
+    config_path = tmp_path / "config.toml"
+    save_probe_enabled(True, config_path)
+
+    httpd, base = start_vulnerable("normal")
+    settings = Settings.load(config_path)
+    assert settings.probe_enabled is True, "the config route is dead again"
+    settings.db_path = tmp_path / "x.sqlite3"
+    settings.artifact_dir = tmp_path / "a"
+    settings.report_dir = tmp_path / "r"
+    settings.lighthouse.enabled = False
+    settings.collector.crux_api_key = None
+    settings.discovery.enabled = False
+    settings.probe_rate_per_second = 0
+    try:
+        core.authorise_probe(settings, "127.0.0.1", by="Austin", note="SOW-12")
+        result = asyncio.run(core.run_batch([base], settings))
+        conn = db.connect(settings.db_path)
+        values = {r["metric_key"] for r in db.get_observations(conn, result.run_ids[0])}
+        assert any(k.startswith("exposure.") for k in values), \
+            "probing did not run despite both switches being on"
+
+        # And the authorisation the app records is the one the report prints.
+        assert core.probe_authorisations(settings)[0]["probe_note"] == "SOW-12"
+    finally:
+        httpd.shutdown()
+        db.close_thread_connections()

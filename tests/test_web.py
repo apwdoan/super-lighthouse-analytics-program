@@ -765,3 +765,96 @@ def test_a_real_server_dies_within_seconds_even_with_a_stream_open(seeded):
     holder.join(timeout=6)
     assert not holder.is_alive(), \
         "the stream thread survived close(); the process would outlive Quit"
+
+
+# --------------------------------------------------------------------------
+# Endpoint probing controls
+# --------------------------------------------------------------------------
+
+def test_the_probe_state_names_both_switches():
+    """Probing needs the global switch AND a per-host authorisation. A
+    screen showing only the switch reads as "on" while every audit quietly
+    probes nothing, which is the failure this whole card exists to avoid."""
+    on_and_authorised = vm.probe_state(True, [{"hostname": "a"}])
+    assert on_and_authorised["status"] == "good"
+    assert "1 host is authorised" in on_and_authorised["text"]
+
+    on_but_empty = vm.probe_state(True, [])
+    assert on_but_empty["enabled"] is True
+    assert "no host is authorised" in on_but_empty["text"]
+    assert on_but_empty["status"] != "good", "on-with-nothing must not read as fine"
+
+    off_with_hosts = vm.probe_state(False, [{"hostname": "a"}, {"hostname": "b"}])
+    assert "2 hosts authorised, but probing is switched off" in off_with_hosts["text"]
+
+    off = vm.probe_state(False, [])
+    assert off["enabled"] is False
+    assert "exposed files were not checked" in off["text"]
+
+
+def test_probing_can_be_switched_on_and_off_and_it_persists(client, seeded,
+                                                            tmp_path):
+    seeded.config_path = tmp_path / "config.toml"
+
+    body = client.post("/settings/probe", data={"enabled": "1"},
+                       follow_redirects=True).text
+    assert seeded.probe_enabled is True                  # this session
+    assert "probe_enabled = true" in seeded.config_path.read_text()   # and the next
+    assert "Switch probing off" in body
+
+    body = client.post("/settings/probe", data={}, follow_redirects=True).text
+    assert seeded.probe_enabled is False
+    assert "probe_enabled = false" in seeded.config_path.read_text()
+    assert "Switch probing on" in body
+
+
+def test_authorising_a_host_records_who_and_why(client, seeded):
+    body = client.post("/settings/probe/authorise",
+                       data={"hostname": "https://Example.COM/pricing",
+                             "by": "Austin", "note": "SOW-12"},
+                       follow_redirects=True).text
+    assert "Probing authorised for example.com" in body
+    assert "SOW-12" in body
+
+    hosts = core.probe_authorisations(seeded)
+    assert [h["hostname"] for h in hosts] == ["example.com"]
+    assert hosts[0]["probe_authorised_by"] == "Austin"
+    assert hosts[0]["probe_authorised_at"]
+
+
+def test_authorising_without_a_name_is_refused(client, seeded):
+    """"Who said we could, and when" is the question the record answers
+    months later. A blank attribution is the same as no record."""
+    body = client.post("/settings/probe/authorise",
+                       data={"hostname": "example.com", "by": ""},
+                       follow_redirects=True).text
+    assert "Not saved" in body
+    assert core.probe_authorisations(seeded) == []
+
+
+def test_revoking_says_whether_anything_was_withdrawn(client, seeded):
+    """Telling somebody you withdrew permission that never existed is a
+    small lie in the one part of this feature that keeps an honest record."""
+    client.post("/settings/probe/authorise",
+                data={"hostname": "example.com", "by": "Austin"})
+    body = client.post("/settings/probe/revoke",
+                       data={"hostname": "example.com"},
+                       follow_redirects=True).text
+    assert "Authorisation withdrawn for example.com" in body
+    assert core.probe_authorisations(seeded) == []
+
+    # example.com is still a known SITE, so this must key on the
+    # authorisation rather than on the row existing.
+    body = client.post("/settings/probe/revoke",
+                       data={"hostname": "example.com"},
+                       follow_redirects=True).text
+    assert "was not authorised" in body
+
+
+def test_the_settings_page_warns_when_the_switch_alone_is_on(client, seeded,
+                                                             tmp_path):
+    seeded.config_path = tmp_path / "config.toml"
+    body = client.post("/settings/probe", data={"enabled": "1"},
+                       follow_redirects=True).text
+    assert "no host is authorised" in body
+    assert "No host is authorised" in body      # and again beside the table

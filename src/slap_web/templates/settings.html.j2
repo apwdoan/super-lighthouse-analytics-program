@@ -82,6 +82,103 @@
   <div class="card">
     <header>
       <div class="grow">
+        <h2>Endpoint probing</h2>
+        <div class="hint">
+          Requests a short list of paths that should not be public
+          (<code>.env</code>, <code>.git/config</code>, database dumps) and
+          reports the ones that answer. It sends real requests to the
+          client's server, so it needs two things switched on: this, and a
+          recorded authorisation for each host.
+        </div>
+      </div>
+      <span class="badge">
+        <span class="sw {{ probe.status }}"></span>{{ probe.word }}
+      </span>
+    </header>
+
+    {% if probe_error %}
+      <div class="card notice">
+        <span class="badge"><span class="sw poor"></span>Not saved</span>
+        {{ probe_error }}
+      </div>
+    {% elif probe_note %}
+      <div class="card notice">
+        <span class="badge"><span class="sw good"></span>Saved</span>
+        {{ probe_note }}
+      </div>
+    {% endif %}
+
+    <p class="hint">{{ probe.text }}</p>
+
+    <form method="post" action="/settings/probe" class="row">
+      {% if probe.enabled %}
+        <button class="btn" type="submit">Switch probing off</button>
+      {% else %}
+        <input type="hidden" name="enabled" value="1">
+        <button class="btn" type="submit">Switch probing on</button>
+      {% endif %}
+    </form>
+
+    <h3 style="margin: 18px 0 6px; font-size: 13px">Authorised hosts</h3>
+    {% if probe_hosts %}
+      <table>
+        <thead><tr>
+          <th>Host</th><th>Authorised</th><th>By</th><th>Reference</th><th></th>
+        </tr></thead>
+        <tbody>
+          {% for host in probe_hosts %}
+            <tr>
+              <td>{{ host.hostname }}</td>
+              <td class="hint">{{ humanise(host.probe_authorised_at) }}</td>
+              <td class="hint">{{ host.probe_authorised_by or 'unknown' }}</td>
+              <td class="hint">{{ host.probe_note or '' }}</td>
+              <td>
+                <form method="post" action="/settings/probe/revoke"
+                      onsubmit="return confirm('Withdraw probing authorisation for {{ host.hostname }}?')">
+                  <input type="hidden" name="hostname" value="{{ host.hostname }}">
+                  <button class="btn narrow" type="submit">Revoke</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="hint">
+        No host is authorised. Nothing will be probed until one is, whatever
+        the switch above says.
+      </p>
+    {% endif %}
+
+    <form method="post" action="/settings/probe/authorise" class="row"
+          style="margin-top: 12px">
+      <label>
+        Host
+        <input name="hostname" placeholder="example.com" size="22"
+               autocomplete="off" spellcheck="false">
+      </label>
+      <label>
+        Authorised by
+        <input name="by" placeholder="who approved it" size="18"
+               autocomplete="off">
+      </label>
+      <label>
+        Reference
+        <input name="note" placeholder="SOW, ticket, email" size="20"
+               autocomplete="off">
+      </label>
+      <button class="btn" type="submit">Authorise</button>
+    </form>
+    <p class="hint">
+      Recorded permanently against the site, and printed in that site's
+      report. "Who said we could, and when" is the question this answers
+      months later, so the name is required.
+    </p>
+  </div>
+
+  <div class="card">
+    <header>
+      <div class="grow">
         <h2>Storage</h2>
         <div class="hint">Where this app keeps what it makes</div>
       </div>

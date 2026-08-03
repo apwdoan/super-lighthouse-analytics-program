@@ -177,6 +177,18 @@ class Settings:
                         setattr(settings.lighthouse, key, value)
             if branding_raw := raw.get("branding"):
                 settings.branding = dict(branding_raw)
+            # Endpoint probing. Read here because it was NOT, for as long as
+            # the feature existed: `probe_enabled` was a field on this class
+            # that nothing ever loaded, so `slap probe allow` closed by
+            # telling people to "set probe_enabled = true in config.toml"
+            # and that instruction did nothing. The whole feature -- 16
+            # probes, the calibration pass, the block-page detection -- was
+            # reachable only through `audit --probe`, and the tool's own
+            # advice about the other route was false.
+            if isinstance(raw.get("probe_enabled"), bool):
+                settings.probe_enabled = raw["probe_enabled"]
+            if isinstance(raw.get("probe_rate_per_second"), (int, float)):
+                settings.probe_rate_per_second = float(raw["probe_rate_per_second"])
 
         # Environment wins, so a teammate can point at their own key without
         # editing a shared config file.
@@ -203,82 +215,95 @@ class Settings:
 
 _KEY_SHAPE = re.compile(r"^[A-Za-z0-9_\-]{10,200}$")
 
+_SECTION = re.compile(r"^\s*\[[^\]]+\]\s*$")
 
-def save_crux_api_key(key: str | None,
-                      path: str | Path | None = None) -> Path:
-    """Persist (or clear) the CrUX API key in config.toml. Returns the path.
+
+def _render(value: str | bool | float) -> str:
+    if isinstance(value, bool):                 # before the numeric check:
+        return "true" if value else "false"     # bool IS an int in Python
+    if isinstance(value, (int, float)):
+        return str(value)
+    return f'"{value}"'
+
+
+def save_setting(key: str, value: str | bool | float | None, *,
+                 section: str | None = None,
+                 path: str | Path | None = None) -> Path:
+    """Persist (or remove) one setting in config.toml. Returns the path.
 
     A surgical text edit, not a parse-and-rewrite. config.toml is user-owned:
     it may carry comments, hand-tuned lighthouse settings, and formatting the
     user chose. ``tomllib`` is read-only, and serialising the parsed dict
     back would destroy all of that to change one line. So this touches the
-    one line it is about -- replace it where it exists, insert it under
-    ``[collector]`` where it does not, create the file when there is none --
+    one line it is about -- replace it where it exists, insert it into the
+    right section where it does not, create the file when there is none --
     and leaves every other byte alone.
 
-    The result is parsed with tomllib BEFORE it replaces the original, and a
-    result that does not parse, or does not carry the key it was asked to
-    write, raises with the original file untouched. An editor that can
-    corrupt a config file is worse than no editor.
+    ``section=None`` means a top-level key, and that case is the one with a
+    trap in it: in TOML a bare key written after ``[collector]`` belongs to
+    *collector*, so a top-level setting cannot simply be appended to the end
+    of the file. It goes in the region above the first section header, which
+    is the only place it means what it says.
 
-    The key itself is validated against the shape API keys actually have,
-    because the failure mode of writing an arbitrary string into a quoted
-    TOML value is an injection into a file the whole app reads at startup.
+    The result is parsed with tomllib BEFORE it replaces the original, and a
+    result that does not parse, or does not read back as the value it was
+    asked to write, raises with the original file untouched. An editor that
+    can corrupt a config file is worse than no editor.
     """
     import os
     import tomllib as _tomllib
 
     path = Path(path) if path else default_data_dir() / "config.toml"
-    key = (key or "").strip() or None
-    if key is not None and not _KEY_SHAPE.fullmatch(key):
-        raise ValueError(
-            "That does not look like an API key (letters, digits, - and _ "
-            "only). Nothing was saved.")
-
     original = path.read_text(encoding="utf-8") if path.is_file() else None
     lines = (original or "").splitlines()
 
-    # Find the [collector] section and the key line inside it.
-    section_start = section_end = key_line = None
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            if section_start is not None and section_end is None:
-                section_end = i
-            if stripped == "[collector]":
-                section_start = i
-        elif (section_start is not None and section_end is None
-              and re.match(r"^\s*crux_api_key\s*=", line)):
-            key_line = i
-    if section_start is not None and section_end is None:
-        section_end = len(lines)
+    header = f"[{section}]" if section else None
+    pattern = re.compile(rf"^\s*{re.escape(key)}\s*=")
 
-    entry = f'crux_api_key = "{key}"' if key else None
+    # Walk once, tracking which section each line is in, and record both the
+    # existing entry (if any) and where a new one would have to go.
+    current: str | None = None
+    key_line: int | None = None
+    insert_at: int | None = None
+    for i, line in enumerate(lines):
+        if _SECTION.match(line):
+            if current is None and section is None and insert_at is None:
+                insert_at = i            # end of the top-level region
+            current = line.strip()
+            if current == header:
+                insert_at = i + 1
+            continue
+        if current == header and pattern.match(line):
+            key_line = i
+    if insert_at is None:
+        insert_at = len(lines)           # no sections at all, or none matched
+
+    entry = None if value is None else f"{key} = {_render(value)}"
     if key_line is not None:
-        if entry:
-            lines[key_line] = entry
-        else:
+        if entry is None:
             del lines[key_line]
-    elif entry:
-        if section_start is not None:
-            lines.insert(section_start + 1, entry)
         else:
+            lines[key_line] = entry
+    elif entry is not None:
+        if header is not None and header not in (line.strip() for line in lines):
             if lines and lines[-1].strip():
                 lines.append("")
-            lines.extend(["[collector]", entry])
+            lines.extend([header, entry])
+        else:
+            lines.insert(insert_at, entry)
     else:
-        # Clearing a key that is not there: nothing to do, and creating an
-        # empty file to say so would be noise.
+        # Removing something that is not there: nothing to do, and creating
+        # an empty file to say so would be noise.
         return path
 
-    if original is None and entry:
+    if original is None:
         lines.insert(0, "# SLAP configuration. Read at startup; the settings "
                         "page edits it in place.")
 
     text = "\n".join(lines) + "\n"
     parsed = _tomllib.loads(text)          # raises before any file is touched
-    written_key = (parsed.get("collector") or {}).get("crux_api_key")
-    if written_key != key and not (written_key is None and key is None):
+    scope = parsed if section is None else (parsed.get(section) or {})
+    if scope.get(key) != value:
         raise ValueError("the edited config did not read back correctly; "
                          "nothing was saved")
 
@@ -287,3 +312,29 @@ def save_crux_api_key(key: str | None,
     scratch.write_text(text, encoding="utf-8")
     os.replace(scratch, path)
     return path
+
+
+def save_crux_api_key(key: str | None,
+                      path: str | Path | None = None) -> Path:
+    """Persist (or clear) the CrUX API key.
+
+    The key is validated against the shape API keys actually have, because
+    the failure mode of writing an arbitrary string into a quoted TOML value
+    is an injection into a file the whole app reads at startup.
+    """
+    key = (key or "").strip() or None
+    if key is not None and not _KEY_SHAPE.fullmatch(key):
+        raise ValueError(
+            "That does not look like an API key (letters, digits, - and _ "
+            "only). Nothing was saved.")
+    return save_setting("crux_api_key", key, section="collector", path=path)
+
+
+def save_probe_enabled(enabled: bool, path: str | Path | None = None) -> Path:
+    """Persist the global endpoint-probing switch.
+
+    Top-level, not in a section, because that is the shape `slap probe
+    allow` has been telling people to write by hand for as long as the
+    feature has existed.
+    """
+    return save_setting("probe_enabled", bool(enabled), path=path)
