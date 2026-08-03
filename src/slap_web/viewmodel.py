@@ -465,3 +465,28 @@ def probe_state(enabled: bool, hosts: list[dict[str, Any]]) -> dict[str, Any]:
             "text": "Probing is off, and no host is authorised. Audits check "
                     "headers, TLS and components only, and the report says "
                     "that exposed files were not checked."}
+
+
+#: The order rules are shown in, which is the order they matter in. Not
+#: alphabetical: a page listing what the tool checks for should open with
+#: what it will shout about, not with "accessibility".
+def group_rules(rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Rules bucketed by severity, most serious first.
+
+    Sixty-odd rules in one flat table is a wall nobody reads. Grouped by
+    what they would do to a report, it answers the question somebody
+    actually has when they open this page: what will this tool tell my
+    client is urgent?
+    """
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for rule in rules:
+        buckets.setdefault(rule["severity"], []).append(rule)
+    out = []
+    for severity in SEVERITY_ORDER:
+        group = sorted(buckets.get(severity, []), key=lambda r: r["id"])
+        if group:
+            out.append({"severity": severity,
+                        "word": SEVERITY_WORDS.get(severity, severity.title()),
+                        "status": SEVERITY_STATUS.get(severity, "muted"),
+                        "rules": group})
+    return out

@@ -67,6 +67,38 @@ def make_config(app: object, port: int, *, log_level: str = "warning"):
                           log_level=log_level, timeout_graceful_shutdown=5)
 
 
+def launch_options(argv: "list[str] | None" = None):
+    """Parse what the launcher understands and IGNORE everything else.
+
+    Nothing here may refuse to start the application. SLAP is a GUI
+    program: it has no console, so argparse's usual behaviour on an
+    unrecognised flag -- print usage, exit 2 -- means a window that never
+    opens and an error message written to a log file the user does not know
+    exists. That is exactly what a shortcut still carrying the deleted
+    `--cli audit example.com` produced: the entry point correctly fell
+    through to the GUI, and then the GUI's own parser killed it.
+
+    So: ``add_help=False`` (``-h`` is a request for output there is nowhere
+    to print) and ``parse_known_args``. Unknown arguments are noted in the
+    log and dropped. The flags below stay because the self-check and the
+    development workflow use them, not because a user is expected to type
+    one.
+    """
+    parser = argparse.ArgumentParser(description="SLAP", add_help=False)
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--config", default=None)
+    # Without this the only way to point the server at a database is
+    # SLAP_DB, which is awkward under `env -i` and is exactly what a
+    # verification script needs to do.
+    parser.add_argument("--db", default=None)
+    args, ignored = parser.parse_known_args(argv)
+    if ignored:
+        print(f"ignoring {' '.join(ignored)}; SLAP has no command line",
+              flush=True)
+    return args
+
+
 def main() -> int:
     import uvicorn
 
@@ -74,15 +106,7 @@ def main() -> int:
 
     from .app import create_app
 
-    parser = argparse.ArgumentParser(description="SLAP web interface")
-    parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--no-browser", action="store_true")
-    parser.add_argument("--config", default=None)
-    # Mirrors the CLI's --db. Without it the only way to point the server at
-    # a database is SLAP_DB, which is awkward under `env -i` and is exactly
-    # what a verification script needs to do.
-    parser.add_argument("--db", default=None)
-    args = parser.parse_args()
+    args = launch_options()
 
     settings = Settings.load(args.config)
     if args.db:

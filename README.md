@@ -14,9 +14,14 @@ discovery  ──►  collectors  ──►  observations  ──►  findings  
 distributable teammates can run with nothing installed.** Schema frozen,
 sitemap-and-crawl page discovery, no-browser collectors running on every
 page, Lighthouse sampling one page per template against a pinned Chromium,
-findings engine running off 50 YAML rules and reported once per rule with the
-pages each affects, client-facing HTML and PDF reports rendering, and both
-front-ends (CLI and a local web app) driving the same core. See `docs/per-page.md`, `docs/vulnerabilities.md`, `docs/field-history.md`,
+findings engine running off 60-odd YAML rules and reported once per rule with
+the pages each affects, and client-facing HTML and PDF reports rendering.
+
+**SLAP is a GUI application.** You start it and it opens in your browser;
+audits, reports, settings, the vulnerability database, endpoint-probing
+authorisation and quitting all live on the page. There is no command line
+to learn, and as of 2026-08-03 there is no command line at all. See
+`docs/per-page.md`, `docs/vulnerabilities.md`, `docs/field-history.md`,
 `docs/ui-redesign.md`, `docs/lighthouse.md`, and `docs/reports.md`.
 
 ---
@@ -25,9 +30,12 @@ front-ends (CLI and a local web app) driving the same core. See `docs/per-page.m
 
 ```bash
 pip install -e ".[dev,all]"
-playwright install chromium                    # PDF export and Lighthouse
-slap doctor                                    # confirm every backend
+playwright install chromium     # PDF export and Lighthouse
+slap                            # starts the app and opens your browser
 ```
+
+The Settings page lists every backend and says what each missing one costs,
+which is where `slap doctor` used to live.
 
 Lighthouse itself installs from *inside* the worker directory:
 
@@ -66,38 +74,27 @@ and the report says so rather than pretending lab data is field data.
 ## Use
 
 ```bash
-slap audit example.com another-site.com     # bare hostnames are fine
-slap audit -f sites.txt -c 20               # one URL per line, 20 at a time
-slap audit example.com --lighthouse         # add the lab audit (~90s/page)
-
-slap audit example.com --pages 40           # audit up to 40 pages of the site
-slap audit example.com --no-discover        # just the one URL, as before
-slap audit example.com -l --lh-pages 8      # measure 8 page templates, not 5
-slap audit example.com --page-concurrency 8 # pages in flight WITHIN one site
-
-slap vulndb status                          # what the CVE database covers
-slap vulndb update                          # refresh it from OSV
-slap probe allow client.com --by "Austin"   # authorise endpoint probing
-slap probe list                             # who is authorised, and when
-slap audit client.com --probe               # probe AUTHORISED hosts only
-slap doctor                                 # which backends are available
-slap verify                                 # prove this build actually works
-slap batches                                # what has been run
-slap runs -b <batch-id>                     # runs in a batch
-slap show 42 -v                             # findings, with fixes
-slap show 42 -o                             # plus raw observations
-slap rules                                  # validate and list the rules
-
-slap report 42 --open                       # HTML + PDF for one site
-slap report -b <batch-id> --merge           # every site, plus one combined PDF
-slap report --check                         # is the PDF backend installed?
+slap                # starts a local server and opens your browser
 ```
 
-Or run the app:
+Everything happens there:
 
-```bash
-slap-web            # starts a local server and opens your browser
-```
+| | |
+|---|---|
+| **Sites** | paste URLs and audit them; per-site history and trend |
+| **Findings** | every open finding across every site, by rule |
+| **Run** | the client-facing report, previewed, with HTML and PDF download |
+| **Rules** | all 60-odd rules: what SLAP checks, says and recommends |
+| **Settings** | backends, CrUX key, vulnerability database, endpoint probing, audit defaults, storage paths, clear history |
+
+Quit from the sidebar. The packaged app has no console and no window of its
+own, so closing the browser tab would otherwise leave it running invisibly.
+
+Audit defaults (pages per site, measured pages, concurrency, Lighthouse runs)
+are set once on the Settings page and saved to `config.toml`, rather than
+passed per run. Lighthouse concurrency is capped at 4 there, and the cap is
+enforced server-side: contended CPU inflates blocking time and produces
+plausible scores nobody can reproduce.
 
 ## Shipping it to someone
 
@@ -105,13 +102,13 @@ slap-web            # starts a local server and opens your browser
 python packaging/build.py --zip
 ```
 
-The build refreshes the vulnerability database from OSV first, so a bundle
-never ships data older than the day it was built. `--require-vulndb` (used by
-CI) fails the build rather than falling back to the committed copy, and the
-build refuses a database that came back quietly smaller than the last one,
-which is what a rate-limited OSV burst looks like.
+The build refreshes the vulnerability database from the NIST NVD first, so a
+bundle never ships data older than the day it was built. `--require-vulndb`
+(used by CI) fails the build rather than falling back to the committed copy,
+and the build refuses a database that came back quietly smaller than the last
+one, which is what a rate-limited burst looks like.
 
-`slap vulndb update` from a bundle writes to your per-user data directory, not
+Updating from the Settings page writes to your per-user data directory, not
 into the application: the app folder may be read-only, and an upgrade would
 discard the refresh. Whichever copy is newer is the one used.
 
@@ -120,10 +117,13 @@ the app, Node, Lighthouse and Chromium. Double-clicking it starts a local
 server and opens the default browser. A teammate unzips it and runs it;
 they install nothing.
 
-`SLAP.exe --cli verify` proves a build works rather than describing it: it
-audits a page it serves itself, exports a real PDF, and drives the real web
-server over a real socket, then exits non-zero with the specific reason if any
-of that fails. Worth running on a bundle that has just been downloaded.
+`SLAP --self-check` proves a build works rather than describing it: it audits
+a page it serves itself, exports a real PDF, and drives the real web server
+over a real socket, then exits non-zero with the specific reason if any of
+that fails. It is the one argument the executable takes, it is not a user
+feature, and CI runs it against every bundle it builds. That is what caught
+the macOS signature break, the missing Node inside the .app, and the crash on
+every windowed launch.
 
 PyInstaller is not a cross-compiler, so build on the platform you are
 shipping to. To get every target without owning every machine, run the
@@ -131,7 +131,7 @@ shipping to. To get every target without owning every machine, run the
 both Apple Silicon and Intel, and Linux natively, and each job runs the
 bundle it just built before uploading it.
 
-See `docs/packaging.md` for the size breakdown, `slap verify`, Windows
+See `docs/packaging.md` for the size breakdown, the self-check, Windows
 SmartScreen, and macOS Gatekeeper.
 
 ## Per-page analysis
@@ -221,8 +221,8 @@ next one. Authorisation is recorded against the site with a timestamp and a
 name.
 
 ```bash
-slap probe allow client.com --by "Austin" --note "SOW 2026-08"
-slap audit client.com --probe
+Settings -> Endpoint probing -> authorise client.com, by "Austin",
+reference "SOW 2026-08", then switch probing on.
 ```
 
 Sixteen paths, not a wordlist: `.git/config`, `.env`, config backups, database

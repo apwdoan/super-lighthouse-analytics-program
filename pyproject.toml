@@ -49,8 +49,8 @@ dev = [
 ]
 
 [project.scripts]
-slap = "slap.cli:main"
-slap-web = "slap_web:main"
+slap = "slap_web:main"
+slap-web = "slap_web:main"   # kept: the old name, for anyone who scripted it
 
 [build-system]
 requires = ["hatchling"]

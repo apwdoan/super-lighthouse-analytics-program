@@ -1,21 +1,27 @@
 """The core API. Every front-end calls exactly this and nothing below it.
 
-The CLI in :mod:`slap.cli` and the PySide6 GUI planned for Phase 2 are both
-clients of this module. Nothing here imports Qt, argparse, or a template
-engine; if a front-end ever needs to reach past this file into
-:mod:`slap.db` or :mod:`slap.collectors`, that is the signal that a
-function is missing here rather than that the rule should be bent.
+:mod:`slap_web` is the only front-end now, and this module is deliberately
+larger than it needs to be for one client. Two came before it: a PySide6
+desktop app and a command line, and the rule that outlived both is what
+keeps this file worth having. Nothing here imports a UI framework, argparse
+or a template engine; if a front-end needs to reach past this file into
+:mod:`slap.db` or :mod:`slap.collectors`, that is the signal a function is
+missing here, not that the rule should be bent.
 
-Threading contract for the GUI:
+That rule is why replacing Qt with a browser was a rewrite of one package
+rather than of the project, and why deleting the command line moved
+`doctor`, `rules` and `vulndb update` into :func:`backend_status`,
+:func:`list_rules` and :func:`update_vulndb` instead of losing them. Logic
+that lives in a front-end dies with that front-end.
 
-* :class:`BatchWorker` owns a thread with its own asyncio event loop.
-  Qt's loop is never involved, so a slow TLS handshake cannot jank the UI.
-* Progress arrives via :class:`~slap.events.EventBus`. The GUI attaches a
-  ``QueueSink`` and drains it from the main thread on a ``QTimer``.
-* :meth:`BatchWorker.cancel` is safe to call from the Qt main thread.
-* Every database write happens on the worker thread; the GUI's reads use
-  its own thread-local connection. WAL mode keeps them out of each
-  other's way.
+Threading contract:
+
+* :class:`BatchWorker` owns a thread with its own asyncio event loop, so a
+  slow TLS handshake cannot stall anything the operator is looking at.
+* Progress arrives via :class:`~slap.events.EventBus`.
+* :meth:`BatchWorker.cancel` is safe to call from any thread.
+* Every database write happens on the worker thread; reads use their own
+  thread-local connection, and WAL mode keeps them out of each other's way.
 """
 
 from __future__ import annotations
@@ -1100,6 +1106,266 @@ def clear_history(settings: Settings) -> ClearResult:
         findings=result["findings"], observations=result["observations"],
         artifact_files=removed_files, artifact_bytes=removed_bytes,
     )
+
+
+@dataclass(slots=True)
+class Backend:
+    """One optional capability, and what it does when it is missing.
+
+    ``consequence`` is the field that matters. Every backend here degrades
+    quietly by design: no CrUX key means no field data, no Lighthouse means
+    no lab data, no vulnerability database means components are inventoried
+    and never checked. Each of those is a report that says less and looks
+    exactly as confident doing it, so the screen listing them has to say
+    what the absence costs rather than only that something is absent.
+    """
+
+    name: str
+    ok: bool
+    detail: str
+    consequence: str = ""
+
+
+def backend_status(settings: Settings) -> list[Backend]:
+    """Every optional backend, checked by doing rather than by looking.
+
+    Lives here rather than in a front-end because both the screen and the
+    build harness ask the same question and must not answer it differently.
+    It was a CLI command for most of this project's life, which meant the
+    only way to find out why a report was thin was to open a terminal that
+    the packaged app does not have.
+
+    Each check runs the real code path. `check_backend` once reported PDF
+    export healthy on a bundle whose export failed because it stat-ed a
+    file instead of launching the browser, and `doctor` reported CrUX
+    healthy whenever a key was merely set, which a key can be while being
+    rejected on every request.
+    """
+    from .collectors.crux import check_key
+    from .collectors.lighthouse import LighthouseRunner, default_chrome_path
+    from .vulndb import VulnDatabase
+
+    out: list[Backend] = []
+
+    crux_ok, crux_detail = asyncio.run(check_key(settings.collector.crux_api_key))
+    out.append(Backend(
+        "CrUX field data", crux_ok, crux_detail,
+        "" if crux_ok else "Reports rely on lab measurements only and say so."))
+
+    runner = LighthouseRunner(settings.lighthouse)
+    lh_ok, lh_detail = runner.check()
+    if lh_ok:
+        try:
+            versions = asyncio.run(runner.probe())
+            lh_detail = (f"Lighthouse {versions.get('lighthouseVersion')}, "
+                         f"Chrome {versions.get('chromeVersion')}, "
+                         f"Node {versions.get('node')}")
+        except Exception as exc:                       # noqa: BLE001
+            lh_ok, lh_detail = False, f"{type(exc).__name__}: {exc}"
+    out.append(Backend(
+        "Lighthouse lab data", lh_ok, lh_detail,
+        "" if lh_ok else "Audits collect network and security data only."))
+
+    chrome = default_chrome_path()
+    out.append(Backend(
+        "Chromium for measurement", bool(chrome),
+        str(chrome) if chrome else "no Chromium found",
+        "" if chrome else "Needed by both Lighthouse and PDF export."))
+
+    pdf = pdf_backend_status()
+    out.append(Backend(
+        "PDF export", bool(pdf), pdf.detail,
+        "" if pdf else "Reports still export as HTML, which is the artifact "
+                       "of record."))
+
+    database = VulnDatabase.load(settings.vulndb_path)
+    if not database.available:
+        out.append(Backend(
+            "Vulnerability database", False,
+            f"none at {settings.vulndb_path}",
+            "Components are inventoried and NOT checked. The report says so "
+            "rather than implying they are clean."))
+    else:
+        age = database.age_days
+        detail = (f"{database.count} advisories from "
+                  f"{', '.join(sorted(database.sources))}")
+        if age is not None:
+            detail += f", {age} day(s) old"
+        stale = age is not None and age > 30
+        out.append(Backend(
+            "Vulnerability database", not stale, detail,
+            "Stale data produces confidently out-of-date findings. Update it "
+            "below." if stale else ""))
+
+    return out
+
+
+def list_rules(settings: Settings) -> list[dict[str, Any]]:
+    """Every findings rule, as data. Raises RuleError on an invalid file."""
+    from .findings import FindingsEngine
+
+    engine = FindingsEngine.load(settings.rules_path)
+    return [
+        {"id": rule.id, "severity": rule.severity.value, "title": rule.title,
+         "detail": rule.detail, "remediation": rule.remediation or "",
+         "wp_rocket_setting": rule.wp_rocket_setting or "",
+         "effort": getattr(rule.effort, "value", rule.effort) or ""}
+        for rule in engine.rules
+    ]
+
+
+def vulndb_status(settings: Settings) -> dict[str, Any]:
+    """What the vulnerability database holds, for the screen that updates it."""
+    from .vulndb import VulnDatabase
+
+    database = VulnDatabase.load(settings.vulndb_path)
+    return {
+        "available": database.available,
+        "count": database.count,
+        "packages": len(database.index),
+        "generated_at": database.generated_at,
+        "age_days": database.age_days,
+        "sources": ", ".join(f"{k} ({v})"
+                             for k, v in sorted(database.sources.items())),
+        "path": str(settings.vulndb_path),
+        "covered": {k: len(v) for k, v in sorted(database.covered.items())},
+    }
+
+
+#: The audit settings a person actually turns, with the section of
+#: config.toml each one lives in and the bounds that keep a typo from
+#: producing measurements nobody can reproduce. The Lighthouse cap is 4 and
+#: not a suggestion: contended CPU inflates blocking time, so a wider
+#: fan-out yields plausible, irreproducible scores. It was a hard cap on a
+#: spinbox in the Qt app for exactly this reason, and a free-form number
+#: field is the same invitation.
+AUDIT_DEFAULTS: tuple[tuple[str, str, str, str, int, int], ...] = (
+    ("discovery", "pages_per_site", "Pages per site",
+     "How many discovered pages one audit covers. The cap that bites on a "
+     "large site, and the report discloses it when it does.", 1, 200),
+    ("discovery", "lighthouse_pages_per_site", "Measured pages per site",
+     "How many of those pages get the browser audit, one per page template. "
+     "About 90 seconds each.", 1, 40),
+    ("discovery", "page_concurrency", "Pages at once, within a site",
+     "Multiplies with the site setting below, so two unbounded fan-outs "
+     "become hundreds of requests in flight.", 1, 20),
+    ("collector", "http_concurrency", "Sites at once",
+     "Network collectors only. Safe to widen.", 1, 50),
+    ("lighthouse", "runs", "Lighthouse runs per page",
+     "The median is reported and the spread recorded. Three is the useful "
+     "minimum for a number worth defending.", 1, 5),
+    ("lighthouse", "concurrency", "Lighthouse runs at once",
+     "Capped at 4 deliberately. Contended CPU inflates blocking time, which "
+     "produces plausible scores nobody can reproduce.", 1, 4),
+)
+
+
+def audit_defaults(settings: Settings) -> list[dict[str, Any]]:
+    """The current value of each tunable, for the screen that edits them."""
+    sections = {"discovery": settings.discovery,
+                "collector": settings.collector,
+                "lighthouse": settings.lighthouse}
+    return [
+        {"section": section, "key": key, "label": label, "help": blurb,
+         "minimum": low, "maximum": high,
+         "value": getattr(sections[section], key)}
+        for section, key, label, blurb, low, high in AUDIT_DEFAULTS
+    ]
+
+
+def save_audit_default(settings: Settings, section: str, key: str,
+                       value: int) -> Path:
+    """Persist one tunable and apply it to this session.
+
+    Bounds are enforced here rather than in the browser: a number input's
+    ``max`` is a suggestion to the honest and nothing at all to anyone who
+    posts the form directly, and the Lighthouse concurrency cap is a
+    measurement-quality guarantee rather than a preference.
+    """
+    from dataclasses import replace as _replace
+
+    from . import config
+
+    spec = next((s for s in AUDIT_DEFAULTS
+                 if s[0] == section and s[1] == key), None)
+    if spec is None:
+        raise ValueError(f"{section}.{key} is not an audit setting.")
+    _, _, label, _, low, high = spec
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{label} must be a whole number.") from None
+    if not low <= number <= high:
+        raise ValueError(f"{label} must be between {low} and {high}.")
+
+    path = config.save_setting(key, number, section=section,
+                               path=settings.config_path)
+    target = {"discovery": "discovery", "collector": "collector",
+              "lighthouse": "lighthouse"}[section]
+    current = getattr(settings, target)
+    if section == "lighthouse":
+        setattr(current, key, number)          # a plain mutable dataclass
+    else:
+        setattr(settings, target, _replace(current, **{key: number}))
+    return path
+
+
+def update_vulndb(settings: Settings, *, source: str = "nvd",
+                  progress=None) -> dict[str, Any]:
+    """Rebuild the vulnerability database. Blocking.
+
+    ``source`` is "nvd" (everything, CPE-mapped, the default) or "osv" (npm
+    only, no key, no CPE map to maintain). OSV is kept reachable rather
+    than merely present: it is documented as the fallback for when NVD is
+    having a bad day, which is not hypothetical for that API, and a
+    fallback nobody can select is not a fallback.
+
+    Returns ``{"ok": bool, "message": str}`` rather than raising, because
+    the caller is a background job reporting to a screen, and "13 products
+    could not be queried" is information rather than an exception.
+
+    The refusals matter more than the success path. A product that fails
+    after retries, or that returns nothing where the previous database had
+    entries, aborts the write entirely: NVD answers an over-eager client
+    with errors that an incautious loop records as "no vulnerabilities", and
+    a database that quietly shrinks makes every later audit report less
+    while looking exactly as confident.
+    """
+    from . import config, vulndb as vulndb_module
+
+    previous = vulndb_module.VulnDatabase.load(settings.vulndb_path)
+    if source == "osv":
+        database = vulndb_module.build_from_osv(previous=previous,
+                                                progress=progress)
+    else:
+        database = vulndb_module.build_from_nvd(previous=previous,
+                                                progress=progress)
+
+    if database.failures:
+        return {"ok": False, "message": (
+            f"{len(database.failures)} product(s) could not be queried "
+            f"({', '.join(database.failures[:6])}). Nothing was written: a "
+            "database that is quietly smaller than the one it replaces is "
+            "worse than a stale one. Both sources rate-limit bursts, so "
+            "trying again shortly usually works.")}
+    if not database.available:
+        return {"ok": False, "message": (
+            "The source returned no advisories at all. The existing database "
+            "was kept.")}
+
+    # NOT settings.vulndb_path: that resolves to whichever copy is newer,
+    # which inside a frozen bundle is the bundled one. Writing there either
+    # fails (Program Files, a signed .app) or succeeds and is silently
+    # discarded by the next upgrade.
+    destination = config.writable_vulndb_path()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(database.to_json(), encoding="utf-8")
+    # And point this session at what was just written, or the app keeps
+    # matching against the old file until someone restarts it.
+    settings.vulndb_path = destination
+    return {"ok": True, "message": (
+        f"{database.count} advisories across {len(database.index)} packages, "
+        f"written to {destination}.")}
 
 
 def set_probe_enabled(settings: Settings, enabled: bool) -> Path:

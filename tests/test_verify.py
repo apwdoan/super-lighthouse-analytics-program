@@ -412,17 +412,17 @@ def test_verify_never_raises_even_when_everything_is_wrong(tmp_path, monkeypatch
         c.name for c in report.failures}
 
 
-def test_the_command_exits_non_zero_on_failure(tmp_path, capsys):
-    import argparse
-
-    from slap import cli
+def test_the_command_exits_non_zero_on_failure(tmp_path, capsys, monkeypatch):
+    """CI reads the exit code, and this is now the ONLY command line this
+    project has: SLAP is a GUI application and `verify` survived the CLI's
+    removal because it is the build's self-test, not a user feature."""
+    from slap import verify as verify_module
 
     broken = Settings()
     broken.vulndb_path = tmp_path / "missing.json"
     broken.collector.crux_api_key = None
-    args = argparse.Namespace(json=True, no_lighthouse=True, no_web=True,
-                              max_vulndb_age=None)
-    code = cli.cmd_verify(args, broken)
+    monkeypatch.setattr(Settings, "load", classmethod(lambda cls, p=None: broken))
+    code = verify_module.main(["--json", "--no-lighthouse", "--no-web"])
     assert code == 1
     assert '"ok": false' in capsys.readouterr().out
 
@@ -440,12 +440,10 @@ def test_no_sqlite_connection_survives_cmd_verify(tmp_path, monkeypatch, capsys)
     created during the command and asserts each was closed, which fails
     loudly and cross-platform on the day someone leaks one.
     """
-    import argparse
     import sqlite3
-
-    from slap import cli
-
     import threading
+
+    from slap import verify as verify_module
 
     made: list[tuple[str, str, sqlite3.Connection]] = []
     real_connect = sqlite3.connect
@@ -467,9 +465,9 @@ def test_no_sqlite_connection_survives_cmd_verify(tmp_path, monkeypatch, capsys)
 
     settings = Settings()
     settings.collector.crux_api_key = None
-    args = argparse.Namespace(json=True, no_lighthouse=True, no_web=True,
-                              max_vulndb_age=None)
-    cli.cmd_verify(args, settings)
+    monkeypatch.setattr(Settings, "load",
+                        classmethod(lambda cls, p=None: settings))
+    verify_module.main(["--json", "--no-lighthouse", "--no-web"])
 
     # Only the command's own connections. The monkeypatch window is process
     # wide, and an anyio worker thread idling on from an earlier test's web
@@ -535,19 +533,16 @@ def test_scratch_cleanup_gives_up_quietly_not_with_a_traceback(monkeypatch,
     real_rmtree(root)
 
 
-def test_verifying_does_not_write_into_a_real_database(tmp_path):
-    """`slap verify` must be safe to run on a machine with audits worth
+def test_verifying_does_not_write_into_a_real_database(tmp_path, monkeypatch):
+    """The self-check must be safe to run on a machine with audits worth
     keeping: it writes to a scratch directory, not to the user's history."""
-    import argparse
-
-    from slap import cli
+    from slap import verify as verify_module
 
     real = Settings()
     real.db_path = tmp_path / "precious.sqlite3"
     real.collector.crux_api_key = None
-    args = argparse.Namespace(json=True, no_lighthouse=True, no_web=True,
-                              max_vulndb_age=None)
-    cli.cmd_verify(args, real)
+    monkeypatch.setattr(Settings, "load", classmethod(lambda cls, p=None: real))
+    verify_module.main(["--json", "--no-lighthouse", "--no-web"])
     assert not (tmp_path / "precious.sqlite3").exists()
 
 

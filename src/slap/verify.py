@@ -12,12 +12,14 @@ inside the bundle they verify. What stays platform-specific in CI is only what
 genuinely is: launching the process, finding the executable, and stripping the
 environment.
 
-It is also a user-facing diagnostic rather than CI scaffolding. A teammate who
-unzips the bundle and is not sure it survived the download runs
-
-    SLAP.exe --cli verify
-
-and gets a yes or a specific no.
+**The only command line this project still has, and not a user feature.**
+SLAP is a GUI application: the executable opens a browser and there is
+nothing for a person to type. This survives the CLI's removal because CI
+runs it against the bundle it just built, on every platform, and it is what
+caught the macOS signature break, the missing Node inside the .app, the
+windowed-launch crash and the vulnerability database resolving outside the
+bundle. A check somebody has to remember to run is a check that does not
+run. See :func:`main` for how it is reached.
 
 The governing rule, inherited from `doctor` and from the packaging work:
 **check the thing the real code path does, not a proxy for it.** `check_backend`
@@ -423,3 +425,79 @@ def render(report: VerifyReport, *, as_json: bool = False) -> str:
                  "This build is NOT usable: "
                  + ", ".join(c.name for c in report.failures))
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
+# The command line, and the only one this project still has.
+#
+# SLAP is a GUI application: the executable opens a browser and there is no
+# user-facing command line at all. This one survives because it is not a
+# user feature. It is the build's self-test, run by CI against the bundle
+# it just produced on every platform, and it is what caught the macOS
+# signature break, the missing Node in the .app, the windowed-launch crash
+# and the vulnerability database that resolved outside the bundle. A check
+# a person has to remember to run is a check that does not run.
+#
+# Reached as `python -m slap.verify` from a source checkout and
+# `SLAP --self-check` from the bundle. Neither is advertised anywhere a
+# user looks.
+# --------------------------------------------------------------------------
+
+def main(argv: "list[str] | None" = None) -> int:
+    """Run every check, print the report, and return the exit code CI reads."""
+    import argparse
+
+    from . import core
+    from .config import Settings
+
+    parser = argparse.ArgumentParser(
+        prog="slap --self-check",
+        description="Prove this build works. Internal; not a user command.")
+    parser.add_argument("--json", action="store_true",
+                        help="machine-readable output")
+    parser.add_argument("--no-lighthouse", action="store_true",
+                        help="skip the browser checks")
+    parser.add_argument("--no-web", action="store_true",
+                        help="skip the web server checks")
+    parser.add_argument("--max-vulndb-age", type=int, metavar="DAYS",
+                        help="fail if the bundled database is older than this")
+    parser.add_argument("--config", default=None)
+    args = parser.parse_args(argv)
+
+    settings = Settings.load(args.config)
+
+    # A scratch database and report directory, so verifying never writes into
+    # a teammate's real history. Safe to run twice on a machine that has
+    # audits worth keeping. Not a plain TemporaryDirectory: on Windows,
+    # deleting the just-checkpointed database races the virus scanner.
+    with scratch_directory("slap-verify-") as root:
+        settings.db_path = root / "verify.sqlite3"
+        settings.artifact_dir = root / "artifacts"
+        settings.report_dir = root / "reports"
+        settings.discovery.enabled = False        # one page is the point
+        settings.collector.crux_api_key = None    # no network dependency
+
+        # The web checks live in `slap_web`, because they drive uvicorn and
+        # nothing under `slap/` may import a web framework. This function is
+        # the seam that puts the two together, as the CLI used to be.
+        extra = []
+        if not args.no_web:
+            try:
+                from slap_web.verify import (
+                    check_headless_launch, check_web_server,
+                )
+
+                extra.extend([check_web_server, check_headless_launch])
+            except ImportError:
+                pass
+
+        report = verify(settings, lighthouse=not args.no_lighthouse,
+                        max_vulndb_age_days=args.max_vulndb_age,
+                        extra_checks=extra)
+        print(render(report, as_json=args.json))
+        core.close_connections()
+    return 0 if report.ok else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

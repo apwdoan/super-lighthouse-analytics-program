@@ -1,4 +1,5 @@
 {% extends "base.html.j2" %}
+{% import "_macros.html.j2" as m %}
 {% block title %}Settings &middot; SLAP{% endblock %}
 {% block main %}
 <div class="bar">
@@ -8,6 +9,137 @@
   </div>
 </div>
 <div class="content">
+
+  <div class="card">
+    <header>
+      <div class="grow">
+        <h2>Backends</h2>
+        <div class="hint">
+          Every optional capability, checked by using it rather than by
+          looking for it. All of these degrade quietly by design, so what
+          matters is what the absence costs.
+        </div>
+      </div>
+    </header>
+    <table>
+      <tbody>
+        {% for backend in backends %}
+          <tr>
+            <td style="width:210px">{{ backend.name }}</td>
+            <td style="width:110px">
+              {{ m.badge('good' if backend.ok else 'muted',
+                         'Available' if backend.ok else 'Missing') }}
+            </td>
+            <td class="hint">
+              {{ backend.detail }}
+              {% if backend.consequence %}
+                <div style="margin-top:3px">{{ backend.consequence }}</div>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <header>
+      <div class="grow">
+        <h2>Vulnerability database</h2>
+        <div class="hint">
+          Matched offline, never by calling out during an audit: a per-audit
+          lookup would send a client's component inventory to a third party.
+        </div>
+      </div>
+      {% if vulndb.available %}
+        {{ m.badge('good' if (vulndb.age_days or 0) <= 30 else 'warning',
+                   'Current' if (vulndb.age_days or 0) <= 30 else 'Stale') }}
+      {% else %}
+        {{ m.badge('muted', 'Missing') }}
+      {% endif %}
+    </header>
+
+    {% if vulndb.available %}
+      <table>
+        <tbody>
+          <tr><td style="width:210px">Advisories</td>
+              <td class="hint">{{ vulndb.count }} across {{ vulndb.packages }} packages</td></tr>
+          <tr><td>Sources</td><td class="hint">{{ vulndb.sources }}</td></tr>
+          <tr><td>Built</td>
+              <td class="hint">
+                {{ vulndb.generated_at }}
+                {% if vulndb.age_days is not none %}({{ vulndb.age_days }} day(s) ago){% endif %}
+              </td></tr>
+          <tr><td>File</td><td class="hint">{{ vulndb.path }}</td></tr>
+        </tbody>
+      </table>
+    {% else %}
+      <p class="hint">
+        No database is present, so components are inventoried and NOT checked.
+        That is not a clean result; it is an absent check, and the report
+        says so.
+      </p>
+    {% endif %}
+
+    <div class="row" style="margin-top:12px">
+      <form method="post" action="/settings/vulndb/update" class="row">
+        <label>
+          Source
+          {# OSV is reachable rather than merely present: it is documented
+             as the fallback for when NVD is having a bad day, which is not
+             hypothetical for that API, and a fallback nobody can select is
+             not a fallback. #}
+          <select name="source" style="font:inherit; font-size:13px; padding:6px 9px">
+            <option value="nvd">NIST NVD (everything)</option>
+            <option value="osv">OSV.dev (npm only, no key)</option>
+          </select>
+        </label>
+        <button class="btn" type="submit" id="vulndb-btn"
+                {{ 'disabled' if update.running else '' }}>
+          {{ 'Updating...' if update.running else 'Update now' }}
+        </button>
+      </form>
+      <div class="hint" id="vulndb-progress">
+        {% if update.running %}
+          {{ update.done }} of {{ update.total }}: {{ update.line }}
+        {% else %}
+          About five minutes without an NVD_API_KEY (5 requests per 30s),
+          under a minute with one.
+        {% endif %}
+      </div>
+    </div>
+    {% if update.result %}
+      <div class="card notice">
+        <span class="badge"><span class="sw good"></span>Updated</span>
+        {{ update.result }}
+      </div>
+    {% endif %}
+    {% if update.error %}
+      <div class="card notice">
+        <span class="badge"><span class="sw poor"></span>Not updated</span>
+        {{ update.error }}
+      </div>
+    {% endif %}
+  </div>
+
+  <script>
+    // Only while a refresh is in flight. The job runs for minutes, so the
+    // page has to show it moving or the button reads as broken.
+    (function () {
+      if (!{{ 'true' if update.running else 'false' }}) return;
+      const line = document.getElementById("vulndb-progress");
+      const tick = setInterval(async () => {
+        const r = await fetch("/settings/vulndb/progress");
+        const s = await r.json();
+        if (s.running) {
+          line.textContent = `${s.done} of ${s.total}: ${s.line}`;
+        } else {
+          clearInterval(tick);
+          location.reload();
+        }
+      }, 2000);
+    })();
+  </script>
 
   <div class="card">
     <header>
@@ -174,6 +306,51 @@
       report. "Who said we could, and when" is the question this answers
       months later, so the name is required.
     </p>
+  </div>
+
+  <div class="card">
+    <header>
+      <div class="grow">
+        <h2>Audit defaults</h2>
+        <div class="hint">
+          What every audit uses unless you say otherwise. Saved to
+          config.toml, so they survive a restart.
+        </div>
+      </div>
+    </header>
+
+    {% if defaults_error %}
+      <div class="card notice">
+        <span class="badge"><span class="sw poor"></span>Not saved</span>
+        {{ defaults_error }}
+      </div>
+    {% elif defaults_note %}
+      <div class="card notice">
+        <span class="badge"><span class="sw good"></span>Saved</span>
+        {{ defaults_note }}
+      </div>
+    {% endif %}
+
+    <form method="post" action="/settings/audit-defaults">
+      <table>
+        <tbody>
+          {% for row in audit_defaults %}
+            <tr>
+              <td style="width:230px">{{ row.label }}</td>
+              <td style="width:100px">
+                <input name="{{ row.section }}.{{ row.key }}" type="number"
+                       value="{{ row.value }}" min="{{ row.minimum }}"
+                       max="{{ row.maximum }}" style="width:70px">
+              </td>
+              <td class="hint">{{ row.help }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="row" style="margin-top:10px">
+        <button class="btn primary" type="submit">Save defaults</button>
+      </div>
+    </form>
   </div>
 
   <div class="card">

@@ -757,28 +757,94 @@ def test_resolution_falls_back_when_neither_copy_exists(monkeypatch, tmp_path):
     assert config.default_vulndb_path() == tmp_path / "app" / "vulndb.json"
 
 
-def test_an_empty_refresh_does_not_overwrite_good_data(monkeypatch, tmp_path, capsys):
-    """OSV returning nothing must not blank the database: the next audit
-    would report zero vulnerabilities and look clean doing it."""
-    import argparse
+def test_an_empty_refresh_does_not_overwrite_good_data(monkeypatch, tmp_path):
+    """A source returning nothing must not blank the database: the next
+    audit would report zero vulnerabilities and look clean doing it.
 
-    from slap import cli
+    Drives `core.update_vulndb`, which is where this guard moved when the
+    command line was deleted. The refusal is the reason the logic could not
+    simply be dropped with `cmd_vulndb`: it is a property of the update,
+    not of the interface that triggered it.
+    """
+    from slap import config
     from slap.vulndb import VulnDatabase
 
     target = tmp_path / "vulndb.json"
-    target.write_text(VulnDatabase.load(default_db_path()).to_json(), encoding="utf-8")
+    target.write_text(VulnDatabase.load(default_db_path()).to_json(),
+                      encoding="utf-8")
     before = target.read_text(encoding="utf-8")
 
-    monkeypatch.setattr(cli, "config", cli.config)
     monkeypatch.setattr("slap.vulndb.build_from_nvd", lambda **kw: VulnDatabase())
-    monkeypatch.setattr(cli.config, "writable_vulndb_path", lambda: target)
+    monkeypatch.setattr(config, "writable_vulndb_path", lambda: target)
 
     settings = Settings()
     settings.vulndb_path = target
-    code = cli.cmd_vulndb(argparse.Namespace(action="update", source="nvd"),
-                          settings)
-    assert code == 1
+    result = core.update_vulndb(settings)
+    assert result["ok"] is False
+    assert "no advisories" in result["message"]
     assert target.read_text(encoding="utf-8") == before
+
+
+def test_a_refresh_with_failures_writes_nothing(monkeypatch, tmp_path):
+    """The other refusal: NVD answers an over-eager client with errors, and
+    an incautious loop records those as "no vulnerabilities"."""
+    from slap import config
+    from slap.vulndb import VulnDatabase
+
+    target = tmp_path / "vulndb.json"
+    target.write_text(VulnDatabase.load(default_db_path()).to_json(),
+                      encoding="utf-8")
+    before = target.read_text(encoding="utf-8")
+
+    def half_broken(**kwargs):
+        database = VulnDatabase(sources={"npm": "NIST NVD"})
+        database.index[("npm", "jquery")] = [Vulnerability(
+            id="CVE-1", package="jquery", ecosystem="npm", summary="",
+            severity="low", ranges=(AffectedRange(introduced=(1,)),))]
+        database.failures = ["npm:lodash", "wordpress:wordpress"]
+        return database
+
+    monkeypatch.setattr("slap.vulndb.build_from_nvd", half_broken)
+    monkeypatch.setattr(config, "writable_vulndb_path", lambda: target)
+
+    settings = Settings()
+    settings.vulndb_path = target
+    result = core.update_vulndb(settings)
+    assert result["ok"] is False
+    assert "npm:lodash" in result["message"]
+    assert target.read_text(encoding="utf-8") == before
+
+
+def test_a_good_refresh_is_written_and_used_immediately(monkeypatch, tmp_path):
+    """Writing the file is not enough: the running app resolved
+    `vulndb_path` at startup, so without repointing it the next audit keeps
+    matching against the database the update just replaced."""
+    from slap import config
+    from slap.vulndb import VulnDatabase
+
+    target = tmp_path / "written.json"
+
+    def fresh(**kwargs):
+        database = VulnDatabase(generated_at="2026-08-03T00:00:00+00:00",
+                                sources={"npm": "NIST NVD"})
+        database.covered = {"npm": ("jquery",)}
+        database.index[("npm", "jquery")] = [Vulnerability(
+            id="CVE-2020-11023", package="jquery", ecosystem="npm",
+            summary="", severity="medium",
+            ranges=(AffectedRange(introduced=(1,), fixed=(3, 5, 0)),))]
+        return database
+
+    monkeypatch.setattr("slap.vulndb.build_from_nvd", fresh)
+    monkeypatch.setattr(config, "writable_vulndb_path", lambda: target)
+
+    settings = Settings()
+    settings.vulndb_path = tmp_path / "old-and-absent.json"
+    result = core.update_vulndb(settings)
+    assert result["ok"] is True
+    assert target.is_file()
+    assert settings.vulndb_path == target
+    assert VulnDatabase.load(settings.vulndb_path).query(
+        "npm", "jquery", "3.4.1")
 
 
 def test_a_package_that_silently_returns_empty_is_treated_as_a_failure(monkeypatch):

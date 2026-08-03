@@ -858,3 +858,230 @@ def test_the_settings_page_warns_when_the_switch_alone_is_on(client, seeded,
                        follow_redirects=True).text
     assert "no host is authorised" in body
     assert "No host is authorised" in body      # and again beside the table
+
+
+# --------------------------------------------------------------------------
+# What the command line used to do
+# --------------------------------------------------------------------------
+
+def test_there_is_no_command_line_left():
+    """SLAP is a GUI application. The only argument the executable accepts
+    is the build's own self-check, and that is not a user feature."""
+    import importlib
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("slap.cli")
+
+    entry = pathlib.Path(__file__).resolve().parent.parent / "packaging" / "entry.py"
+    source = entry.read_text(encoding="utf-8")
+    assert "--self-check" in source
+    assert "slap.cli" not in source
+
+
+def test_the_entry_point_dispatches_anything_else_to_the_gui(monkeypatch):
+    """The BRANCH only. That the launcher then survives those arguments is a
+    separate question, and answering it here by monkeypatching `slap_web.main`
+    is what let the real failure through: the entry point fell through to the
+    GUI correctly and the GUI's own argparse then killed it with usage text
+    into a log nobody reads. See the test below."""
+    import sys
+
+    sys.path.insert(0, str(
+        pathlib.Path(__file__).resolve().parent.parent / "packaging"))
+    import entry
+
+    started = []
+    monkeypatch.setattr("slap_web.main", lambda: started.append("gui") or 0)
+    monkeypatch.setattr("slap.streams.attach_output", lambda path=None: None)
+
+    for argv in ([], ["--cli", "audit"], ["/some/dropped/file.txt"], ["-h"]):
+        started.clear()
+        monkeypatch.setattr(sys, "argv", ["SLAP", *argv])
+        assert entry.main() == 0
+        assert started == ["gui"], f"{argv} did not start the GUI"
+
+
+def test_the_self_check_still_reaches_verify(monkeypatch):
+    import sys
+
+    sys.path.insert(0, str(
+        pathlib.Path(__file__).resolve().parent.parent / "packaging"))
+    import entry
+
+    seen = []
+    monkeypatch.setattr("slap.verify.main", lambda argv: seen.append(argv) or 0)
+    monkeypatch.setattr("slap.streams.attach_output", lambda path=None: None)
+    monkeypatch.setattr(sys, "argv", ["SLAP", "--self-check", "--json"])
+    assert entry.main() == 0
+    assert seen == [["--json"]]
+
+
+def test_the_backends_screen_replaces_doctor(client, seeded):
+    """`doctor` was a command, which meant the only way to find out why a
+    report was thin was to open a terminal this application does not have."""
+    body = client.get("/settings").text
+    for backend in ("CrUX field data", "Lighthouse lab data",
+                    "Chromium for measurement", "PDF export",
+                    "Vulnerability database"):
+        assert backend in body, backend
+    # And what the absence costs, not merely that something is absent.
+    assert "lab measurements only" in body
+
+
+def test_the_rules_screen_replaces_the_rules_command(client):
+    body = client.get("/rules").text
+    assert "What SLAP checks for" in body
+    assert "wprocket-cache-cold" in body        # a real rule id
+    assert "In WP Rocket:" in body              # its remediation mapping
+
+
+def test_the_database_screen_replaces_vulndb(client, seeded, monkeypatch):
+    body = client.get("/settings").text
+    assert "Update now" in body
+    assert "NIST NVD (everything)" in body
+    assert "OSV.dev (npm only, no key)" in body     # the fallback, selectable
+    assert "advisories" in body
+
+    started = {}
+
+    def fake_update(settings, source="nvd", progress=None):
+        started["ran"] = source
+        return {"ok": True, "message": "42 advisories written."}
+
+    monkeypatch.setattr("slap.core.update_vulndb", fake_update)
+    client.post("/settings/vulndb/update")
+    for _ in range(50):
+        if not client.app.state.database_update.snapshot()["running"]:
+            break
+        import time
+        time.sleep(0.1)
+    snapshot = client.app.state.database_update.snapshot()
+    assert started.get("ran") == "nvd"
+    assert snapshot["result"] == "42 advisories written."
+    assert snapshot["running"] is False
+
+
+def test_audit_defaults_replace_the_audit_flags(client, seeded, tmp_path):
+    """--pages, --lh-pages, -c and friends went with the CLI. They are
+    settings now, because a page cap is something you set once."""
+    seeded.config_path = tmp_path / "config.toml"
+    body = client.post("/settings/audit-defaults",
+                       data={"discovery.pages_per_site": "35",
+                             "lighthouse.runs": "1"},
+                       follow_redirects=True).text
+    assert "2 settings saved" in body
+    assert seeded.discovery.pages_per_site == 35      # this session
+    assert seeded.lighthouse.runs == 1
+    saved = seeded.config_path.read_text(encoding="utf-8")
+    assert "pages_per_site = 35" in saved             # and the next
+    assert "runs = 1" in saved
+
+
+def test_the_lighthouse_concurrency_cap_survives_the_browser(client, seeded,
+                                                             tmp_path):
+    """Capped at 4 because contended CPU inflates blocking time and yields
+    plausible, irreproducible scores. A number input's `max` is a suggestion
+    to the honest and nothing at all to anyone posting the form directly, so
+    the bound is enforced server-side."""
+    seeded.config_path = tmp_path / "config.toml"
+    body = client.post("/settings/audit-defaults",
+                       data={"lighthouse.concurrency": "16"},
+                       follow_redirects=True).text
+    assert "Not saved" in body
+    assert "between 1 and 4" in body
+    assert seeded.lighthouse.concurrency != 16
+    assert not seeded.config_path.exists()
+
+
+def test_a_stuck_update_cannot_disable_the_button_forever(seeded, monkeypatch):
+    """The job must clear its running flag whatever happens. An earlier
+    version cleared it only on the success path, so anything unexpected
+    left the job pretending to work: button disabled, page polling a dead
+    thread, and no cure but restarting the app."""
+    import time
+
+    from slap_web.jobs import DatabaseUpdate
+
+    for broken in (lambda settings, source="nvd", progress=None: True,
+                   lambda settings, source="nvd", progress=None: 1 / 0):
+        job = DatabaseUpdate(seeded)
+        monkeypatch.setattr("slap.core.update_vulndb", broken)
+        assert job.start()[0] is True
+        for _ in range(50):
+            if not job.snapshot()["running"]:
+                break
+            time.sleep(0.1)
+        snapshot = job.snapshot()
+        assert snapshot["running"] is False, "the job never released the button"
+        assert snapshot["error"], "a failure must say something"
+
+
+def test_two_updates_cannot_run_at_once(seeded, monkeypatch):
+    import threading
+
+    from slap_web.jobs import DatabaseUpdate
+
+    release = threading.Event()
+    job = DatabaseUpdate(seeded)
+    monkeypatch.setattr("slap.core.update_vulndb",
+                        lambda settings, source="nvd", progress=None: (
+                            release.wait(10), {"ok": True, "message": "done"})[1])
+    try:
+        assert job.start()[0] is True
+        started, message = job.start()
+        assert started is False
+        assert "already running" in message
+    finally:
+        release.set()
+
+
+def test_the_osv_fallback_is_actually_reachable(seeded, monkeypatch):
+    """It is documented as the fallback for when NVD is having a bad day,
+    which is not hypothetical for that API. A fallback nobody can select is
+    not a fallback, and after the CLI was deleted `--source osv` was the
+    only way to reach it."""
+    import time
+
+    from slap_web.jobs import DatabaseUpdate
+
+    used = {}
+
+    def fake(settings, source="nvd", progress=None):
+        used["source"] = source
+        return {"ok": True, "message": "from " + source}
+
+    monkeypatch.setattr("slap.core.update_vulndb", fake)
+    job = DatabaseUpdate(seeded)
+    started, message = job.start("osv")
+    assert started and "OSV.dev" in message
+    for _ in range(50):
+        if not job.snapshot()["running"]:
+            break
+        time.sleep(0.1)
+    assert used["source"] == "osv"
+    assert job.snapshot()["result"] == "from osv"
+
+
+def test_the_launcher_starts_whatever_it_is_given(capsys):
+    """Nothing on the command line may stop the application starting.
+
+    SLAP has no console, so argparse's usual behaviour on an unrecognised
+    flag (print usage, exit 2) is a window that never opens and an error
+    written to a log file the user does not know exists. A shortcut still
+    carrying the deleted `--cli audit example.com` did exactly that: the
+    entry point fell through to the GUI, and the GUI refused to launch.
+    """
+    from slap_web.server import launch_options
+
+    for argv in ([], ["--cli", "audit", "example.com"], ["-h"], ["--help"],
+                 ["/Users/austin/Desktop/dropped.txt"], ["--nonsense=1"]):
+        options = launch_options(argv)          # must not raise or exit
+        assert options.port == 8765
+    assert "no command line" in capsys.readouterr().out
+
+    # And the flags the self-check and development actually use still work.
+    options = launch_options(["--port", "9100", "--no-browser",
+                              "--db", "/tmp/x.sqlite3"])
+    assert options.port == 9100
+    assert options.no_browser is True
+    assert options.db == "/tmp/x.sqlite3"

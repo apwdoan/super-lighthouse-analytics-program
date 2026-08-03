@@ -245,11 +245,11 @@ jobs:
           # check and the Windows step had already proved that.
           mkdir -p "$RUNNER_TEMP/clean"
           env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP/clean" \
-            "$APP" --cli verify --max-vulndb-age 14 | tee "$RUNNER_TEMP/verify.txt"
+            "$APP" --self-check --max-vulndb-age 14 | tee "$RUNNER_TEMP/verify.txt"
 
           # And keep the machine-readable copy for the build log.
           env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP/clean" \
-            "$APP" --cli verify --json --no-lighthouse --no-web \
+            "$APP" --self-check --json --no-lighthouse --no-web \
             > "$RUNNER_TEMP/verify.json" || true
 
 
@@ -285,7 +285,7 @@ jobs:
           # docs/packaging.md warned about exactly this and the step was
           # rewritten without it anyway. The pipe makes PowerShell read the
           # process output to EOF, which means waiting for the exit code.
-          & $app --cli verify --max-vulndb-age 14 2>&1 | ForEach-Object { "$_" }
+          & $app --self-check --max-vulndb-age 14 2>&1 | ForEach-Object { "$_" }
           if ($LASTEXITCODE -ne 0) { throw "slap verify failed (exit $LASTEXITCODE)" }
 
       - name: Upload

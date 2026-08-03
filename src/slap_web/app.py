@@ -25,6 +25,7 @@ from slap.config import Settings
 
 from . import viewmodel as vm
 from .activity import ActivityManager
+from .jobs import DatabaseUpdate
 
 HERE = Path(__file__).resolve().parent
 
@@ -48,6 +49,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     activity = ActivityManager(settings)
     app.state.activity = activity
+    database_update = DatabaseUpdate(settings)
+    app.state.database_update = database_update
     #: Set by the launcher to a callable that stops the server. None
     #: everywhere else (tests, the verify checks), where there is no server
     #: to stop -- and the Quit button hides itself accordingly.
@@ -238,7 +241,78 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             probe_error=getattr(app.state, "probe_error", None),
             probe_note=getattr(app.state, "probe_note", None),
             humanise=vm.humanise,
+            # What `slap doctor` used to print. It was a command, which
+            # meant the only way to find out why a report was thin was to
+            # open a terminal that this application does not have.
+            backends=core.backend_status(settings),
+            vulndb=core.vulndb_status(settings),
+            update=database_update.snapshot(),
+            audit_defaults=core.audit_defaults(settings),
+            defaults_error=getattr(app.state, "defaults_error", None),
+            defaults_note=getattr(app.state, "defaults_note", None),
         )
+
+    @app.post("/settings/audit-defaults")
+    async def save_audit_defaults(request: Request) -> RedirectResponse:
+        # The raw form rather than Form() parameters: the fields are named
+        # "discovery.pages_per_site" and a dot cannot be a Python argument
+        # name. Async only to await the body; the saves below are a few
+        # hundred bytes of file IO.
+        form = await request.form()
+        app.state.defaults_error = None
+        app.state.defaults_note = None
+        changed = 0
+        for row in core.audit_defaults(settings):
+            field = f"{row['section']}.{row['key']}"
+            if field not in form or str(form[field]) == str(row["value"]):
+                continue
+            try:
+                core.save_audit_default(settings, row["section"], row["key"],
+                                        form[field])
+            except ValueError as exc:
+                app.state.defaults_error = str(exc)
+                return RedirectResponse("/settings", status_code=303)
+            changed += 1
+        app.state.defaults_note = (
+            f"{changed} setting{'' if changed == 1 else 's'} saved. They "
+            "apply to the next audit." if changed else "Nothing changed.")
+        return RedirectResponse("/settings", status_code=303)
+
+    @app.post("/settings/vulndb/update")
+    def update_vulndb(source: str = Form(default="nvd")) -> RedirectResponse:
+        started, message = database_update.start(source)
+        app.state.defaults_error = None if started else message
+        app.state.defaults_note = message if started else None
+        return RedirectResponse("/settings", status_code=303)
+
+    @app.get("/settings/vulndb/progress")
+    def vulndb_progress() -> dict:
+        """Polled by the settings page while a refresh runs.
+
+        A keyless NVD refresh is about five minutes, which is far past any
+        browser's patience for a form post; the button starts a background
+        job and the page watches it here.
+        """
+        return database_update.snapshot()
+
+    @app.get("/rules", response_class=HTMLResponse)
+    def rules(request: Request) -> HTMLResponse:
+        """Every rule the findings engine will apply, as a page.
+
+        The rules are data, not code, and this is the screen that makes
+        that true for somebody who is not reading YAML: what SLAP checks
+        for, what it will say, and what it will recommend, before it is
+        said to a client.
+        """
+        from slap.findings import RuleError
+
+        try:
+            found = core.list_rules(settings)
+            error = None
+        except RuleError as exc:
+            found, error = [], str(exc)
+        return page(request, "rules.html.j2",
+                    rules=vm.group_rules(found), total=len(found), error=error)
 
     # ----------------------------------------------------------------
     # Endpoint probing. Two separate switches, deliberately: the global

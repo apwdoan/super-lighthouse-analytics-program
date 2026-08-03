@@ -321,7 +321,7 @@ current distros.
 
 Chromium also needs a handful of system libraries that PyInstaller does not
 collect (`libnss3`, `libatk`, `libgbm` and friends). Most desktops have
-them; a minimal container does not. `SLAP --cli doctor` fails clearly if
+them; a minimal container does not. `SLAP --self-check` fails clearly if
 Chromium cannot launch.
 
 ## Windows specifics
@@ -339,9 +339,9 @@ Chromium cannot launch.
   internal release page). Email and some chat tools strip .exe files even
   inside archives.
 - **The app is built `console=False`, and that has a sharp edge on the CLI.**
-  The CLI works from an existing terminal (`.\SLAP.exe --cli doctor`), but
-  because the binary is GUI-subsystem, **PowerShell and cmd do not wait for
-  it**. The prompt returns immediately and output arrives afterwards, so
+  The self-check works from an existing terminal
+  (`.\SLAP.exe --self-check`), but because the binary is GUI-subsystem,
+  **PowerShell and cmd do not wait for it**. The prompt returns immediately and output arrives afterwards, so
   anything that reads the results in the next command sees them missing.
 
   This cost a CI build. The verify step ran the report and then counted
@@ -351,9 +351,9 @@ Chromium cannot launch.
   To wait for it, make PowerShell read the output to EOF:
 
   ```powershell
-  $out = & .\SLAP.exe --cli report 1 -o C:\reports 2>&1 | Out-String
+  $out = & .\SLAP.exe --self-check 2>&1 | Out-String
   # or
-  Start-Process .\SLAP.exe -ArgumentList '--cli','report','1' -Wait -NoNewWindow
+  Start-Process .\SLAP.exe -ArgumentList '--self-check' -Wait -NoNewWindow
   ```
 
   Piping is the cheap fix and it is why the `doctor` and `audit` calls in
@@ -396,7 +396,7 @@ The fix is `slap/streams.py`: `attach_output()` replaces missing streams with
 a log file at `%LOCALAPPDATA%\slap\slap.log` (overridable with `SLAP_LOG`),
 falling back to `os.devnull` if it cannot be opened, because failing to open
 a log must never be the reason the app fails to start. It is called from
-`packaging/entry.py`, from `slap.cli.main`, and from
+`packaging/entry.py`, from `slap.verify.main`, and from
 `slap_web.server.make_config` — the last of those being the one that matters,
 because that is the function `slap verify` also calls.
 
@@ -409,7 +409,8 @@ original `ValueError` exactly.
 
 A useful side effect: a bundle that dies on launch now leaves a traceback in
 a file the user can send, instead of a message box saying "Unhandled
-exception in script" and nothing else. `slap doctor` prints the log path.
+exception in script" and nothing else. The Settings page prints the log
+path.
 
 ## Rebuilding after a code change
 
@@ -429,7 +430,7 @@ Run it in an environment with nothing available, which is the state a
 teammate's machine is in:
 
 ```bash
-env -i PATH=/usr/bin:/bin HOME=/tmp/clean ./dist/SLAP/SLAP --cli doctor
+env -i PATH=/usr/bin:/bin HOME=/tmp/clean ./dist/SLAP/SLAP --self-check
 ```
 
 Every backend except CrUX should report `ok`, and the paths should point
@@ -437,8 +438,7 @@ inside the bundle. Then do a real audit and export, because `doctor` alone
 has been wrong before:
 
 ```bash
-./dist/SLAP/SLAP --cli --db /tmp/t.sqlite3 audit example.com --lighthouse --lh-runs 1
-./dist/SLAP/SLAP --cli --db /tmp/t.sqlite3 report 1 -o /tmp/t
+./dist/SLAP/SLAP --self-check --max-vulndb-age 14
 ```
 
 ## What is not done
@@ -514,5 +514,5 @@ and `cmd | tee` under `set -euo pipefail` was checked to propagate that —
 a pipeline swallowing the exit code would have let CI pass a broken bundle.
 
 It is also a user-facing diagnostic rather than CI scaffolding. A teammate
-unsure whether a download survived runs `SLAP.exe --cli verify` and gets a yes
+unsure whether a download survived runs `SLAP.exe --self-check` and gets a yes
 or a specific no.
