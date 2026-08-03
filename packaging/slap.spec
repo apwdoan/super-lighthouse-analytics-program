@@ -129,10 +129,14 @@ if sys.platform == "darwin":
         bundle_identifier="ca.slap.app",
         info_plist={
             "NSHighResolutionCapable": True,
-            # Tracks the PySide6 wheel, not our own floor. PySide6 6.11
-            # ships macosx_13_0_universal2, so a bundle built against it
-            # cannot run on macOS 12 regardless of what this says. Claiming
-            # 12.0 only buys a launch that dies on `import PySide6`.
+            # Deliberately conservative, and no longer derived from
+            # PySide6: Qt left the project with the Qt front-end. The real
+            # floor is now whatever the Python framework, Playwright's
+            # wheels and the bundled Chromium share, which is lower than
+            # this. Nobody has a macOS 11 or 12 machine to test it on, and
+            # a bundle that launches and then dies on a missing symbol is
+            # worse than one Finder declines to open, so this stays put
+            # until someone can verify a lower number rather than guess it.
             "LSMinimumSystemVersion": "13.0",
             # Not a document-based app, and no reason to show in the dock
             # switcher as anything other than a normal app.

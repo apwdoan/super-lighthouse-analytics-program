@@ -405,6 +405,194 @@ def _size(path: Path) -> str:
 
 
 # --------------------------------------------------------------------------
+# 5. macOS: re-seal the bundle, and get the user past Gatekeeper
+# --------------------------------------------------------------------------
+
+#: Shipped beside the .app inside the zip. A double-clickable script rather
+#: than a line in a README, because the note nobody reads is exactly how
+#: "damaged" becomes "this build is broken".
+FIRST_RUN_NAME = "First run (macOS).command"
+
+FIRST_RUN_COMMAND = """\
+#!/bin/bash
+#
+# SLAP is not signed with a paid Apple Developer certificate, so macOS
+# refuses to open it and reports that it is "damaged". It is not damaged.
+# That is what Gatekeeper says about ANY app downloaded from the internet
+# without an Apple signature, and the fix is to remove the download flag.
+#
+# You only need to run this once, on this copy of SLAP.
+#
+# Finder will not let you double-click this the first time either:
+#     RIGHT CLICK it, choose Open, then Open again in the dialog.
+
+cd "$(dirname "$0")" || exit 1
+
+if [ ! -d "SLAP.app" ]; then
+  echo "SLAP.app is not in this folder."
+  echo "Keep this script and SLAP.app together and try again."
+  read -n 1 -s -r -p "Press any key to close this window."
+  exit 1
+fi
+
+echo "Removing the macOS download flag from SLAP.app..."
+xattr -dr com.apple.quarantine "SLAP.app" 2>/dev/null
+
+echo "Starting SLAP. Your browser will open in a moment."
+open "SLAP.app" || {
+  echo
+  echo "macOS still refused to open it. From Terminal, run:"
+  echo "    xattr -dr com.apple.quarantine \\"$PWD/SLAP.app\\""
+  read -n 1 -s -r -p "Press any key to close this window."
+  exit 1
+}
+
+sleep 2
+"""
+
+FIRST_RUN_README = """\
+SLAP for macOS
+==============
+
+If you double-click SLAP.app first, macOS says it is "damaged and can't be
+opened". It is not damaged. SLAP is not signed with a paid Apple Developer
+certificate, and that is the message macOS shows for any unsigned app that
+came from the internet.
+
+To run it
+---------
+
+  RIGHT CLICK "%(script)s", choose Open, then Open again.
+
+That removes the download flag from SLAP.app and starts it. You only need
+to do it once. Afterwards, open SLAP.app normally.
+
+If you would rather do it yourself, the same thing in Terminal:
+
+  xattr -dr com.apple.quarantine /path/to/SLAP.app
+
+What SLAP is
+------------
+
+A website performance and security auditor. It opens in your browser at
+http://127.0.0.1:8765 and everything runs on this machine: no account, no
+upload, no server. Quit it from the "Quit SLAP" button in the sidebar.
+
+Keep SLAP.app and this folder's contents together the first time you run
+it. Afterwards you can move SLAP.app anywhere, including Applications.
+""" % {"script": FIRST_RUN_NAME}
+
+
+def sign_macos_app(app: Path) -> None:
+    """Re-seal the .app, after everything has been copied into it.
+
+    **This is what "SLAP is damaged and can't be opened" means.** macOS is
+    not describing a corrupt download; it is reporting a code signature
+    that does not match the bundle's contents. PyInstaller signs the .app
+    when it assembles it, and then this script copies ~700MB of
+    ``runtime/`` and a build manifest *inside* ``Contents/MacOS``. Every
+    one of those files lands under the seal PyInstaller just applied, so
+    the signature is invalid before the build finishes. On Apple Silicon
+    that is fatal rather than cosmetic: the kernel enforces signatures on
+    every executable, so a broken seal is an app that cannot start at all.
+
+    Nothing caught it because nothing verified the signature and because
+    the CI check launches ``Contents/MacOS/SLAP`` directly from a shell.
+    Running the inner executable does not consult the bundle seal;
+    double-clicking the .app does. Same shape as the windowed-build crash:
+    the one launch every user performs was the one nothing exercised.
+
+    So: sign last, and verify. ``--deep`` because every Mach-O in the
+    bundle needs a signature of its own on arm64, including the Chromium
+    and Node that were copied in whole. Ad-hoc (``--sign -``) because this
+    project has no Apple certificate; that is enough for the app to RUN,
+    and Gatekeeper's separate objection to unsigned downloads is what the
+    first-run helper handles.
+    """
+    if sys.platform != "darwin":
+        return
+
+    log("re-signing the .app now that runtime/ is in place")
+    # Extended attributes collected during staging (quarantine flags on the
+    # downloaded Chromium, Finder metadata) make codesign fail outright with
+    # "resource fork, Finder information, or similar detritus not allowed".
+    subprocess.run(["xattr", "-cr", str(app)], check=False)
+
+    deep = subprocess.run(
+        ["codesign", "--force", "--deep", "--sign", "-", "--timestamp=none",
+         str(app)], capture_output=True, text=True)
+    if deep.returncode != 0:
+        # Not fatal, and not silent. `--deep` walks a nested Chromium .app
+        # of ~12,000 files and can object to something inside a framework
+        # that has nothing to do with whether SLAP opens. Sealing the outer
+        # bundle alone still fixes "damaged", and leaves Chromium carrying
+        # Google's own signature, which is the better one anyway.
+        log("deep signing failed, sealing the outer bundle only: "
+            + " ".join((deep.stderr or "").split())[:300])
+        run(["codesign", "--force", "--sign", "-", "--timestamp=none",
+             str(app)])
+
+    # The outer seal decides whether the .app opens, so a failure here
+    # fails the build. Shipping an unopenable bundle that took ten minutes
+    # to build wastes far more of someone's day than a red CI step does.
+    sealed = subprocess.run(["codesign", "--verify", "--strict", str(app)],
+                            capture_output=True, text=True)
+    if sealed.returncode != 0:
+        raise SystemExit(
+            "[build] the .app will not seal, so macOS would call it damaged:\n"
+            f"  {' '.join((sealed.stderr or '').split())}\n"
+            "  Most likely cause: something wrote into the bundle after this\n"
+            "  step, or runtime/ sits somewhere codesign will not seal. Apple\n"
+            "  expects only executables in Contents/MacOS; moving runtime/ to\n"
+            "  Contents/Resources (and teaching bundle.runtime_dir to look\n"
+            "  there) is the fix if this is the layout it objects to."
+        )
+    log("bundle signature verified")
+
+    # Nested code is checked but not gated. A quibble inside Chromium's own
+    # framework does not stop SLAP from launching, and the check that
+    # actually proves the nested binaries run is the one already in the
+    # pipeline: `slap verify` launches Chromium for the PDF export and Node
+    # for Lighthouse, from this exact bundle, immediately after this step.
+    deep = subprocess.run(["codesign", "--verify", "--deep", "--strict",
+                           str(app)], capture_output=True, text=True)
+    if deep.returncode != 0:
+        log("note: nested signature check reported: "
+            + " ".join((deep.stderr or "").split())[:300])
+
+
+def add_macos_first_run_files(archive: Path) -> None:
+    """Put the Gatekeeper helper and its explanation inside the zip.
+
+    Appended to the archive rather than staged into a folder first: the
+    .app is a gigabyte and copying it to add two small files beside it
+    would double the build's disk and minutes for no gain. They land at the
+    archive root, so unzipping produces a folder holding SLAP.app, the
+    helper, and the README together.
+    """
+    import time
+
+    # A real timestamp, not ZipInfo's 1980 default. A file dated 1980 sitting
+    # beside an app macOS just called "damaged" reads as more corruption,
+    # which is the one impression these two files exist to prevent.
+    now = time.localtime()[:6]
+
+    with zipfile.ZipFile(archive, "a") as bundle_zip:
+        script = zipfile.ZipInfo(FIRST_RUN_NAME, date_time=now)
+        # create_system=3 marks the entry as Unix; without it the mode bits
+        # below are ignored on extraction and the "script" arrives without
+        # its executable bit, which is a double-click that does nothing.
+        script.create_system = 3
+        script.external_attr = 0o100755 << 16
+        bundle_zip.writestr(script, FIRST_RUN_COMMAND)
+
+        readme = zipfile.ZipInfo("READ ME FIRST (macOS).txt", date_time=now)
+        readme.create_system = 3
+        readme.external_attr = 0o100644 << 16
+        bundle_zip.writestr(readme, FIRST_RUN_README)
+
+
+# --------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -474,6 +662,12 @@ def main(argv: list[str] | None = None) -> int:
             log("removing the redundant non-.app collection")
             shutil.rmtree(stray, ignore_errors=True)
 
+    # LAST. Every line above this one may write inside the .app, and each
+    # write invalidates the signature; see sign_macos_app for what that
+    # costs. Anything added to this function after today belongs ABOVE
+    # here unless it genuinely must follow the seal.
+    sign_macos_app(shippable_path())
+
     shippable = shippable_path()
     log(f"built {shippable} ({_size(shippable)})")
 
@@ -484,9 +678,12 @@ def main(argv: list[str] | None = None) -> int:
         if sys.platform == "darwin":
             # ditto preserves symlinks, resource forks and the executable
             # bit inside a .app. shutil.make_archive does not, and an .app
-            # that lost its exec bit will not open.
+            # that lost its exec bit will not open. It also preserves the
+            # code signature, which a naive zip-and-unzip round trip
+            # destroys just as thoroughly as writing into the bundle does.
             run(["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent",
                  str(shippable), str(archive)])
+            add_macos_first_run_files(archive)
         else:
             shutil.make_archive(str(ROOT / "dist" / name), "zip",
                                 shippable.parent, shippable.name)

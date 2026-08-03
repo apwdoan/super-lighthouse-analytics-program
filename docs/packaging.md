@@ -227,15 +227,24 @@ rule needs no platform-specific code.
 - **Zipped with `ditto`, not `shutil.make_archive`.** `ditto` preserves
   symlinks, resource forks and the executable bit inside a `.app`. A plain
   zip loses the exec bit and the result will not open.
-- **Gatekeeper will block an unsigned app** downloaded from anywhere. The
-  first launch shows *"SLAP" cannot be opened because the developer cannot
-  be verified*. Two ways past it, and teammates need to be told one of them
-  in advance:
+- **The bundle must be re-signed after `runtime/` is copied in, and the
+  build now fails if it will not seal.** This is the single most expensive
+  bug this packaging has produced: see *"SLAP is damaged and can't be
+  opened"* below.
+- **Gatekeeper will block an unsigned app** downloaded from anywhere. Which
+  message it shows depends on the signature: a properly signed but
+  unnotarised app gets *"SLAP" cannot be opened because the developer
+  cannot be verified*, while an ad-hoc signed one (what this build
+  produces, having no Apple certificate) gets the harsher *damaged*
+  wording. Both clear the same way:
 
       xattr -dr com.apple.quarantine /Applications/SLAP.app
 
-  or right-click the app → *Open* → *Open*. The right-click route only works
-  the first time and is easier to talk someone through.
+  The zip now ships a double-clickable `First run (macOS).command` that
+  does exactly this and then opens the app, plus a `READ ME FIRST (macOS)`
+  explaining that *damaged* does not mean the download failed. Finder
+  blocks the helper on first use too, so both files say **right click →
+  Open** rather than assuming a double-click.
 
 - **Notarisation removes the warning entirely** and needs an Apple Developer
   account ($99/yr) plus `codesign` and `notarytool` steps in the build. Worth
@@ -243,6 +252,47 @@ rule needs no platform-specific code.
 - **Chromium is a nested `.app`** inside `SLAP.app`. Fine unsigned; if you
   ever sign, every nested executable needs signing too, which is the fiddly
   part of notarising this particular bundle.
+### "SLAP is damaged and can't be opened"
+
+The first Mac build that got as far as a user's Dock failed here, and the
+message is a lie in the way that costs the most time: it sounds like a
+corrupt download, so the natural response is to download it again.
+
+macOS is not describing the file transfer. It is reporting a **code
+signature that does not match the bundle's contents**. PyInstaller signs
+the `.app` when it assembles it, and `build.py` then copied ~700MB of
+`runtime/` and a build manifest *inside* `Contents/MacOS`. Every one of
+those files landed under a seal that had already been applied, so the
+signature was invalid before the build finished. On Apple Silicon that is
+fatal rather than cosmetic: the kernel enforces signatures on every
+executable, so a broken seal is an app that cannot start at all.
+
+**Why nothing caught it.** Every check in `slap verify` launches
+`Contents/MacOS/SLAP` directly, and running the inner executable does not
+consult the bundle seal. Double-clicking the `.app` does. Precisely the
+same shape as the `console=False` crash on Windows: the one launch every
+user performs was the one nothing exercised.
+
+Three changes, so it cannot come back:
+
+1. `sign_macos_app()` runs **last** in `build.py`, after every write into
+   the bundle, and ad-hoc signs it (`codesign --force --deep --sign -`).
+   `--deep` because every Mach-O in the bundle needs its own signature on
+   arm64, including the Chromium and Node copied in whole; if `--deep`
+   chokes on something inside Chromium's framework it falls back to
+   sealing the outer bundle alone, which is what actually fixes *damaged*.
+2. The build **fails** if `codesign --verify --strict` does not pass, and
+   the error names the likely layout cause. Apple expects only executables
+   in `Contents/MacOS`; if codesign ever objects to `runtime/` living
+   there, moving it to `Contents/Resources` and teaching
+   `bundle.runtime_dir()` to look there is the fix.
+3. `slap verify` gained a **`code signature`** check that asks Gatekeeper's
+   question about the `.app` rather than the executable, so the macOS CI
+   job goes red instead of uploading a bundle nobody can open.
+
+A test asserts the ordering in `build.py`'s `main()`, because the bug was
+never in the signing command; it was in what ran after it.
+
 - **Two separate Mac builds, and they are not interchangeable.** The bundled
   Chromium and Node are downloaded per architecture, so an arm64 build
   genuinely will not run on Intel. `build.py` puts the machine architecture

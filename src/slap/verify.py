@@ -35,6 +35,7 @@ import json
 import platform
 import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -234,6 +235,44 @@ def check_paths_are_inside_the_bundle(report: VerifyReport) -> None:
     )
 
 
+def check_macos_signature(report: VerifyReport) -> None:
+    """Does this .app still seal? The check that "damaged" needed.
+
+    macOS reporting an app as "damaged and can't be opened" is not a claim
+    about the download: it is a code signature that no longer matches the
+    bundle's contents. The build invalidated its own seal for months by
+    copying runtime/ into ``Contents/MacOS`` after PyInstaller had signed
+    the .app, and nothing noticed, because every check in this file
+    launches ``Contents/MacOS/SLAP`` directly. Running the inner executable
+    does not consult the bundle seal. Double-clicking the .app does, and
+    that is the only launch a teammate ever performs.
+
+    So this asks the same question Gatekeeper asks. Advisory off macOS and
+    off a frozen build, where there is no bundle to seal.
+    """
+    if sys.platform != "darwin" or not bundle.is_frozen():
+        report.add("code signature", True,
+                   "not a macOS app bundle; nothing to seal", advisory=True)
+        return
+
+    root = bundle.bundle_root()
+    app = next((p for p in (root or Path(".")).parents if p.suffix == ".app"),
+               None)
+    if app is None:
+        report.add("code signature", True,
+                   "frozen, but not inside an .app", advisory=True)
+        return
+
+    result = subprocess.run(["codesign", "--verify", "--strict", str(app)],
+                            capture_output=True, text=True)
+    detail = " ".join((result.stderr or result.stdout or "").split())
+    report.add(
+        "code signature", result.returncode == 0,
+        f"{app.name} seals correctly" if result.returncode == 0
+        else f"{detail[:200]} -- macOS will call this app damaged",
+    )
+
+
 def check_lighthouse(report: VerifyReport, settings: Settings) -> None:
     from .collectors.lighthouse import LighthouseRunner
 
@@ -349,6 +388,7 @@ def verify(settings: Settings, *, lighthouse: bool = True,
     settings.ensure_dirs()
 
     check_paths_are_inside_the_bundle(report)
+    check_macos_signature(report)
     check_vulndb(report, settings, max_age_days=max_vulndb_age_days)
     check_pdf(report)
     if lighthouse:

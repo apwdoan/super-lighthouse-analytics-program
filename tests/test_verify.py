@@ -549,3 +549,69 @@ def test_verifying_does_not_write_into_a_real_database(tmp_path):
                               max_vulndb_age=None)
     cli.cmd_verify(args, real)
     assert not (tmp_path / "precious.sqlite3").exists()
+
+
+# --------------------------------------------------------------------------
+# The macOS bundle seal
+# --------------------------------------------------------------------------
+
+def test_the_signature_check_is_advisory_off_a_mac_bundle():
+    from slap.verify import check_macos_signature
+
+    report = VerifyReport()
+    check_macos_signature(report)
+    check = report.checks[0]
+    assert check.ok and check.advisory
+
+
+def test_a_broken_seal_fails_the_build_and_says_what_macos_will_say(monkeypatch,
+                                                                    tmp_path):
+    """The check "damaged" needed. Every other check in this file launches
+    Contents/MacOS/SLAP directly, and running the inner executable does not
+    consult the bundle seal -- so a build that copied 700MB into the .app
+    after signing it passed every check and could not be opened."""
+    import subprocess
+
+    from slap.verify import check_macos_signature
+
+    macos = tmp_path / "SLAP.app" / "Contents" / "MacOS"
+    macos.mkdir(parents=True)
+    monkeypatch.setattr(verify_module.sys, "platform", "darwin")
+    monkeypatch.setattr(verify_module.bundle, "is_frozen", lambda: True)
+    monkeypatch.setattr(verify_module.bundle, "bundle_root", lambda: macos)
+
+    def broken(command, **kwargs):
+        assert command[:3] == ["codesign", "--verify", "--strict"]
+        assert command[3].endswith("SLAP.app"), "must check the .app, not the exe"
+        return subprocess.CompletedProcess(
+            command, 1, stdout="",
+            stderr="a sealed resource is missing or invalid")
+
+    monkeypatch.setattr(verify_module.subprocess, "run", broken)
+    report = VerifyReport()
+    check_macos_signature(report)
+
+    check = report.checks[0]
+    assert check.ok is False
+    assert check.advisory is False, "a bundle nobody can open is not advisory"
+    assert "damaged" in check.detail
+
+
+def test_a_good_seal_passes(monkeypatch, tmp_path):
+    import subprocess
+
+    from slap.verify import check_macos_signature
+
+    macos = tmp_path / "SLAP.app" / "Contents" / "MacOS"
+    macos.mkdir(parents=True)
+    monkeypatch.setattr(verify_module.sys, "platform", "darwin")
+    monkeypatch.setattr(verify_module.bundle, "is_frozen", lambda: True)
+    monkeypatch.setattr(verify_module.bundle, "bundle_root", lambda: macos)
+    monkeypatch.setattr(
+        verify_module.subprocess, "run",
+        lambda command, **kw: subprocess.CompletedProcess(command, 0, "", ""))
+
+    report = VerifyReport()
+    check_macos_signature(report)
+    assert report.checks[0].ok is True
+    assert "seals correctly" in report.checks[0].detail
