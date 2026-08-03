@@ -484,79 +484,58 @@ it. Afterwards you can move SLAP.app anywhere, including Applications.
 
 
 def sign_macos_app(app: Path) -> None:
-    """Sign the .app so it launches, after everything is copied into it.
+    """Finalise the .app: keep PyInstaller's signature, clear staging detritus.
 
-    What actually makes macOS refuse an app and call it "damaged" is two
-    separate things, and telling them apart is what this function got wrong
-    the first time.
+    The one signature that decides whether the app launches is already in
+    place, and the safe thing to do with it is nothing.
 
-    **The launch requirement.** On Apple Silicon the kernel refuses to exec
-    a Mach-O with no valid signature. The one that matters is the main
-    executable, ``Contents/MacOS/SLAP``. PyInstaller ad-hoc signs it, and
-    copying ``runtime/`` in beside it does not touch that embedded
-    signature, so it stays valid -- but this re-signs it explicitly anyway,
-    because it is a single Mach-O, codesign never chokes on it, and it is
-    the one signature the app cannot start without.
+    **What launches the app.** On Apple Silicon the kernel refuses to exec a
+    Mach-O with no valid signature. The one that matters is the main
+    executable, ``Contents/MacOS/SLAP``, and PyInstaller ad-hoc signs it when
+    it assembles the .app -- BEFORE this script copies ``runtime/`` in beside
+    it. That copy adds files next to the executable; it does not touch the
+    executable's own Mach-O, so the signature the kernel checks stays valid.
+    There is nothing left for this step to sign.
 
-    **Gatekeeper.** A quarantined download is refused unless it is signed by
-    a paid Apple Developer certificate and notarised. This project has
-    neither, so an ad-hoc signature never satisfies Gatekeeper no matter how
-    perfectly the bundle is sealed. The only thing that gets a user past it
-    is stripping the quarantine flag, which the ``First run (macOS)`` helper
-    in the zip does.
+    **Why re-signing is not merely pointless but destructive.** Pointed at a
+    bundle's main executable, codesign treats it as the whole bundle and walks
+    ``Contents/`` -- straight into ``runtime/node_worker/node_modules``, whose
+    directories (``@types/node/ts5.7`` and the like) its bundle scanner
+    rejects with "bundle format unrecognized, invalid, or unsuitable". With
+    ``--force`` it replaces PyInstaller's good signature FIRST and hits that
+    wall SECOND, so the attempt turns a launchable app into one the kernel
+    rejects and then fails the build for good measure. Both earlier CI runs on
+    a real Mac died exactly there: the first sealing the whole bundle, the
+    second targeting just the executable -- same walk, same failure. The same
+    wall is why the whole-bundle seal (``Contents/_CodeSignature``) cannot be
+    produced here at all.
 
-    That leaves the whole-bundle seal (``Contents/_CodeSignature``) doing
-    nothing the app needs: it does not gate launch once quarantine is gone,
-    and it cannot satisfy Gatekeeper while ad-hoc. It is also the one thing
-    codesign cannot produce here: ``runtime/node_worker/node_modules``
-    contains directories such as ``@types/node/ts5.7`` that codesign's
-    bundle scanner rejects with "bundle format unrecognized, invalid, or
-    unsuitable", failing both ``--deep`` and a plain seal. The first CI run
-    on a real Mac died there, on a seal nothing would have used.
+    **Why not sealing costs nothing.** The seal is ad-hoc, so it never
+    satisfies Gatekeeper regardless (this project has no Apple certificate and
+    does not notarise); the ``First run (macOS)`` helper's quarantine strip is
+    what gets a user past Gatekeeper. And the seal does not gate launch once
+    quarantine is gone. So the invalidated seal is a signature nothing the app
+    needs would ever consult. The Apple-correct way to get a valid one is to
+    move ``runtime/`` out of ``Contents/MacOS`` into ``Contents/Resources``
+    and teach ``bundle.runtime_dir`` to look there; it is a larger change than
+    an ad-hoc seal is worth, and is noted for whenever a real certificate
+    makes notarisation -- and therefore sealing -- worthwhile.
 
-    So: sign the executable (required, reliable), then ATTEMPT the bundle
-    seal but never fail the build on it, because the app runs without it.
-    The Apple-correct way to make the seal succeed would be to move
-    ``runtime/`` out of ``Contents/MacOS`` into ``Contents/Resources`` and
-    teach ``bundle.runtime_dir`` to look there; it is a larger change than
-    the seal is worth while ad-hoc, and is noted here for whenever a real
-    certificate makes notarisation, and therefore sealing, worthwhile.
+    This step still has to be LAST, because the one thing it does do is clear
+    the extended attributes staging leaves behind (quarantine flags on the
+    downloaded Chromium, Finder metadata) so nothing validated later trips
+    over "resource fork, Finder information, or similar detritus". A code
+    signature lives inside the Mach-O, not in an xattr, so clearing attributes
+    does not disturb the signature PyInstaller made.
     """
     if sys.platform != "darwin":
         return
 
-    # Extended attributes collected during staging (quarantine flags on the
-    # downloaded Chromium, Finder metadata) make codesign fail with
-    # "resource fork, Finder information, or similar detritus not allowed".
+    log("keeping PyInstaller's executable signature; re-signing would walk "
+        "the bundled runtime and break it")
+    # Clear extended attributes only. This removes the detritus staging leaves
+    # behind without touching any embedded Mach-O signature.
     subprocess.run(["xattr", "-cr", str(app)], check=False)
-
-    # The launch gate. A single Mach-O; codesign always handles it. If this
-    # fails the app genuinely cannot start on arm64, so this one is fatal.
-    executable = app / "Contents" / "MacOS" / "SLAP"
-    log("signing the main executable")
-    run(["codesign", "--force", "--sign", "-", "--timestamp=none",
-         str(executable)])
-    verified = subprocess.run(["codesign", "--verify", str(executable)],
-                              capture_output=True, text=True)
-    if verified.returncode != 0:
-        raise SystemExit(
-            "[build] the main executable will not sign, so macOS will not "
-            "launch it:\n  " + " ".join((verified.stderr or "").split()))
-
-    # The whole-bundle seal: best-effort. It cannot be valid for an ad-hoc
-    # bundle carrying a runtime tree, and nothing the app does depends on
-    # it, so a failure here is a note, not a dead build.
-    sealed = subprocess.run(
-        ["codesign", "--force", "--sign", "-", "--timestamp=none", str(app)],
-        capture_output=True, text=True)
-    if sealed.returncode == 0:
-        log("bundle sealed")
-    else:
-        log("bundle seal skipped (expected for an ad-hoc build with a "
-            "bundled runtime): "
-            + " ".join((sealed.stderr or "").split())[:200])
-        log("the app still launches: its executable is signed, and the "
-            "First run helper clears quarantine past Gatekeeper.")
 
 
 def add_macos_first_run_files(archive: Path) -> None:

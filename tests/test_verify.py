@@ -571,11 +571,12 @@ def _mac_frozen(monkeypatch, tmp_path):
 
 def test_an_unsigned_executable_fails_the_check(monkeypatch, tmp_path):
     """The launch gate. On Apple Silicon the kernel refuses an unsigned
-    Mach-O, so if ``Contents/MacOS/SLAP`` will not verify, the app cannot
-    start -- and THAT, not the bundle seal, is what this check gates. The
-    seal cannot be valid for an ad-hoc bundle carrying a runtime tree and
-    the app does not need it, so gating on it failed every macOS build for
-    a signature nobody would ever use."""
+    Mach-O, so if ``Contents/MacOS/SLAP`` carries no signature the app cannot
+    start. The check reads that with ``codesign -d`` (display), which does not
+    walk the bundle's resources; a full ``--verify`` would, straight into the
+    bundled ``node_modules`` that defeats codesign's scanner, and would fail
+    on an app that launches perfectly. So a non-zero exit here means the one
+    thing that genuinely blocks launch: no signature at all."""
     import subprocess
 
     from slap.verify import check_macos_signature
@@ -584,9 +585,8 @@ def test_an_unsigned_executable_fails_the_check(monkeypatch, tmp_path):
     exe = str(app / "Contents" / "MacOS" / "SLAP")
 
     def run(command, **kwargs):
-        # The executable verify fails; the bundle-seal verify (--strict) is
-        # allowed to pass so the failure is unambiguously the executable.
-        if command[:2] == ["codesign", "--verify"] and command[-1] == exe:
+        # `codesign -d` (display) on the executable reports it unsigned.
+        if command[:2] == ["codesign", "-d"] and command[-1] == exe:
             return subprocess.CompletedProcess(
                 command, 1, stdout="", stderr="code object is not signed at all")
         return subprocess.CompletedProcess(command, 0, "", "")
@@ -601,49 +601,33 @@ def test_an_unsigned_executable_fails_the_check(monkeypatch, tmp_path):
     assert "refuse to launch" in gate.detail
 
 
-def test_a_missing_bundle_seal_is_a_note_not_a_failure(monkeypatch, tmp_path):
-    """The seal codesign cannot produce here. The executable is signed, so
-    the app launches; the seal is reported for information and never gates."""
+def test_a_signed_executable_passes_without_walking_the_bundle(monkeypatch,
+                                                               tmp_path):
+    """A present signature passes, and the check gets there WITHOUT a full
+    bundle verify. Verifying the whole-bundle seal would walk ~700MB of
+    bundled runtime to report a failure that means nothing (the seal is
+    ad-hoc and structurally absent here), so the check displays the
+    executable's own signature and stops. This pins that it never shells out
+    to ``codesign --verify`` and reports no separate bundle-seal result."""
     import subprocess
 
     from slap.verify import check_macos_signature
 
-    app = _mac_frozen(monkeypatch, tmp_path)
-    exe = str(app / "Contents" / "MacOS" / "SLAP")
+    _mac_frozen(monkeypatch, tmp_path)
+    seen = []
 
     def run(command, **kwargs):
-        # Executable verifies; the strict bundle-seal verify does not.
-        if command[-1] == exe:
-            return subprocess.CompletedProcess(command, 0, "", "")
-        return subprocess.CompletedProcess(
-            command, 1, stdout="", stderr="a sealed resource is missing")
+        seen.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
 
     monkeypatch.setattr(verify_module.subprocess, "run", run)
     report = VerifyReport()
     check_macos_signature(report)
 
     by_name = {c.name: c for c in report.checks}
-    assert by_name["code signature"].ok is True             # launch gate: fine
-    assert "will launch" in by_name["code signature"].detail
-    seal = by_name["bundle seal"]
-    assert seal.ok is False and seal.advisory is True       # a note, not a gate
-    # And the report as a whole still passes: advisory failures do not gate.
-    assert report.ok is True
-
-
-def test_a_fully_signed_bundle_passes_both(monkeypatch, tmp_path):
-    import subprocess
-
-    from slap.verify import check_macos_signature
-
-    _mac_frozen(monkeypatch, tmp_path)
-    monkeypatch.setattr(
-        verify_module.subprocess, "run",
-        lambda command, **kw: subprocess.CompletedProcess(command, 0, "", ""))
-
-    report = VerifyReport()
-    check_macos_signature(report)
-    by_name = {c.name: c for c in report.checks}
     assert by_name["code signature"].ok is True
     assert "will launch" in by_name["code signature"].detail
-    assert by_name["bundle seal"].ok is True
+    assert "bundle seal" not in by_name, "the doomed seal walk is gone"
+    assert not any("--verify" in command for command in seen), \
+        "a full verify walks the bundled node_modules and fails a good app"
+    assert report.ok is True

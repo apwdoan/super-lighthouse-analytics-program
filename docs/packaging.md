@@ -227,12 +227,13 @@ rule needs no platform-specific code.
 - **Zipped with `ditto`, not `shutil.make_archive`.** `ditto` preserves
   symlinks, resource forks and the executable bit inside a `.app`. A plain
   zip loses the exec bit and the result will not open.
-- **The main executable is re-signed after `runtime/` is copied in; the
-  whole-bundle seal is attempted best-effort.** The executable's signature
-  is the arm64 launch gate and its failure fails the build; the seal cannot
-  be produced for this layout and the app does not need it. This is the
-  single most expensive bug this packaging has produced: see *"SLAP is
-  damaged and can't be opened"* below.
+- **The bundle is not re-signed after `runtime/` is copied in.** PyInstaller
+  signs the main executable when it assembles the `.app`, before the runtime
+  copy; that copy does not touch the executable's Mach-O, so the arm64 launch
+  gate stays valid. Re-signing would be destructive rather than a safe
+  precaution (see *"SLAP is damaged and can't be opened"* below), so the build
+  only clears staging attributes. This is the single most expensive bug this
+  packaging has produced.
 - **Gatekeeper will block an unsigned app** downloaded from anywhere. Which
   message it shows depends on the signature: a properly signed but
   unnotarised app gets *"SLAP" cannot be opened because the developer
@@ -292,22 +293,32 @@ have used.
 
 What `sign_macos_app()` does now, still **last** in `build.py`:
 
-1. Signs the **main executable** ad-hoc (`codesign --force --sign - SLAP`).
-   A single Mach-O; codesign never chokes on it. If this fails the build
-   fails, because the app genuinely cannot start without it.
-2. Attempts the whole-bundle seal **best-effort** and logs a note on
-   failure instead of dying. The app launches without it.
-3. `slap verify`'s **`code signature`** check verifies the *executable*
-   (the launch gate); it reports the bundle seal as an advisory **`bundle
-   seal`** note that never gates the build.
+1. **Leaves the executable's signature alone.** PyInstaller already ad-hoc
+   signed it, and that signature is what the arm64 kernel checks; the runtime
+   copy never touched it. Re-signing is not a safe precaution but a
+   destructive one: pointed at a bundle's main executable, `codesign` treats
+   it as the whole bundle and walks `Contents/` into the same `node_modules`
+   wall, and `--force` replaces the good signature *before* it hits that wall.
+   Both earlier Mac CI runs died there, one sealing the whole bundle, one
+   targeting just the executable.
+2. **Clears extended attributes** (`xattr -cr`) so nothing validated later
+   trips over quarantine flags or Finder metadata. A code signature lives
+   inside the Mach-O, not in an xattr, so this does not disturb it.
+3. `slap verify`'s **`code signature`** check reads the executable's signature
+   with `codesign -d` (display), never `codesign --verify`. Verify would walk
+   the bundle's resources into the `node_modules` wall and fail a launchable
+   app; display reads the Mach-O's own signature and stops. On arm64 the
+   check runs inside that very executable, so the kernel has already confirmed
+   the answer; on Intel, where an unsigned binary still runs, the probe is
+   what would catch a build that strands every arm64 user.
 
-The Apple-correct way to make the seal succeed would be to move `runtime/`
-out of `Contents/MacOS` into `Contents/Resources` and teach
-`bundle.runtime_dir()` to look there — worth doing only if a real
-certificate ever makes notarisation, and therefore sealing, worthwhile. A
-test still asserts signing runs after every write into the bundle, because
-that ordering bug (copying `runtime/` in *after* PyInstaller sealed the
-app) is what started all of this.
+The Apple-correct way to make a whole-bundle seal succeed would be to move
+`runtime/` out of `Contents/MacOS` into `Contents/Resources` and teach
+`bundle.runtime_dir()` to look there, worth doing only if a real certificate
+ever makes notarisation, and therefore sealing, worthwhile. A test still
+asserts this step runs after every write into the bundle, because that
+ordering bug (copying `runtime/` in *after* PyInstaller sealed the app) is
+what started all of this.
 
 - **Two separate Mac builds, and they are not interchangeable.** The bundled
   Chromium and Node are downloaded per architecture, so an arm64 build
