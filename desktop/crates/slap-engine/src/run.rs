@@ -53,6 +53,19 @@ pub struct EngineConfig {
     pub discovery: DiscoveryConfig,
     /// How many pages per site get the browser audit.
     pub lighthouse_pages: usize,
+    /// Active endpoint probing. Off unless the shell both enables it and lists
+    /// the host as authorised, because it actively requests sensitive paths.
+    pub probe: ProbeSettings,
+}
+
+/// Whether to run the opt-in endpoint probe, and for which hosts. A host is
+/// probed only when `enabled` AND it appears in `authorised_hosts`: the two
+/// together are the recorded authorization the probe requires.
+#[derive(Clone, Debug, Default)]
+pub struct ProbeSettings {
+    pub enabled: bool,
+    pub rate_per_second: f64,
+    pub authorised_hosts: std::collections::HashSet<String>,
 }
 
 impl EngineConfig {
@@ -75,6 +88,14 @@ impl EngineConfig {
                 allow_crawl: d.allow_crawl,
             },
             lighthouse_pages: d.lighthouse_pages_per_site.max(1) as usize,
+            probe: ProbeSettings {
+                // `from_settings` records the user's default and rate; the shell
+                // supplies the authorised host set, because authorization is a
+                // per-run, per-host decision the engine cannot make itself.
+                enabled: settings.probe_enabled,
+                rate_per_second: settings.probe_rate_per_second.max(0.1),
+                authorised_hosts: std::collections::HashSet::new(),
+            },
         }
     }
 }
@@ -172,6 +193,7 @@ async fn fetch_page(
     .await?;
     let mut observations = observations_from_document(&doc);
     observations.extend(observations_from_html(&doc.text, &doc.headers));
+    observations.extend(crate::components::observations_from_page(&doc.text, &doc.headers));
     Ok((doc, observations))
 }
 
@@ -331,6 +353,21 @@ async fn audit_one_site(
         finished("crux", origin_observations.len(), errs.is_empty());
     }
 
+    // --- endpoint probing (origin-scoped, opt-in and authorised only) ---
+    let host = host_of(&normalized);
+    if cfg.probe.enabled && cfg.probe.authorised_hosts.contains(&host) {
+        started("probe");
+        let probe_cfg = crate::probe::ProbeConfig {
+            rate_per_second: cfg.probe.rate_per_second,
+            timeout,
+            user_agent: cfg.user_agent.clone(),
+        };
+        let probe_obs = crate::probe::probe(client, &origin, &probe_cfg).await;
+        let n = probe_obs.len();
+        finished("probe", n, true);
+        origin_observations.extend(probe_obs);
+    }
+
     // --- discovery metadata (origin-scoped) ---
     let audited = pages
         .iter()
@@ -359,6 +396,11 @@ async fn audit_one_site(
             origin_observations.push(o);
         }
     }
+
+    // --- vulnerability database provenance (origin-scoped) ---
+    // The per-page component collectors emit the vuln.* findings; this records
+    // which database version judged them, once for the run.
+    origin_observations.extend(crate::vulndb::db_metadata(now_unix()));
 
     // --- Lighthouse (page-scoped, on a sample of representative pages) ---
     let mut lighthouse_meta = None;

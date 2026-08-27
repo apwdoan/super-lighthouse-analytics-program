@@ -28,9 +28,11 @@ in the project doc `claude/tauri-rewrite.md`.
                           here recreates its node_modules (required before
                           a Lighthouse run, and before a distributable that
                           bundles the worker).
-      data/vulndb.json    the committed offline vulnerability database.
-      templates/report/   the Jinja2 report templates, for the minijinja
-                          render phase.
+      data/vulndb.json    the committed offline vulnerability database,
+                          embedded by slap-engine's `vulndb` matcher at
+                          build time (CI refreshes it).
+      templates/report/   report.css, reused verbatim by the `report`
+                          module's minijinja render of the client report.
       fixtures/           the slowsite fixture and its recorded LHR, for
                           Lighthouse and report testing without a network.
 

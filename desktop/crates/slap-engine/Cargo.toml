@@ -17,6 +17,10 @@ serde_json = "1"
 url = "2"
 futures = "0.3"
 
+# The client report render. minijinja is pure Rust (no C, no build step) and
+# reads the salvaged Python Jinja stylesheet closely enough to reuse it.
+minijinja = "2"
+
 # rustls, not native-tls: one TLS story across Windows/macOS/Linux, no
 # OpenSSL to find at build time. Auto-decompression is deliberately OFF (no
 # gzip/brotli features): the collector reads Content-Encoding itself and

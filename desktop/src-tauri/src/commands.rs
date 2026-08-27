@@ -142,18 +142,119 @@ pub fn library_status(state: State<'_, AppState>) -> Result<Json, String> {
 /// bundled Node worker drives a Chromium the app fetches on first run. If the
 /// prerequisites are missing (no Node, no worker resources), the audit fails
 /// with a specific reason rather than silently skipping the lab run.
+/// Open a fresh connection and the settings, ensuring the report directory
+/// exists. The report commands write their own files, so they use their own
+/// connection rather than the managed read one.
+fn report_context() -> Result<(slap_core::settings::Settings, slap_core::rusqlite::Connection), String>
+{
+    let settings = slap_core::settings::Settings::load(None).unwrap_or_default();
+    settings.ensure_dirs().map_err(|e| e.to_string())?;
+    let conn = storage::open_db(&settings.db_path).map_err(|e| e.to_string())?;
+    Ok((settings, conn))
+}
+
+/// Where a run's report file lands: the reports directory, named by host and
+/// run so re-exports do not collide across sites.
+fn report_path(
+    settings: &slap_core::settings::Settings,
+    conn: &slap_core::rusqlite::Connection,
+    run_id: i64,
+    ext: &str,
+) -> Result<std::path::PathBuf, String> {
+    let run = storage::get_run(conn, run_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("run {run_id} not found"))?;
+    let host = run["hostname"].as_str().unwrap_or("site");
+    let safe: String = host
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
+        .collect();
+    Ok(settings.report_dir.join(format!("{safe}-run{run_id}.{ext}")))
+}
+
+/// Render a run's client report to a standalone HTML file in the reports
+/// directory, returning its path. Pure and fast: no browser needed.
+#[tauri::command]
+pub fn report_html(run_id: i64) -> Result<String, String> {
+    let (settings, conn) = report_context()?;
+    let html = slap_engine::report::render_html(&conn, run_id)?;
+    let path = report_path(&settings, &conn, run_id, "html")?;
+    std::fs::write(&path, html).map_err(|e| e.to_string())?;
+    Ok(path.display().to_string())
+}
+
+/// Render a run's client report to PDF, using the pinned Chromium the app
+/// manages for Lighthouse (fetched on first use if absent). Runs on its own
+/// thread so building a runtime for the possible first-run download never
+/// collides with Tauri's.
+#[tauri::command]
+pub fn report_pdf(run_id: i64) -> Result<String, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(render_pdf_blocking(run_id));
+    });
+    rx.recv()
+        .map_err(|_| "the report thread stopped unexpectedly".to_string())?
+}
+
+fn render_pdf_blocking(run_id: i64) -> Result<String, String> {
+    let (settings, conn) = report_context()?;
+    let html = slap_engine::report::render_html(&conn, run_id)?;
+    let out = report_path(&settings, &conn, run_id, "pdf")?;
+
+    let tmp = std::env::temp_dir().join(format!("slap-report-{run_id}.html"));
+    std::fs::write(&tmp, &html).map_err(|e| e.to_string())?;
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| e.to_string())?;
+    let chrome = runtime
+        .block_on(slap_engine::lighthouse::resolve_or_fetch_chrome())
+        .map_err(|e| format!("could not obtain Chromium for the PDF: {e}"))?;
+
+    let status = std::process::Command::new(&chrome)
+        .args([
+            "--headless=new",
+            "--no-sandbox",
+            "--disable-gpu",
+            "--no-pdf-header-footer",
+        ])
+        .arg(format!("--print-to-pdf={}", out.display()))
+        .arg(format!("file://{}", tmp.display()))
+        .status()
+        .map_err(|e| format!("could not run Chromium: {e}"))?;
+    let _ = std::fs::remove_file(&tmp);
+    if !status.success() {
+        return Err("Chromium did not produce the PDF".to_string());
+    }
+    Ok(out.display().to_string())
+}
+
 #[tauri::command]
 pub fn start_audit(
     app: tauri::AppHandle,
     urls: Vec<String>,
     lighthouse: bool,
+    probe: bool,
 ) -> Result<Json, String> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let _ = tx.send(run_audit_blocking(app, urls, lighthouse));
+        let _ = tx.send(run_audit_blocking(app, urls, lighthouse, probe));
     });
     rx.recv()
         .map_err(|_| "the audit thread stopped unexpectedly".to_string())?
+}
+
+/// The bare host of a URL, matching how the engine keys a site. Used to mark
+/// exactly the hosts in this batch as authorised for probing when the user
+/// checks the box: authorization is per-host and never leaks to other sites.
+fn host_of(url: &str) -> Option<String> {
+    let after = url.split("://").nth(1).unwrap_or(url);
+    let host_port = after.split(['/', '?', '#']).next().unwrap_or("");
+    let host = host_port.rsplit('@').next().unwrap_or(host_port);
+    let host = host.split(':').next().unwrap_or(host);
+    (!host.is_empty()).then(|| host.to_ascii_lowercase())
 }
 
 /// Locate the bundled Lighthouse worker directory (holds `worker.js` and its
@@ -176,11 +277,19 @@ fn run_audit_blocking(
     app: tauri::AppHandle,
     urls: Vec<String>,
     lighthouse: bool,
+    probe: bool,
 ) -> Result<Json, String> {
     use tauri::Emitter;
 
     let settings = slap_core::settings::Settings::load(None).unwrap_or_default();
     let mut cfg = slap_engine::EngineConfig::from_settings(&settings);
+
+    if probe {
+        // The user affirmed authorization for this batch in the composer.
+        // Enable probing and authorise exactly these hosts, nothing else.
+        cfg.probe.enabled = true;
+        cfg.probe.authorised_hosts = urls.iter().filter_map(|u| host_of(u)).collect();
+    }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

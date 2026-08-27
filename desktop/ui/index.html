@@ -422,6 +422,24 @@ async function viewRun(id) {
       el("h1", {}, "Report — " + (run.hostname || ("run " + id))),
       el("p", { class: "lead" }, (run.started_at || "").replace("T", " ") + " · " + (findings.length) + " findings across " + (data.pages || []).length + " page(s)"));
 
+    // Client-report export. Both write into the reports directory and report
+    // the path back; the PDF may take a moment (and, first time, fetch Chromium).
+    const exportOut = el("span", { class: "muted", style: "font-size:12px" });
+    const exportBtn = (label, cmd, kind) => {
+      const b = el("button", { class: "ghost" }, label);
+      b.addEventListener("click", async () => {
+        const orig = b.textContent; b.disabled = true; b.textContent = "Exporting…"; exportOut.textContent = "";
+        try { exportOut.textContent = "Saved " + kind + " to " + await invoke(cmd, { runId: Number(id) }); }
+        catch (e) { exportOut.textContent = String(e && e.message ? e.message : e); }
+        finally { b.disabled = false; b.textContent = orig; }
+      });
+      return b;
+    };
+    head.append(el("div", { class: "row-actions", style: "margin-top:8px" },
+      exportBtn("Export report (HTML)", "report_html", "HTML report"),
+      exportBtn("Export PDF", "report_pdf", "PDF report"),
+      exportOut));
+
     const strip = el("div", { class: "grid cols-3" });
     // Prefer the field verdict (CrUX) with the lab performance score beside
     // it; fall back to lab-only when there is no field data.
@@ -444,6 +462,30 @@ async function viewRun(id) {
           el("tbody", {}, ...rows))));
     }
 
+    // Software inventory and the vulnerability-database provenance. The
+    // vulnerabilities themselves surface as findings above; this panel is the
+    // "what was detected" companion, including what could not be checked.
+    let componentsSection = null;
+    if ("component.detected" in byKey || "component.count" in byKey) {
+      const bits = [];
+      if (byKey["component.detected"]) bits.push(el("p", {}, el("b", {}, "Detected: "), String(byKey["component.detected"])));
+      const cnt = byKey["component.count"], observed = byKey["component.observed_count"], inferred = byKey["component.inferred_count"];
+      if (cnt != null) bits.push(el("p", { class: "muted", style: "font-size:13px" },
+        `${cnt} component(s)` + (observed != null || inferred != null ? ` · ${observed || 0} with an observed version, ${inferred || 0} inferred` : "")));
+      const vc = byKey["vuln.confirmed_count"], vp = byKey["vuln.possible_count"], vu = byKey["vuln.unchecked_count"];
+      if (vc != null || vp != null || vu != null) {
+        const parts = [];
+        if (vc != null) parts.push(`${vc} confirmed`);
+        if (vp != null) parts.push(`${vp} possible`);
+        if (vu != null) parts.push(`${vu} not in database`);
+        bits.push(el("p", {}, el("b", {}, "Known vulnerabilities: "), parts.join(" · ")));
+      }
+      const gen = byKey["vuln.db_generated"], age = byKey["vuln.db_age_days"], src = byKey["vuln.db_sources"];
+      if (gen) bits.push(el("p", { class: "muted", style: "font-size:12px" },
+        `Checked against ${src || "the vulnerability database"}, generated ${String(gen).slice(0, 10)}` + (age != null ? ` (${age} days old)` : "")));
+      componentsSection = el("div", {}, el("h2", {}, "Software detected"), el("div", { class: "card pad" }, ...bits));
+    }
+
     const grouped = {};
     for (const f of findings) (grouped[f.severity] = grouped[f.severity] || []).push(f);
     const order = ["critical", "high", "medium", "low", "info"];
@@ -454,6 +496,7 @@ async function viewRun(id) {
     }
     mount(head, any ? strip : el("div", {}),
       pagesSection || el("div", {}),
+      componentsSection || el("div", {}),
       findings.length ? el("div", {}, ...findingBlocks) : el("div", { class: "card pad muted" }, "No findings recorded for this run."));
   } catch (e) { errorView(e); }
 }
@@ -485,9 +528,11 @@ function viewAudit() {
     el("p", { class: "lead" }, "Paste site URLs, one per line. Normalisation and the run happen when you press Run."));
   const box = el("textarea", { placeholder: "example.com\nhttps://another-site.org\n…" });
   const lighthouse = el("input", { type: "checkbox" });
+  const probe = el("input", { type: "checkbox" });
   const opts = el("div", { class: "row-actions" },
     el("label", { class: "seg" }, el("input", { type: "checkbox", checked: "checked", disabled: "disabled" }), " No-browser collectors"),
-    el("label", { class: "seg" }, lighthouse, " Lighthouse (adds ~90s/site)"));
+    el("label", { class: "seg" }, lighthouse, " Lighthouse (adds ~90s/site)"),
+    el("label", { class: "seg", title: "Actively requests sensitive paths (.env, .git, backups). Only for sites you own or manage." }, probe, " Probe exposed endpoints (sites you control only)"));
   const out = el("div", {});
   const run = el("button", { class: "primary" });
   run.textContent = "Run audit";
@@ -497,7 +542,7 @@ function viewAudit() {
     if (!urls.length) { out.append(el("div", { class: "notice warn" }, "Add at least one URL first.")); return; }
     run.disabled = true; run.textContent = "Running… (" + urls.length + ")";
     try {
-      const summary = await invoke("start_audit", { urls, lighthouse: lighthouse.checked });
+      const summary = await invoke("start_audit", { urls, lighthouse: lighthouse.checked, probe: probe.checked });
       const ok = summary.succeeded, failed = summary.failed;
       const note = el("div", { class: "notice info" },
         el("b", {}, `Audited ${summary.total} site(s): ${ok} ok` + (failed ? `, ${failed} failed` : "")),
@@ -519,7 +564,7 @@ async function viewDiagnostics() {
     const rows = [
       ["App", `${s.name} ${s.version}`], ["Core", `slap-core ${s.core_version}`],
       ["Webview", s.webview || "unknown"],
-      ["Data directory", s.data_dir + (s.using_legacy_data ? "  (legacy salp fallback)" : "")],
+      ["Data directory", s.data_dir],
       ["Database", s.db_path], ["Rules", `${s.rules_loaded} findings rules loaded`],
     ];
     const dl = el("dl", { class: "kv" });

@@ -65,6 +65,8 @@ pub fn run() {
             commands::findings_across_sites,
             commands::library_status,
             commands::start_audit,
+            commands::report_html,
+            commands::report_pdf,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the SLAP window");

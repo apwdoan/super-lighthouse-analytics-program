@@ -71,6 +71,8 @@ async fn a_real_fetch_produces_a_run_the_ui_would_show() {
         // page alone, which is what this test asserts on.
         discovery: slap_engine::discovery::DiscoveryConfig::default(),
         lighthouse_pages: 5,
+        // Probing stays off in this test: no host is authorised.
+        probe: slap_engine::run::ProbeSettings::default(),
     };
 
     let events = std::sync::Mutex::new(Vec::new());
