@@ -7,6 +7,14 @@ name = "slap-desktop"
 version.workspace = true
 edition.workspace = true
 
+# Tauri 2 mobile targets link the app as a library (staticlib on iOS,
+# cdylib on Android), with the desktop binary as a thin main() over the
+# same `run()`. The `_lib` suffix keeps the library's link name distinct
+# from the binary's on platforms where they would otherwise collide.
+[lib]
+name = "slap_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

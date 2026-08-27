@@ -7,9 +7,10 @@
 //! the checks here open a real database and write a real file rather than
 //! testing that paths look plausible.
 //!
-//! Phase 0 carries only the checks the phase-0 app can honestly make.
-//! Every later phase adds its own (worker handshake, Chromium fetch,
-//! report render) the moment the code they exercise exists.
+//! Checks exist only for code that exists: today that is the data
+//! directory, the full storage layer, and the findings rules. Every later
+//! phase adds its own (worker handshake, Chromium fetch, report render)
+//! the moment the code they exercise lands.
 
 use std::fmt;
 
@@ -27,7 +28,11 @@ impl fmt::Display for Check {
 }
 
 pub fn run_core_checks() -> Vec<Check> {
-    vec![check_data_dir_writable(), check_sqlite_works()]
+    vec![
+        check_data_dir_writable(),
+        check_storage_roundtrip(),
+        check_rules_load(),
+    ]
 }
 
 /// The data directory can be created and written. Creating it is safe: it
@@ -56,37 +61,89 @@ fn check_data_dir_writable() -> Check {
     }
 }
 
-/// The bundled SQLite links, opens, and honours WAL, exercised against a
-/// throwaway file. Deliberately NOT the real database: proving the engine
-/// works must never race the Python app for the file that holds history,
-/// and a self-check that can modify user data is not a check.
-fn check_sqlite_works() -> Check {
-    let attempt = (|| -> rusqlite::Result<(String, String)> {
+/// The real storage layer, end to end, against a throwaway file:
+/// `open_db` (migrations and DDL included), a site, a run, a page, real
+/// observations through the schema registry, and the flattened read the
+/// findings engine consumes. Deliberately NOT the real database: proving
+/// the engine works must never race the other app for the file that holds
+/// history, and a self-check that can modify user data is not a check.
+fn check_storage_roundtrip() -> Check {
+    let attempt = (|| -> Result<String, Box<dyn std::error::Error>> {
         let scratch =
             std::env::temp_dir().join(format!("slap-selfcheck-{}.sqlite3", std::process::id()));
         let _ = std::fs::remove_file(&scratch);
-        let connection = rusqlite::Connection::open(&scratch)?;
-        let mode: String = connection.query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))?;
-        connection.execute("CREATE TABLE probe (x TEXT)", [])?;
-        connection.execute("INSERT INTO probe VALUES ('roundtrip')", [])?;
-        let back: String = connection.query_row("SELECT x FROM probe", [], |row| row.get(0))?;
-        drop(connection);
+        let conn = crate::storage::open_db(&scratch)?;
+        let mode: String = conn.query_row("PRAGMA journal_mode", [], |row| row.get(0))?;
+        let site = crate::storage::upsert_site(&conn, "selfcheck.invalid", None, None)?;
+        let run = crate::storage::create_run(
+            &conn,
+            "selfcheck",
+            site,
+            crate::version(),
+            crate::SCHEMA_VERSION,
+            None,
+        )?;
+        let page = crate::storage::create_page(
+            &conn,
+            run,
+            &crate::storage::NewPage::new("https://selfcheck.invalid/"),
+        )?;
+        crate::storage::insert_observations(
+            &conn,
+            page,
+            &[crate::schema::obs(
+                "http.ttfb",
+                crate::schema::Value::Num(1.0),
+            )?],
+        )?;
+        crate::storage::finish_run(&conn, run, crate::schema::RunStatus::Completed, None)?;
+        let values = crate::storage::observations_as_dict(&conn, page)?;
+        if values.get("http.ttfb") != Some(&crate::schema::Value::Num(1.0)) {
+            return Err("the written observation did not read back".into());
+        }
+        drop(conn);
         let _ = std::fs::remove_file(&scratch);
-        Ok((mode, back))
+        Ok(mode)
     })();
     match attempt {
-        Ok((mode, back)) if mode.eq_ignore_ascii_case("wal") && back == "roundtrip" => Check {
-            name: "sqlite",
+        Ok(mode) if mode.eq_ignore_ascii_case("wal") => Check {
+            name: "storage",
             ok: true,
-            detail: format!("bundled {} with WAL", rusqlite::version()),
+            detail: format!(
+                "bundled sqlite {} in WAL, full roundtrip",
+                rusqlite::version()
+            ),
         },
-        Ok((mode, _)) => Check {
-            name: "sqlite",
+        Ok(mode) => Check {
+            name: "storage",
             ok: false,
             detail: format!("journal mode came back {mode:?}, wanted WAL"),
         },
         Err(error) => Check {
-            name: "sqlite",
+            name: "storage",
+            ok: false,
+            detail: error.to_string(),
+        },
+    }
+}
+
+/// The shipped rules parse and the engine accepts them. Zero rules loading
+/// "successfully" is the silent failure this check exists to catch: an
+/// audit that finds nothing looks exactly like a healthy site.
+fn check_rules_load() -> Check {
+    match crate::findings::FindingsEngine::load(None) {
+        Ok(engine) if !engine.rules.is_empty() => Check {
+            name: "rules",
+            ok: true,
+            detail: format!("{} findings rules loaded", engine.rules.len()),
+        },
+        Ok(_) => Check {
+            name: "rules",
+            ok: false,
+            detail: "the rules file parsed but holds no rules".to_string(),
+        },
+        Err(error) => Check {
+            name: "rules",
             ok: false,
             detail: error.to_string(),
         },

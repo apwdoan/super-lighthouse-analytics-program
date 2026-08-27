@@ -1,0 +1,83 @@
+name: Build Android app (Tauri, experimental)
+
+# The mobile lane, same doctrine as desktop.yml: prove the pipeline while
+# the app is nearly empty, so every later phase inherits one that works.
+# EXPERIMENTAL and dispatch-only: this workflow cannot be rehearsed
+# anywhere but a real runner (the sandbox has no Android SDK), so expect
+# to iterate on it from real logs the first time or two it runs.
+#
+# What it produces: a DEBUG apk for arm64, auto-signed with the debug
+# keystore so it installs on a device with developer mode. A release APK
+# needs a real signing keystore in repository secrets, which is a
+# decision for when the viewer app has something to view. iOS follows
+# once this lane proves out; it needs a macOS runner, Xcode, and
+# `tauri ios init`, and ships nowhere without an Apple Developer account.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: android-arm64
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # Only arm64 while experimental: every extra ABI multiplies both
+          # the Rust and the Gradle build time, and a debug pipeline proof
+          # needs one real device architecture, not four.
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+
+      # The Android toolchain. Gradle needs Java; the NDK is what the Rust
+      # cross-compilation links against. NDK 26 is Tauri 2's documented
+      # floor at the time this lane was written.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install the NDK
+        run: sdkmanager "ndk;26.3.11579264" "platforms;android-34" "build-tools;34.0.0"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install the Tauri CLI
+        run: npm install -g @tauri-apps/cli@^2
+
+      # gen/android is untracked while the app is pre-release, so every
+      # run regenerates it. Once the viewer customizes the Android project
+      # (icons, manifest permissions), gen/ gets committed and this step
+      # becomes a no-op guard.
+      - name: Generate the Android project
+        working-directory: desktop
+        env:
+          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
+        run: tauri android init --ci
+
+      - name: Build the debug APK (arm64)
+        working-directory: desktop
+        env:
+          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
+        run: tauri android build --apk --debug --target aarch64
+
+      - name: Upload
+        uses: actions/upload-artifact@v6
+        with:
+          name: SLAP-android-arm64-debug
+          path: desktop/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 14

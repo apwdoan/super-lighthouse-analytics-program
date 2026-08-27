@@ -103,6 +103,7 @@
     ["Webview", s => s.webview || "unknown"],
     ["Data directory", s => s.data_dir + (s.using_legacy_data ? "  (legacy salp fallback)" : "")],
     ["Database", s => s.db_path],
+    ["Rules", s => `${s.rules_loaded} findings rules loaded`],
   ];
   const tauri = window.__TAURI__;
   if (tauri && tauri.core && tauri.core.invoke) {

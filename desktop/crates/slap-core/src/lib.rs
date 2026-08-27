@@ -16,8 +16,18 @@
 //!   delete a run row; the rename-era migration code renames columns in
 //!   place and never copies or drops.
 
+pub mod events;
+pub mod findings;
 pub mod paths;
+pub mod schema;
 pub mod selfcheck;
+pub mod settings;
+pub mod storage;
+
+/// The observation schema's version, recorded on every run row. Mirrors
+/// `slap.SCHEMA_VERSION`; the two apps write the same value into the same
+/// column while they coexist.
+pub const SCHEMA_VERSION: i64 = 1;
 
 /// The core's own version, distinct from the app shell's.
 pub fn version() -> &'static str {
