@@ -1011,6 +1011,50 @@ pub fn clear_history(conn: &mut Connection) -> Result<(HashMap<&'static str, i64
     Ok((totals, artifact_paths))
 }
 
+/// Remove ONE site and all of its history: its runs (which cascade to pages,
+/// observations, findings and artifacts), plus the origin's cached CrUX
+/// history, which is decoupled from sites and so is matched by host. Returns
+/// the number of runs removed and the artifact file paths, which live outside
+/// the database for the caller to unlink.
+///
+/// Answers to the same confirmation seam as `clear_history`: append-only is a
+/// promise about what the app does on its own, not a lock against the operator
+/// removing a site they added.
+pub fn delete_site(conn: &mut Connection, site_id: i64) -> Result<(i64, Vec<String>)> {
+    let artifact_paths: Vec<String> = {
+        let mut stmt = conn.prepare(
+            "SELECT a.path FROM artifact a JOIN run r ON r.id = a.run_id \
+             WHERE r.site_id = ?",
+        )?;
+        let paths = stmt
+            .query_map([site_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<_>>()?;
+        paths
+    };
+    let hostname: Option<String> = conn
+        .query_row("SELECT hostname FROM site WHERE id = ?", [site_id], |row| {
+            row.get(0)
+        })
+        .optional()?;
+
+    let tx = conn.transaction()?;
+    // `run` -> `site` is NOT ON DELETE CASCADE, so runs are removed explicitly;
+    // pages, observations, findings and artifacts cascade from the run.
+    let runs = tx.execute("DELETE FROM run WHERE site_id = ?", [site_id])? as i64;
+    if let Some(host) = &hostname {
+        // crux_history is origin-keyed (scheme://host[:port]); remove the rows
+        // whose authority is this host, with or without a port.
+        tx.execute(
+            "DELETE FROM crux_history \
+             WHERE origin LIKE '%//' || ?1 OR origin LIKE '%//' || ?1 || ':%'",
+            [host],
+        )?;
+    }
+    tx.execute("DELETE FROM site WHERE id = ?", [site_id])?;
+    tx.commit()?;
+    Ok((runs, artifact_paths))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1028,6 +1072,56 @@ mod tests {
         let page = create_page(conn, run, &NewPage::new(&format!("https://{host}/"))).unwrap();
         finish_run(conn, run, status, None).unwrap();
         (site, run, page)
+    }
+
+    #[test]
+    fn delete_site_removes_only_that_sites_history() {
+        let (_dir, mut conn) = scratch();
+        let (site_a, run_a, page_a) = seed_run(&conn, "keep.example", RunStatus::Completed);
+        let (site_b, run_b, page_b) = seed_run(&conn, "drop.example", RunStatus::Completed);
+        insert_observations(&conn, page_a, &[obs("http.version", crate::schema::Value::from("h2")).unwrap()]).unwrap();
+        insert_observations(&conn, page_b, &[obs("http.version", crate::schema::Value::from("h2")).unwrap()]).unwrap();
+        let now = utcnow();
+        for origin in ["https://keep.example", "https://drop.example"] {
+            conn.execute(
+                "INSERT INTO crux_history (origin, form_factor, period_end, period_start, \
+                 metric_key, p75, good, needs_improvement, poor, fetched_at) \
+                 VALUES (?1, 'PHONE', '2026-01-01', '2025-12-04', 'crux.lcp.p75', \
+                 1200.0, 0.9, 0.08, 0.02, ?2)",
+                [origin, now.as_str()],
+            )
+            .unwrap();
+        }
+
+        let (runs, _artifacts) = delete_site(&mut conn, site_b).unwrap();
+        assert_eq!(runs, 1, "one run removed");
+        assert!(get_site(&conn, site_b).unwrap().is_none(), "dropped site is gone");
+        assert!(get_site(&conn, site_a).unwrap().is_some(), "kept site is intact");
+        assert!(
+            run_pages(&conn, run_b).unwrap().is_empty(),
+            "the dropped run's pages cascaded away"
+        );
+
+        let crux_count = |origin: &str| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM crux_history WHERE origin = ?",
+                [origin],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(crux_count("https://drop.example"), 0, "dropped origin's crux history removed");
+        assert_eq!(crux_count("https://keep.example"), 1, "kept origin's crux history intact");
+
+        let kept_obs: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM observation o JOIN page p ON p.id = o.page_id \
+                 WHERE p.run_id = ?",
+                [run_a],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(kept_obs, 1, "the kept site's observations survive");
     }
 
     #[test]

@@ -125,6 +125,57 @@ pub fn library_status(state: State<'_, AppState>) -> Result<Json, String> {
     })
 }
 
+/// Permanently remove a site the user added, and all of its history: its runs
+/// (which cascade to pages, observations, findings and artifacts) and the
+/// origin's cached CrUX history. Opens its own writer connection (like the
+/// audit) so the delete never contends the managed read lock, and unlinks the
+/// artifact files after the rows are gone. The UI confirms before calling this.
+#[tauri::command]
+pub fn delete_site(site_id: i64) -> Result<Json, String> {
+    let settings = slap_core::settings::Settings::load(None).unwrap_or_default();
+    let mut conn = storage::open_db(&settings.db_path).map_err(|e| e.to_string())?;
+    let (runs, artifacts) =
+        storage::delete_site(&mut conn, site_id).map_err(|e| e.to_string())?;
+    for path in &artifacts {
+        let _ = std::fs::remove_file(path);
+    }
+    Ok(json!({ "runs_removed": runs, "artifacts_removed": artifacts.len() }))
+}
+
+/// The configuration the Settings screen shows. The CrUX key's VALUE is never
+/// returned, only whether one is in effect and whether it comes from the
+/// environment (which overrides config.toml).
+#[tauri::command]
+pub fn get_settings() -> Result<Json, String> {
+    let settings = slap_core::settings::Settings::load(None).unwrap_or_default();
+    let env_key = std::env::var("CRUX_API_KEY").ok().filter(|k| !k.is_empty());
+    let has_key = settings
+        .collector
+        .crux_api_key
+        .as_ref()
+        .map(|k| !k.is_empty())
+        .unwrap_or(false);
+    Ok(json!({
+        "crux_key_set": has_key,
+        "crux_key_from_env": env_key.is_some(),
+    }))
+}
+
+/// Save the CrUX API key to `[collector] crux_api_key` in config.toml, or clear
+/// it when given an empty string. An environment variable, if set, still
+/// overrides this at load time. The key value is written, never logged or
+/// returned.
+#[tauri::command]
+pub fn set_crux_key(key: String) -> Result<Json, String> {
+    use slap_core::settings::{save_setting, SettingValue};
+    let trimmed = key.trim();
+    let value = (!trimmed.is_empty()).then(|| SettingValue::Str(trimmed.to_string()));
+    let saved = value.is_some();
+    let path = save_setting("crux_api_key", value, Some("collector"), None)
+        .map_err(|e| e.to_string())?;
+    Ok(json!({ "saved": saved, "config": path.display().to_string() }))
+}
+
 /// Run a no-browser audit of the given URLs and return a summary.
 ///
 /// The work happens on a dedicated thread with its own current-thread

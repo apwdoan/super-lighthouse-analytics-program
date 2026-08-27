@@ -184,7 +184,8 @@
   <a class="item" data-route="findings"><span class="ico">⚑</span><span class="lbl">Findings</span></a>
   <a class="item" data-route="audit"><span class="ico">＋</span><span class="lbl">New audit</span></a>
   <div class="spacer"></div>
-  <a class="item" data-route="diagnostics"><span class="ico">⚙</span><span class="lbl">Diagnostics</span></a>
+  <a class="item" data-route="settings"><span class="ico">⚙</span><span class="lbl">Settings</span></a>
+  <a class="item" data-route="diagnostics"><span class="ico">ℹ</span><span class="lbl">Diagnostics</span></a>
   <div class="foot" id="foot">SLAP</div>
 </nav>
 <main id="main"><div class="empty"><div class="big">◱</div><p>Loading…</p></div></main>
@@ -380,9 +381,25 @@ async function viewSite(id) {
       ? el("div", {}, ...findings.map(findingCard))
       : el("div", { class: "card pad muted" }, "No open findings in the latest completed run.");
 
+    // Remove this site and all its history. Two-step, because it cannot be undone.
+    const danger = el("div", { style: "margin-top:26px" });
+    async function doDelete() {
+      danger.replaceChildren(el("div", { class: "card pad muted" }, "Deleting…"));
+      try { await invoke("delete_site", { siteId: Number(id) }); go("sites"); }
+      catch (e) { danger.replaceChildren(el("div", { class: "notice warn" }, String(e && e.message ? e.message : e))); }
+    }
+    const showConfirm = () => danger.replaceChildren(el("div", { class: "notice warn" },
+      el("div", {}, el("b", {}, `Delete ${s.hostname || "this site"} and all ${runs.length} run(s)?`), " This permanently removes its history and cannot be undone."),
+      el("div", { class: "row-actions", style: "margin-top:10px" },
+        el("button", { class: "primary", onclick: doDelete }, "Delete permanently"),
+        el("button", { class: "ghost", onclick: showButton }, "Cancel"))));
+    function showButton() { danger.replaceChildren(el("button", { class: "ghost", style: "color:#d03b3b", onclick: showConfirm }, "Delete site…")); }
+    showButton();
+
     mount(head, summary,
       el("h2", {}, "Open findings"), findingBlock,
-      el("h2", {}, "Run history"), runList);
+      el("h2", {}, "Run history"), runList,
+      danger);
   } catch (e) { errorView(e); }
 }
 
@@ -575,8 +592,48 @@ async function viewDiagnostics() {
   } catch (e) { errorView(e); }
 }
 
+async function viewSettings() {
+  loading();
+  try {
+    const s = await invoke("get_settings");
+    const head = el("div", {}, crumbs({ label: "Settings" }), el("h1", {}, "Settings"),
+      el("p", { class: "lead" }, "App configuration, stored locally in your config.toml."));
+
+    const status = s.crux_key_from_env
+      ? el("span", {}, el("b", {}, "Set from the CRUX_API_KEY environment variable"), el("span", { class: "muted" }, " — that overrides anything saved here"))
+      : (s.crux_key_set
+        ? el("b", { style: "color:var(--good,#0ca30c)" }, "A key is saved")
+        : el("span", { class: "muted" }, "No key set — field data (Core Web Vitals) is skipped until you add one"));
+
+    const input = el("input", { type: "password", autocomplete: "off", placeholder: "Paste your CrUX / PageSpeed Insights API key", style: "width:100%;max-width:540px" });
+    const out = el("div", { class: "muted", style: "font-size:12px;margin-top:8px" });
+    const save = el("button", { class: "primary" }, "Save key");
+    const clear = el("button", { class: "ghost" }, "Remove key");
+    save.addEventListener("click", async () => {
+      const key = input.value.trim();
+      if (!key) { out.textContent = "Enter a key first, or use Remove key."; return; }
+      save.disabled = true; out.textContent = "Saving…";
+      try { await invoke("set_crux_key", { key }); input.value = ""; go("settings"); }
+      catch (e) { out.textContent = String(e && e.message ? e.message : e); save.disabled = false; }
+    });
+    clear.addEventListener("click", async () => {
+      clear.disabled = true; out.textContent = "Removing…";
+      try { await invoke("set_crux_key", { key: "" }); go("settings"); }
+      catch (e) { out.textContent = String(e && e.message ? e.message : e); clear.disabled = false; }
+    });
+
+    mount(head, el("div", { class: "card pad" },
+      el("h2", {}, "CrUX API key"),
+      el("p", { class: "secondary" }, "Enables real-user field data (Core Web Vitals) from Google's Chrome UX Report. Get a free key from the Google Cloud console by enabling the Chrome UX Report API, then paste it here. The key is stored on this machine only and never leaves it except in requests to Google's API."),
+      el("p", {}, "Status: ", status),
+      el("div", { style: "margin:12px 0" }, input),
+      el("div", { class: "row-actions" }, save, clear),
+      out));
+  } catch (e) { errorView(e); }
+}
+
 // -------- router --------
-const routes = { sites: viewSites, findings: viewFindings, audit: viewAudit, diagnostics: viewDiagnostics };
+const routes = { sites: viewSites, findings: viewFindings, audit: viewAudit, settings: viewSettings, diagnostics: viewDiagnostics };
 function go(route) { if (location.hash !== "#/" + route) location.hash = "#/" + route; else render(); }
 function render() {
   const path = (location.hash || "#/sites").slice(2);

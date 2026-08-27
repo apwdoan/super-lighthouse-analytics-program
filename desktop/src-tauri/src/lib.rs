@@ -67,6 +67,9 @@ pub fn run() {
             commands::start_audit,
             commands::report_html,
             commands::report_pdf,
+            commands::delete_site,
+            commands::get_settings,
+            commands::set_crux_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the SLAP window");
