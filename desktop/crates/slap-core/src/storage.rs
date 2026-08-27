@@ -1,9 +1,11 @@
 //! SQLite storage, ported from `src/slap/db.py`. Immutable, append-only runs.
 //!
-//! The DDL is byte-for-byte the Python app's DDL, because while the two apps
-//! ship side by side they open the SAME database file. WAL mode is what makes
-//! that sharing safe, exactly as it made the Python GUI thread safe beside
-//! its worker thread.
+//! The DDL is byte-for-byte the Python app's DDL: every existing install's
+//! history was written by that app into this exact schema, and this app
+//! opens the same file. Cross-app compatibility was proven in both
+//! directions before the Python app retired (see tests/python_compat.rs).
+//! WAL mode made the coexistence-era sharing safe and still makes the UI
+//! thread safe beside a batch writer.
 //!
 //! One deliberate translation: the Python module kept a thread-local
 //! connection cache with an init-once memo, because Python front ends passed

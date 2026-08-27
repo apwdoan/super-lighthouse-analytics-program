@@ -1,11 +1,13 @@
-//! The findings engine: rules are data, not code. Ported from
-//! `src/slap/findings/engine.py`.
+//! The findings engine: rules are data, not code. Ported from the Python
+//! app's `findings/engine.py`.
 //!
-//! The rules did NOT port, and that is the design paying off: this engine
-//! interprets the very same `rules.yaml` the Python app ships, embedded at
-//! compile time from `src/slap/findings/rules.yaml` in this repo. One rules
-//! file, two engines, zero drift while the apps coexist; when the Python
-//! app retires, the file moves here and nothing else changes.
+//! The rules did NOT get rewritten, and that is the design paying off:
+//! `rules/rules.yaml` beside this crate is the identical file the Python
+//! app shipped, moved here unchanged when that app was retired
+//! (2026-08-27). While the two apps coexisted, both engines interpreted
+//! one shared copy, and a differential test proved they agreed
+//! finding-for-finding, rendered text included; that agreement is what
+//! makes findings written into the database by either era comparable.
 //!
 //! Conditions are evaluated by a small declarative interpreter rather than
 //! anything eval-like, for the reason the Python engine chose: rule files
@@ -31,10 +33,10 @@ use serde_yaml::Value as Yaml;
 
 use crate::schema::{format_value, Finding, Severity, Value};
 
-/// The shipped rules, shared byte-for-byte with the Python app. The
-/// include path escapes `desktop/` on purpose: rules are repo-level data
-/// with two consumers, not an asset of either app.
-pub const RULES_YAML: &str = include_str!("../../../../src/slap/findings/rules.yaml");
+/// The shipped rules, embedded at compile time. Byte-for-byte the file the
+/// Python app carried; a custom `rules_path` in settings overrides it at
+/// runtime.
+pub const RULES_YAML: &str = include_str!("../rules/rules.yaml");
 
 #[derive(Debug)]
 pub struct RuleError(pub String);

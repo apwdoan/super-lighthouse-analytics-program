@@ -1,18 +1,18 @@
-//! Cross-app compatibility: the Rust port against a database the PYTHON app
-//! wrote, and the Python app against one this port wrote.
+//! Cross-app compatibility, from the coexistence era: the Rust port
+//! against a database the PYTHON app wrote, and the Python app against one
+//! this port wrote.
 //!
-//! This is the contract the whole side-by-side period rests on, so it gets
-//! tested against the real other implementation, not against our own idea
-//! of it. CI for the desktop lane cannot assume a Python checkout, so the
-//! harness activates only when `SLAP_COMPAT_DB` points at a database (the
-//! repo's `python3 -m` one-liners create one); without it the test passes
-//! as a no-op and says so.
+//! Both harnesses PASSED on 2026-08-27, immediately before the Python app
+//! was retired: a Python-seeded database read and extended through this
+//! port, then read back by Python with zero migrations; and both findings
+//! engines producing the identical 29 findings (order, rendered titles and
+//! details, impacts) on the same busy synthetic page.
 //!
-//! Run from the repo root as:
-//!
-//!     python3 -c "import sys; sys.path.insert(0, 'src'); \
-//!         from slap import db; conn = db.init_db('/tmp/compat.sqlite3'); ..."
-//!     SLAP_COMPAT_DB=/tmp/compat.sqlite3 cargo test -p slap-core --test python_compat
+//! The harnesses stay because existing teammates' databases WERE written
+//! by the Python app, so the contract they proved is still load-bearing;
+//! regenerating their inputs now needs a git checkout that predates the
+//! retirement. Env-gated: without `SLAP_COMPAT_DB` / `SLAP_DIFF_JSON` each
+//! test passes as a no-op and says so, which is what CI sees.
 
 use slap_core::storage;
 

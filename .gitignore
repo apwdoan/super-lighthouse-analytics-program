@@ -17,3 +17,7 @@ node_modules/
 package-lock.json
 packaging/staging/
 *.spec.bak
+
+# The retirement parking lot: the device mount forbids deletion, so
+# removed trees are moved here for the user to delete by hand.
+_to_delete/

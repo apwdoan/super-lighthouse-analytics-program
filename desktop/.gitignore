@@ -1,3 +1,5 @@
 /target
 node_modules/
 /src-tauri/gen/
+# Locally built bundles delivered outside CI land here.
+/dist

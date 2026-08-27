@@ -1,15 +1,16 @@
 name: Build desktop app (Tauri)
 
-# Phase 0 of the Tauri rewrite: prove the four-target pipeline BEFORE any
-# logic is ported. The Python bundle taught this the expensive way; its
-# packaging failures (codesign walking the runtime tree, PowerShell not
-# waiting for GUI processes, retired runner images) all surfaced only when
-# a real runner built and ran a real artifact. So the desktop lane starts
-# life doing exactly that with a near-empty app, and every later phase
-# inherits a pipeline that already works.
+# THE release lane, since the Python app's retirement (2026-08-27): this
+# is the pipeline that ships SLAP. It began life dispatch-only, proving
+# the four-target pipeline on a near-empty app before any logic was
+# ported, because the Python bundle's packaging failures (codesign walking
+# the runtime tree, PowerShell not waiting for GUI processes, retired
+# runner images) all surfaced only when a real runner built and ran a real
+# artifact.
 #
-# Dispatch-only while the rewrite is side by side: the Python app is what
-# ships, and this lane exists to be run when desktop/ changes.
+# Tag a release, or run it by hand. Same trigger philosophy as the old
+# build.yml: each platform produces a real artifact and real minutes, so
+# not on every push.
 on:
   workflow_dispatch:
     inputs:
@@ -24,6 +25,8 @@ on:
           - macos-arm64    # Apple Silicon only
           - macos-x64      # Intel only
           - linux
+  push:
+    tags: ["v*"]
 
 permissions:
   contents: read
@@ -76,12 +79,16 @@ jobs:
         id: gate
         shell: bash
         env:
+          EVENT: ${{ github.event_name }}
           PICKED: ${{ inputs.platforms }}
           WANTED: ${{ matrix.wanted }}
           FAMILY: ${{ matrix.family }}
         run: |
           set -euo pipefail
-          if [ "$PICKED" = "all" ] \
+          # A tag push has no inputs; it builds everything. The platform
+          # picker only narrows manual dispatches.
+          if [ "$EVENT" != "workflow_dispatch" ] \
+             || [ "$PICKED" = "all" ] \
              || [ "$PICKED" = "$WANTED" ] \
              || [ "$PICKED" = "$FAMILY" ]; then
             echo "build=true" >> "$GITHUB_OUTPUT"

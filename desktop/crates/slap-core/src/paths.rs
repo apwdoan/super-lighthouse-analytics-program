@@ -1,12 +1,12 @@
 //! The data-directory contract, ported line for line from
 //! `src/slap/config.py`.
 //!
-//! This is the one piece of the core that HAD to port first: while the
-//! Python app and this one ship side by side, they read the SAME database,
-//! so both must resolve the same file or the desktop app starts fine and
-//! simply shows no history, which the rename postmortem identified as
-//! worse than an error. WAL mode makes the sharing itself safe; this
-//! module makes sure there is one file to share.
+//! This is the one piece of the core that HAD to port first: every
+//! existing install's history lives in the file the Python app resolved,
+//! so this app must resolve the same one or it starts fine and simply
+//! shows no history, which the rename postmortem identified as worse than
+//! an error. The contract outlives the Python app itself, exactly as the
+//! salp fallback outlived the rename.
 //!
 //! Deliberate quirk kept: macOS uses the XDG path (`~/.local/share/slap`),
 //! not `~/Library/Application Support`. That is where the Python app has
