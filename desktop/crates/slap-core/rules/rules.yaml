@@ -259,6 +259,27 @@ rules:
   # Transport security
   # ======================================================================
 
+  - id: https-unreachable
+    severity: critical
+    title: "The site could not be reached over HTTPS"
+    detail: >-
+      A request to the https:// URL failed at the connection or TLS layer
+      ({https.error}), so this audit was carried out over plain http:// instead.
+      Anyone who types the domain or follows an https:// link hits a browser
+      security error before the page loads, and every measurement in this report
+      was taken over an unencrypted connection.
+    when:
+      all:
+        - {metric: https.unreachable, is: true}
+    effort: low
+    remediation: >-
+      Provision a valid TLS certificate for the domain and its www host, and
+      redirect http:// to https://. On most managed hosts this is a one-click
+      "issue SSL certificate" action; if a certificate is already installed but
+      the handshake still fails, the TLS terminator or virtual host is
+      misconfigured.
+    evidence: [https.error, tls.error, tls.valid]
+
   - id: tls-invalid
     severity: critical
     title: "The TLS certificate does not validate"

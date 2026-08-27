@@ -623,13 +623,11 @@ mod tests {
     }
 
     #[test]
-    fn the_shipped_rules_load_and_count_matches_the_python_app() {
+    fn the_shipped_rules_load_and_count() {
         let engine = FindingsEngine::load(None).unwrap();
-        assert_eq!(
-            engine.rules.len(),
-            63,
-            "rules.yaml drifted between the apps"
-        );
+        // 63 rules carried from the Python app, plus the desktop-era
+        // https-unreachable rule that flags an http-fallback audit.
+        assert_eq!(engine.rules.len(), 64, "rules.yaml rule count drifted");
     }
 
     #[test]
@@ -657,6 +655,32 @@ mod tests {
         );
         assert_eq!(lcp.impact_ms, Some(4500.0));
         assert!(lcp.evidence.contains_key("crux.lcp.p75"));
+    }
+
+    #[test]
+    fn the_https_unreachable_rule_fires_and_renders_the_error() {
+        // The engine (run.rs) records https.unreachable when it falls back to
+        // http://; this pins the rule that turns that into a client-facing
+        // critical, and that {https.error} is substituted from the observation.
+        let engine = FindingsEngine::load(None).unwrap();
+        let v = values(&[
+            ("https.unreachable", Value::Bool(true)),
+            (
+                "https.error",
+                Value::from("error sending request (invalid peer certificate)"),
+            ),
+        ]);
+        let findings = engine.run(&v).unwrap();
+        let hit = findings
+            .iter()
+            .find(|f| f.rule_id == "https-unreachable")
+            .expect("https-unreachable fired");
+        assert_eq!(hit.severity, Severity::Critical);
+        assert!(
+            hit.detail.contains("invalid peer certificate"),
+            "the transport error is rendered into the detail: {}",
+            hit.detail
+        );
     }
 
     #[test]

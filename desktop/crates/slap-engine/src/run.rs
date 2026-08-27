@@ -197,6 +197,27 @@ async fn fetch_page(
     Ok((doc, observations))
 }
 
+/// Does a URL's transport (TCP, and the TLS handshake for https) accept a
+/// connection at all? A HEAD that returns any HTTP status, even a 4xx or 5xx,
+/// proves the transport works; only a connection, TLS, or timeout error is
+/// `Err`. HEAD is used so the probe transfers no body and does not warm the
+/// server's cache before the real measurement is taken.
+async fn head_reachable(
+    client: &reqwest::Client,
+    url: &str,
+    user_agent: &str,
+    timeout: Duration,
+) -> Result<(), String> {
+    client
+        .head(url)
+        .header(reqwest::header::USER_AGENT, user_agent)
+        .timeout(timeout)
+        .send()
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 /// Discover a site's pages, audit each one, run the origin collectors once,
 /// and gather it all into a SiteData. Emits collector progress as it goes.
 async fn audit_one_site(
@@ -209,7 +230,7 @@ async fn audit_one_site(
     total: usize,
     emit: &(impl Fn(Event) + Sync),
 ) -> SiteData {
-    let normalized = match normalize_url(raw) {
+    let mut normalized = match normalize_url(raw) {
         Ok(n) => n,
         Err(e) => {
             return SiteData {
@@ -223,8 +244,36 @@ async fn audit_one_site(
             }
         }
     };
-    let origin = origin_of(&normalized);
     let timeout = Duration::from_secs(cfg.timeout_secs);
+
+    // Reachability: a site whose HTTPS endpoint refuses the connection (an
+    // absent or broken certificate, a misconfigured TLS terminator) can still
+    // be audited over plain HTTP, which is far more useful than failing the
+    // whole run. When the HTTPS handshake fails but HTTP answers, fall back to
+    // http:// for every page collector, remember the original HTTPS origin so
+    // the TLS collector still reports why HTTPS did not work, and record the
+    // fallback so a finding can flag it. A HEAD is enough: any HTTP status,
+    // even a 4xx, proves the transport works, so only a connection/TLS error
+    // triggers the fallback, and HEAD does not warm the server's cache.
+    let mut https_unreachable: Option<String> = None;
+    let mut https_origin: Option<String> = None;
+    if normalized.starts_with("https://") {
+        if let Err(err) = head_reachable(client, &normalized, &cfg.user_agent, timeout).await {
+            let http_url = format!("http://{}", &normalized["https://".len()..]);
+            if head_reachable(client, &http_url, &cfg.user_agent, timeout)
+                .await
+                .is_ok()
+            {
+                https_origin = Some(origin_of(&normalized));
+                https_unreachable = Some(err);
+                normalized = http_url;
+            }
+            // If HTTP is also unreachable, leave normalized on https:// so the
+            // home fetch fails and the run is marked failed, exactly as before.
+        }
+    }
+
+    let origin = origin_of(&normalized);
     emit(Event::SiteStarted {
         batch_id: batch_id.into(),
         url: normalized.clone(),
@@ -325,10 +374,24 @@ async fn audit_one_site(
 
     // --- origin-scoped collectors, once ---
     started("tls");
-    let tls_obs = tls::probe(&normalized, timeout, now_unix()).await;
+    // Probe TLS against the real HTTPS origin even when the page audit fell
+    // back to http://, so a certificate or handshake failure is still reported.
+    let tls_target = https_origin.as_deref().unwrap_or(&normalized);
+    let tls_obs = tls::probe(tls_target, timeout, now_unix()).await;
     finished("tls", tls_obs.len(), true);
 
     let mut origin_observations = tls_obs;
+
+    // Record the HTTPS-unreachable fallback so a finding can flag it and the
+    // report can explain that the measurements below were taken over http://.
+    if let Some(err) = &https_unreachable {
+        if let Ok(o) = obs("https.unreachable", Value::Bool(true)) {
+            origin_observations.push(o);
+        }
+        if let Ok(o) = obs("https.error", Value::from(err.clone())) {
+            origin_observations.push(o);
+        }
+    }
 
     let mut crux_history = None;
     if let Some(key) = &cfg.crux_api_key {

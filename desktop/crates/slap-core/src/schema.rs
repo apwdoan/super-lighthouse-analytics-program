@@ -440,6 +440,17 @@ fn base_entries() -> Vec<M> {
             Redirect,
             "Final URL after redirects",
         ),
+        // Set only when the HTTPS endpoint refused the connection and the audit
+        // fell back to plain HTTP. Origin-scoped: it is a fact about the host,
+        // not a page. `https.error` carries the transport error for the report.
+        moh(
+            "https.unreachable",
+            Bool,
+            Redirect,
+            "HTTPS endpoint unreachable",
+            false,
+        ),
+        mo("https.error", None, Redirect, "HTTPS connection error"),
         // --- TLS ------------------------------------------------------------
         // Origin-scoped: one certificate serves every page on the host.
         mo("tls.protocol", None, Tls, "Negotiated TLS version"),
@@ -1245,11 +1256,12 @@ mod tests {
 
     #[test]
     fn the_registry_matches_the_python_registry_size() {
-        // 138 base entries plus the 19 lh.opp.* family, matching
-        // len(METRIC_REGISTRY) on the Python side exactly. A drift here
-        // means a metric was added to one app and not the other, and the
-        // shared database will carry rows one of them cannot label.
-        assert_eq!(metric_registry().len(), 138 + 19);
+        // 138 entries carried over from the Python registry, plus 2 desktop-era
+        // additions (https.unreachable, https.error, for the http-fallback
+        // finding), plus the 19 lh.opp.* family. A drift here means a metric was
+        // added without updating this count; keep it deliberate so an accidental
+        // key is caught.
+        assert_eq!(metric_registry().len(), 138 + 2 + 19);
     }
 
     #[test]
