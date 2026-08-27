@@ -1,0 +1,24 @@
+# The shell: a window, IPC commands, and process plumbing. Business logic
+# lives in slap-core; anything that grows in here beyond wiring is in the
+# wrong crate.
+
+[package]
+name = "slap-desktop"
+version.workspace = true
+edition.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+slap-core = { path = "../crates/slap-core" }
+
+[target."cfg(windows)".dependencies]
+# For AttachConsole in --self-check: a windows-subsystem binary has no
+# console of its own, and the check's output should still reach a
+# developer who ran it from a shell. CI does not rely on this (it pipes,
+# which hands the process valid handles), but people type things.
+windows-sys = { version = "0.59", features = ["Win32_System_Console"] }

@@ -1,0 +1,21 @@
+# The Tauri rewrite lives here, side by side with the Python app it will
+# eventually replace. Nothing outside desktop/ depends on anything in it,
+# and the Python bundle keeps shipping until this app passes the same
+# self-check and real-audit bar. Plan and phase status:
+# the project doc claude/tauri-rewrite.md.
+
+[workspace]
+resolver = "2"
+members = ["crates/slap-core", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+# Size matters for a desktop app that exists partly to stop being a 400MB
+# download. LTO and one codegen unit cost build minutes on release only;
+# strip drops the debug info nobody will read out of a teammate's install.
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true

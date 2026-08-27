@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "Baseline for the main window: core runtime permissions only. Custom commands are exposed through the invoke handler and need no entries here; anything added to this list should be the narrowest permission that unblocks a real feature.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

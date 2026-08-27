@@ -1,0 +1,179 @@
+name: Build desktop app (Tauri)
+
+# Phase 0 of the Tauri rewrite: prove the four-target pipeline BEFORE any
+# logic is ported. The Python bundle taught this the expensive way; its
+# packaging failures (codesign walking the runtime tree, PowerShell not
+# waiting for GUI processes, retired runner images) all surfaced only when
+# a real runner built and ran a real artifact. So the desktop lane starts
+# life doing exactly that with a near-empty app, and every later phase
+# inherits a pipeline that already works.
+#
+# Dispatch-only while the rewrite is side by side: the Python app is what
+# ships, and this lane exists to be run when desktop/ changes.
+on:
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: Which platforms to build
+        type: choice
+        default: all
+        options:
+          - all
+          - windows
+          - macos          # both Macs
+          - macos-arm64    # Apple Silicon only
+          - macos-x64      # Intel only
+          - linux
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+
+    strategy:
+      # One platform failing should not cancel the others.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows-x64
+            wanted: windows
+            family: windows
+            bundles: msi,nsis
+
+          # macos-latest is Apple Silicon.
+          - os: macos-latest
+            label: macos-arm64
+            wanted: macos-arm64
+            family: macos
+            bundles: app,dmg
+
+          # Intel. macos-15-intel, same reasoning as build.yml: macos-13
+          # was retired 2025-12-04, and 15 is the oldest supported image,
+          # available until Actions drops x86_64 in August 2027.
+          - os: macos-15-intel
+            label: macos-x64
+            wanted: macos-x64
+            family: macos
+            bundles: app,dmg
+
+          - os: ubuntu-latest
+            label: linux-x64
+            wanted: linux
+            family: linux
+            bundles: deb,appimage
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Same single gate as build.yml, values through env rather than
+      # interpolated into the script, for the same reasons.
+      - name: Decide whether to build this platform
+        id: gate
+        shell: bash
+        env:
+          PICKED: ${{ inputs.platforms }}
+          WANTED: ${{ matrix.wanted }}
+          FAMILY: ${{ matrix.family }}
+        run: |
+          set -euo pipefail
+          if [ "$PICKED" = "all" ] \
+             || [ "$PICKED" = "$WANTED" ] \
+             || [ "$PICKED" = "$FAMILY" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "Building $WANTED."
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping $WANTED (picked: $PICKED). The core tests still"
+            echo "run, which is the point of not gating the whole job."
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Cargo caching scoped to the desktop workspace. Without it every
+      # dispatch recompiles ~450 crates from scratch on every runner.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+
+      # Node is here only to run the Tauri CLI (a prebuilt binary from
+      # npm). Nothing desktop-side executes on this Node at runtime.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      # The list from Tauri's own Linux prerequisites for webkit2gtk 4.1
+      # on ubuntu-latest (24.04). AppImage packaging additionally wants
+      # patchelf and librsvg.
+      - name: Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential curl wget file \
+            libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      # Runs on every platform in the matrix regardless of what is being
+      # built, mirroring build.yml: "does the core compile and pass on
+      # Intel macOS" is worth knowing even on a run that only ships the
+      # arm64 bundle.
+      - name: Run the core tests
+        working-directory: desktop
+        run: cargo test -p slap-core
+
+      - name: Install the Tauri CLI
+        if: steps.gate.outputs.build == 'true'
+        run: npm install -g @tauri-apps/cli@^2
+
+      - name: Build the bundles
+        if: steps.gate.outputs.build == 'true'
+        working-directory: desktop
+        run: tauri build --bundles ${{ matrix.bundles }}
+
+      # ----------------------------------------------------------------
+      # Run the artifact that was just built. Same doctrine as build.yml:
+      # the assertions live in the binary (--self-check); this step only
+      # finds the executable and reads the exit code.
+      # ----------------------------------------------------------------
+      - name: Self-check the built binary
+        if: steps.gate.outputs.build == 'true' && runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          desktop/target/release/slap-desktop --self-check
+
+      - name: Self-check the built binary (Windows)
+        if: steps.gate.outputs.build == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $app = "desktop\target\release\slap-desktop.exe"
+          if (-not (Test-Path $app)) { throw "no slap-desktop.exe at $app" }
+          # Piped, never bare: slap-desktop.exe is a GUI-subsystem binary
+          # in release, and PowerShell does not wait for those. The pipe
+          # forces a read to EOF, which means waiting for the exit code.
+          # docs/packaging.md records the day this lesson cost an
+          # afternoon; it applies to the Rust binary identically.
+          & $app --self-check 2>&1 | ForEach-Object { "$_" }
+          if ($LASTEXITCODE -ne 0) { throw "self-check failed (exit $LASTEXITCODE)" }
+
+      - name: Upload
+        if: steps.gate.outputs.build == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: SLAP-desktop-${{ matrix.label }}
+          path: |
+            desktop/target/release/bundle/msi/*.msi
+            desktop/target/release/bundle/nsis/*.exe
+            desktop/target/release/bundle/dmg/*.dmg
+            desktop/target/release/bundle/macos/*.app/**
+            desktop/target/release/bundle/deb/*.deb
+            desktop/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+          retention-days: 14

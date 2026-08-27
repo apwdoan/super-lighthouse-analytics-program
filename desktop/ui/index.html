@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SLAP</title>
+<!--
+  No bundler, no framework, one file. The same decision the web UI made
+  and recorded: HTMX-grade interactivity does not justify a build
+  toolchain. When the real screens port over (phase 5), fragments render
+  in Rust through minijinja and this stays a static shell.
+-->
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #171e2e;
+    --line: #26304a;
+    --ink: #e6eaf2;
+    --ink-dim: #9aa4b8;
+    --accent: #22d3ee;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 system-ui, "Segoe UI", sans-serif;
+  }
+  main { width: min(640px, 92vw); }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+  .brand h1 {
+    margin: 0;
+    font-size: 34px;
+    letter-spacing: 0.04em;
+  }
+  .brand .tag {
+    color: var(--ink-dim);
+    font-size: 13px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 2px 10px;
+  }
+  .sub { color: var(--ink-dim); margin: 0 0 22px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px 20px;
+  }
+  dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 8px 18px;
+    margin: 0;
+  }
+  dt { color: var(--ink-dim); }
+  dd {
+    margin: 0;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 13.5px;
+    overflow-wrap: anywhere;
+  }
+  .note {
+    margin-top: 16px;
+    color: var(--ink-dim);
+    font-size: 13px;
+  }
+  .accent { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">
+    <h1>SLAP</h1>
+    <span class="tag">desktop preview</span>
+  </div>
+  <p class="sub">Super Lighthouse Analytics Project, phase 0 of the Tauri shell.</p>
+  <div class="card">
+    <dl id="status">
+      <dt>Status</dt><dd id="boot">starting</dd>
+    </dl>
+  </div>
+  <p class="note" id="footnote">
+    This shell proves the pipeline: window, IPC, packaging, self-check.
+    The audit screens arrive as the core ports over.
+  </p>
+</main>
+<script>
+  // window.__TAURI__ exists because withGlobalTauri is on; there is no
+  // bundler here to import an API package through. Opened in a plain
+  // browser this file degrades to saying so instead of erroring.
+  const rows = [
+    ["App", s => `${s.name} ${s.version}`],
+    ["Core", s => `slap-core ${s.core_version}`],
+    ["Webview", s => s.webview || "unknown"],
+    ["Data directory", s => s.data_dir + (s.using_legacy_data ? "  (legacy salp fallback)" : "")],
+    ["Database", s => s.db_path],
+  ];
+  const tauri = window.__TAURI__;
+  if (tauri && tauri.core && tauri.core.invoke) {
+    tauri.core.invoke("app_status").then(status => {
+      const list = document.getElementById("status");
+      list.innerHTML = "";
+      for (const [label, render] of rows) {
+        const term = document.createElement("dt");
+        term.textContent = label;
+        const detail = document.createElement("dd");
+        detail.textContent = render(status);
+        list.append(term, detail);
+      }
+    }).catch(error => {
+      document.getElementById("boot").textContent = "IPC failed: " + error;
+    });
+  } else {
+    document.getElementById("boot").textContent =
+      "not running inside the app shell (no Tauri IPC here)";
+  }
+</script>
+</body>
+</html>
