@@ -52,27 +52,43 @@ every artifact it builds, and uploads the bundles.
 
 ### Lighthouse in the installer
 
-The Node worker is bundled into the app by default (`bundle.resources` in
-`tauri.conf.json` ships `desktop/worker/`), so an installed app runs
-Lighthouse without the repo beside it. Two things to know:
+Lighthouse is fully self-contained in a release build: the app ships both
+the Node worker and a Node runtime, so an installed SLAP runs Lighthouse on
+a machine that has neither the repo nor Node. (The pinned Chrome for Testing
+is still fetched on first use, so nothing browser-side ships.)
 
-- **`npm install` the worker before building.** The worker's `node_modules`
-  is what gets bundled, and it is gitignored, so `cd desktop/worker && npm
-  install` must run first. CI does this in `desktop.yml`; a local build
-  needs it once.
-- **The installed app still needs Node on PATH at runtime.** Bundling ships
-  the worker and its dependencies, not the Node runtime itself; Lighthouse
-  shells out to `node`. The pinned Chrome for Testing is fetched and
-  sha256-checked on first use, so nothing browser-side ships.
+**Before `tauri build`, run the prepare step:**
 
-The worker is bundled with the array-form resource glob (`"../worker/**/*"`),
-which preserves the `node_modules` tree (the map form flattens it and breaks
-module resolution). Tauri escapes the parent-dir `..` to `_up_`, so the
-files land at `<resources>/_up_/worker`, and `commands.rs::worker_dir`
-resolves that (falling back to `desktop/worker/` beside a dev build).
-Bundling adds ~105MB, so an installer is ~110MB rather than a few MB: the
-deliberate trade for Lighthouse working out of the box. To go back to a
-small installer, remove `bundle.resources`.
+    cd desktop
+    node scripts/prepare-bundle.mjs
+    npx --yes @tauri-apps/cli@^2 build
+
+`prepare-bundle.mjs` does the two things a self-contained build needs: it
+`npm install`s the worker (its `node_modules` is bundled as a resource) and
+downloads a pinned Node runtime for the build's platform into
+`src-tauri/binaries/slap-node-<triple>[.exe]`, where Tauri's `externalBin`
+picks it up. Both are gitignored and fetched per build; CI runs the same
+step on each runner. A build WITHOUT this step fails, because Tauri requires
+the externalBin binary to exist — the intended fail-loud.
+
+How it resolves at runtime:
+
+- The **worker** is bundled via the resource glob `"../worker/**/*"` (the map
+  form flattens `node_modules` and breaks module resolution). Tauri escapes
+  the parent `..` to `_up_`, so it lands at `<resources>/_up_/worker` and
+  `commands.rs::worker_dir` resolves it, falling back to `desktop/worker/`
+  beside a dev build.
+- The **Node runtime** ships as an `externalBin` named `slap-node` (not
+  `node`, so a Linux package never collides with a system Node in
+  `/usr/bin`). Tauri drops it beside the main binary;
+  `commands.rs::bundled_node` finds `slap-node[.exe]` there and passes it as
+  Lighthouse's `node_path`, falling back to `node` on PATH when absent.
+
+Size: the worker adds ~105MB and the Node runtime ~80-120MB, so a release
+installer is roughly ~180-200MB rather than a few MB. That is the deliberate
+trade for zero-prerequisite Lighthouse. To go back to a small installer,
+remove `bundle.resources` and `bundle.externalBin` and skip the prepare
+step; Lighthouse then needs Node plus the repo's worker, as a dev build does.
 
 ## Mobile
 

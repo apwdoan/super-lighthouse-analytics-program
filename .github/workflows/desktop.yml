@@ -141,10 +141,10 @@ jobs:
       # The Lighthouse worker's node_modules are bundled into the app as a
       # resource, so they must exist before the build. Unlike the CLI Node
       # above, THIS is shipped and executed at runtime.
-      - name: Install the Lighthouse worker dependencies
+      - name: Prepare bundled Lighthouse (worker deps + Node runtime)
         if: steps.gate.outputs.build == 'true'
-        working-directory: desktop/worker
-        run: npm install --no-audit --no-fund
+        working-directory: desktop
+        run: node scripts/prepare-bundle.mjs
 
       - name: Build the bundles
         if: steps.gate.outputs.build == 'true'

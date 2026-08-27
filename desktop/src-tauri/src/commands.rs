@@ -282,6 +282,19 @@ fn worker_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     dev.join("worker.js").exists().then_some(dev)
 }
 
+/// The bundled Node runtime, if the app shipped one. Tauri places an
+/// `externalBin` beside the main executable with the target triple stripped, so
+/// a self-contained install has `slap-node[.exe]` next to the binary. Named
+/// `slap-node` rather than `node` so a Linux package never collides with a
+/// system Node. Returns None when the app was built without the bundled
+/// runtime, in which case Lighthouse falls back to `node` on PATH.
+fn bundled_node() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let name = if cfg!(windows) { "slap-node.exe" } else { "slap-node" };
+    let candidate = exe.parent()?.join(name);
+    candidate.exists().then(|| candidate.display().to_string())
+}
+
 fn run_audit_blocking(
     app: tauri::AppHandle,
     urls: Vec<String>,
@@ -319,7 +332,7 @@ fn run_audit_blocking(
         cfg.lighthouse = Some(slap_engine::lighthouse::LighthouseConfig {
             runs: 3,
             form_factor: "mobile".into(),
-            node_path: "node".into(),
+            node_path: bundled_node().unwrap_or_else(|| "node".into()),
             worker_dir: dir,
             chrome_path: Some(chrome),
             timeout_secs: cfg.timeout_secs.max(150),
