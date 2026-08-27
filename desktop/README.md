@@ -50,24 +50,29 @@ the exact list). CI (`desktop.yml`) builds Windows, macOS arm64, macOS
 Intel, and Linux on dispatch and on `v*` tags, runs `--self-check` on
 every artifact it builds, and uploads the bundles.
 
-### Lighthouse in a distributable
+### Lighthouse in the installer
 
-A Lighthouse run needs three things at runtime: Node on PATH, the worker's
-`node_modules` (from `npm install` in `desktop/worker/`), and a pinned
-Chrome for Testing (the app fetches and sha256-checks one on first run, so
-nothing to ship). In a dev build or on a machine that has the repo, the
-app finds `desktop/worker/` beside the build and no bundling is needed. To
-put Lighthouse in an installer for machines without the repo, bundle the
-worker into the app's resources: run `npm install` in `desktop/worker/`,
-then add to `src-tauri/tauri.conf.json` under `bundle`:
+The Node worker is bundled into the app by default (`bundle.resources` in
+`tauri.conf.json` ships `desktop/worker/`), so an installed app runs
+Lighthouse without the repo beside it. Two things to know:
 
-    "resources": { "../worker": "worker" }
+- **`npm install` the worker before building.** The worker's `node_modules`
+  is what gets bundled, and it is gitignored, so `cd desktop/worker && npm
+  install` must run first. CI does this in `desktop.yml`; a local build
+  needs it once.
+- **The installed app still needs Node on PATH at runtime.** Bundling ships
+  the worker and its dependencies, not the Node runtime itself; Lighthouse
+  shells out to `node`. The pinned Chrome for Testing is fetched and
+  sha256-checked on first use, so nothing browser-side ships.
 
-`commands.rs::worker_dir` looks in the bundled resource dir first and falls
-back to `desktop/worker/`. The default config leaves the worker unbundled
-to keep the installer small (a few MB rather than ~160MB); a non-bundled
-installer still audits everything except Lighthouse, and runs Lighthouse
-fine from a dev/source checkout.
+The worker is bundled with the array-form resource glob (`"../worker/**/*"`),
+which preserves the `node_modules` tree (the map form flattens it and breaks
+module resolution). Tauri escapes the parent-dir `..` to `_up_`, so the
+files land at `<resources>/_up_/worker`, and `commands.rs::worker_dir`
+resolves that (falling back to `desktop/worker/` beside a dev build).
+Bundling adds ~105MB, so an installer is ~110MB rather than a few MB: the
+deliberate trade for Lighthouse working out of the box. To go back to a
+small installer, remove `bundle.resources`.
 
 ## Mobile
 

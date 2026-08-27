@@ -27,6 +27,9 @@
     "targets": "all",
     "category": "DeveloperTool",
     "shortDescription": "Lighthouse statistics, easy to retrieve and convey",
+    "resources": [
+      "../worker/**/*"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

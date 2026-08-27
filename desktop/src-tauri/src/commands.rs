@@ -263,12 +263,21 @@ fn host_of(url: &str) -> Option<String> {
 fn worker_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     use tauri::Manager;
     if let Ok(res) = app.path().resource_dir() {
-        let candidate = res.join("worker");
-        if candidate.join("worker.js").exists() {
-            return Some(candidate);
+        // The `../worker/**/*` resource glob preserves the tree but escapes the
+        // parent-dir `..` to `_up_`, so the worker lands at
+        // `<resources>/_up_/worker`. The bare `worker` candidates cover other
+        // bundlers/layouts; the first that has worker.js wins.
+        for candidate in [
+            res.join("_up_").join("worker"),
+            res.join("worker"),
+            res.join("worker").join("worker"),
+        ] {
+            if candidate.join("worker.js").exists() {
+                return Some(candidate);
+            }
         }
     }
-    // Dev fallback: the repo's worker directory.
+    // Dev fallback: the repo's worker directory beside the crate.
     let dev = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../worker");
     dev.join("worker.js").exists().then_some(dev)
 }

@@ -138,6 +138,14 @@ jobs:
         if: steps.gate.outputs.build == 'true'
         run: npm install -g @tauri-apps/cli@^2
 
+      # The Lighthouse worker's node_modules are bundled into the app as a
+      # resource, so they must exist before the build. Unlike the CLI Node
+      # above, THIS is shipped and executed at runtime.
+      - name: Install the Lighthouse worker dependencies
+        if: steps.gate.outputs.build == 'true'
+        working-directory: desktop/worker
+        run: npm install --no-audit --no-fund
+
       - name: Build the bundles
         if: steps.gate.outputs.build == 'true'
         working-directory: desktop
