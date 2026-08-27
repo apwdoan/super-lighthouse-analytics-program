@@ -185,16 +185,14 @@ pub fn open_db(path: &Path) -> Result<Connection> {
 /// Bring an existing database up to the current DDL. Returns what it did.
 ///
 /// `CREATE TABLE IF NOT EXISTS` is a no-op on a table that already exists,
-/// so a column rename in the DDL does NOT reach a database created before
-/// it. The SALP-to-SLAP rename turned `run.salp_version` into
-/// `run.slap_version`, and without this an existing database keeps working
-/// right up until the first insert.
+/// so a column ADDED to a table in the DDL does NOT reach a database
+/// created before it. A run created before per-page analysis has a `page`
+/// table without `role`/`audit_depth`, and without this it keeps working
+/// right up until a query selects a column that isn't there.
 ///
-/// Kept deliberately small: rename in place, never copy, never drop. A run
-/// row is immutable history and losing it to a cosmetic rename would be a
-/// bad trade. (The Python version also gated on SQLite older than 3.25,
-/// which cannot rename columns; this build bundles 3.46, so the gate is
-/// compiled out rather than checked.)
+/// Kept deliberately small: add columns in place, never copy, never drop. A
+/// run row is immutable history and losing it to a schema bump would be a
+/// bad trade.
 pub fn migrate(conn: &Connection) -> Result<Vec<String>> {
     let mut applied: Vec<String> = Vec::new();
     let tables = table_names(conn)?;
@@ -202,20 +200,12 @@ pub fn migrate(conn: &Connection) -> Result<Vec<String>> {
         return Ok(applied);
     }
 
-    let run_columns = column_names(conn, "run")?;
-    if run_columns.contains("salp_version") && !run_columns.contains("slap_version") {
-        conn.execute(
-            "ALTER TABLE run RENAME COLUMN salp_version TO slap_version",
-            [],
-        )?;
-        applied.push("run.salp_version -> run.slap_version".into());
-    }
-
     // Per-page analysis: a run gained the ability to hold more than one
-    // page. These go here rather than only in the DDL body for the same
-    // reason the rename does. Defaulting `role` to 'home' is what keeps old
-    // runs on the trend line: a NULL role would silently drop all of
-    // history from the queries that select the home page.
+    // page. These go here rather than only in the DDL body because
+    // `CREATE TABLE IF NOT EXISTS` will not add them to an existing table.
+    // Defaulting `role` to 'home' is what keeps old runs on the trend line:
+    // a NULL role would silently drop all of history from the queries that
+    // select the home page.
     if tables.contains("page") {
         let page_columns = column_names(conn, "page")?;
         for (column, ddl) in [
@@ -1130,10 +1120,10 @@ mod tests {
     }
 
     #[test]
-    fn the_rename_era_database_is_migrated_not_recreated() {
-        // A database exactly as the pre-rename app left it: salp_version on
-        // run, a four-column page, no probe columns, plus one run whose
-        // page has a Lighthouse artifact.
+    fn a_pre_per_page_database_is_migrated_not_recreated() {
+        // A database from before per-page analysis: a four-column page with
+        // no role/audit_depth, no probe columns, plus one run whose page has
+        // a Lighthouse artifact.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("old.sqlite3");
         {
@@ -1143,7 +1133,7 @@ mod tests {
                      label TEXT, client TEXT, created_at TEXT NOT NULL);\
                  CREATE TABLE run (id INTEGER PRIMARY KEY, batch_id TEXT NOT NULL, \
                      site_id INTEGER NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, \
-                     status TEXT NOT NULL, error TEXT, salp_version TEXT NOT NULL, \
+                     status TEXT NOT NULL, error TEXT, slap_version TEXT NOT NULL, \
                      schema_version INTEGER NOT NULL, lh_version TEXT, chrome_version TEXT, \
                      throttling_profile TEXT, git_sha TEXT);\
                  CREATE TABLE page (id INTEGER PRIMARY KEY, run_id INTEGER NOT NULL, \
@@ -1163,7 +1153,7 @@ mod tests {
 
         let conn = open_db(&path).unwrap();
 
-        // The rename happened in place: history intact under the new name.
+        // History is intact: the run row was migrated in place, not recreated.
         let version: String = conn
             .query_row("SELECT slap_version FROM run WHERE id = 1", [], |row| {
                 row.get(0)

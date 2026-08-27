@@ -274,8 +274,9 @@ impl Settings {
                 settings.collector.crux_api_key = Some(key);
             }
         }
-        // SALP_DB still works; see paths::db_path for why.
-        if let Some(env_db) = std::env::var_os("SLAP_DB").or_else(|| std::env::var_os("SALP_DB")) {
+        // SLAP_DB overrides the configured database location; see
+        // paths::db_path for why.
+        if let Some(env_db) = std::env::var_os("SLAP_DB") {
             settings.db_path = expand_user(PathBuf::from(env_db));
         }
 

@@ -1,0 +1,49 @@
+# The audit engine: the collectors and the orchestration that runs them.
+#
+# Separate from slap-core on purpose. The core is what the mobile VIEWER
+# needs (schema, storage, rules) and stays light; the engine pulls a real
+# HTTP stack and only the desktop app ever compiles it. Audits cannot run
+# on a phone anyway (Lighthouse needs Node and Chrome), so the phone never
+# wants this crate.
+[package]
+name = "slap-engine"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+slap-core = { path = "../slap-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+futures = "0.3"
+
+# rustls, not native-tls: one TLS story across Windows/macOS/Linux, no
+# OpenSSL to find at build time. Auto-decompression is deliberately OFF (no
+# gzip/brotli features): the collector reads Content-Encoding itself and
+# decodes by hand, because knowing whether a response WAS compressed is an
+# observation, and reqwest strips the header when it decodes for you. That
+# is the Rust face of the Python encoding gotcha.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "json"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "process", "io-util"] }
+
+# The TLS collector runs its OWN handshake (not reqwest's) so it can read the
+# certificate even when validation FAILS: an expired cert and a hostname
+# mismatch are different findings, and both need the cert to explain them.
+tokio-rustls = "0.26"
+rustls = "0.23"
+webpki-roots = "0.26"
+x509-parser = "0.16"
+
+# The decoders the collector advertises in Accept-Encoding and applies by
+# hand. It only ever asks for what it can decode here, so a response never
+# comes back as bytes that merely look like a page.
+flate2 = "1"
+brotli = "7"
+# For extracting the pinned Chrome for Testing download on first run.
+zip = "2"
+
+[dev-dependencies]
+tiny_http = "0.12"
+tempfile = "3"
+# test-util for the paused-clock token-bucket test.
+tokio = { version = "1", features = ["test-util", "macros", "rt", "rt-multi-thread", "time"] }

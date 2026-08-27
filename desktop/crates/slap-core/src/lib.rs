@@ -2,11 +2,10 @@
 //! window and not a browser.
 //!
 //! Porting order follows the project's own doctrine: the data contracts
-//! freeze first. Phase 0 ports the *path* contract (which database file,
-//! which data directory, which legacy fallback), because the desktop app
-//! reads the SAME SQLite database as the Python app while the two ship
-//! side by side. Everything else arrives in later phases; see the project
-//! doc `claude/tauri-rewrite.md` for the sequence.
+//! freeze first. Phase 0 ported the *path* contract (which database file,
+//! which data directory), because the desktop app must read the SAME
+//! SQLite database the Python app wrote. Everything else arrives in later
+//! phases; see the project doc `claude/tauri-rewrite.md` for the sequence.
 //!
 //! Two rules carried over from the Python core, both load-bearing:
 //!
@@ -15,6 +14,12 @@
 //! - Runs are immutable history. Nothing in this crate will ever mutate or
 //!   delete a run row; the rename-era migration code renames columns in
 //!   place and never copies or drops.
+
+// Re-exported so front ends can hold the connection type and handle its
+// errors through the core, rather than taking their own dependency on the
+// storage engine. The shell manages a Connection in app state; this is how
+// it names one without knowing it is SQLite.
+pub use rusqlite;
 
 pub mod events;
 pub mod findings;

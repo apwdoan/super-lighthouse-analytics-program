@@ -5,125 +5,557 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SLAP</title>
 <!--
-  No bundler, no framework, one file. The same decision the web UI made
-  and recorded: HTMX-grade interactivity does not justify a build
-  toolchain. When the real screens port over (phase 5), fragments render
-  in Rust through minijinja and this stays a static shell.
+  One file, no bundler, no framework: the decision the web UI recorded and
+  this app kept. A hash router swaps views; every view is drawn from data
+  the Rust commands return. Opened outside the app shell (no Tauri IPC) it
+  says so rather than erroring.
+
+  Design rules carried from the report (templates/report/report.css) and
+  the ui-redesign notes:
+    - The SITE is the primary object, not the batch.
+    - Status colour never carries meaning alone. Every severity badge
+      prints its status WORD beside the dot, because serious (#ec835a) and
+      warning (#fab219) sit too close to tell apart and both fail contrast
+      on a light surface. Do not "tidy away" the words.
+    - One series means no legend; the heading names it.
+    - Dark mode is a chosen set of steps, not an automatic invert.
 -->
 <style>
   :root {
-    --bg: #0f1420;
-    --panel: #171e2e;
-    --line: #26304a;
-    --ink: #e6eaf2;
-    --ink-dim: #9aa4b8;
-    --accent: #22d3ee;
+    --bg: #f4f3ee;
+    --surface: #fcfcfb;
+    --surface-2: #f4f4f0;
+    --line: #e1e0d9;
+    --line-strong: #c3c2b7;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --ink-3: #898781;
+    --accent: #2a78d6;
+    --good: #0ca30c;
+    --warning: #fab219;
+    --serious: #ec835a;
+    --critical: #d03b3b;
+    --muted-status: #898781;
+    --radius: 10px;
+    --shadow: 0 1px 2px rgba(11,11,11,.05), 0 1px 8px rgba(11,11,11,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151c;
+      --surface: #191d26;
+      --surface-2: #10131a;
+      --line: #2a3040;
+      --line-strong: #3a4155;
+      --ink: #eef1f6;
+      --ink-2: #aab3c5;
+      --ink-3: #7c869b;
+      --accent: #5ab0f0;
+      --good: #35c135;
+      --warning: #f7c04a;
+      --serious: #f0966a;
+      --critical: #e8635f;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 12px rgba(0,0,0,.25);
+    }
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0;
-    min-height: 100vh;
-    display: grid;
-    place-items: center;
     background: var(--bg);
     color: var(--ink);
-    font: 15px/1.5 system-ui, "Segoe UI", sans-serif;
-  }
-  main { width: min(640px, 92vw); }
-  .brand {
-    display: flex;
-    align-items: baseline;
-    gap: 12px;
-    margin-bottom: 6px;
-  }
-  .brand h1 {
-    margin: 0;
-    font-size: 34px;
-    letter-spacing: 0.04em;
-  }
-  .brand .tag {
-    color: var(--ink-dim);
-    font-size: 13px;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    padding: 2px 10px;
-  }
-  .sub { color: var(--ink-dim); margin: 0 0 22px; }
-  .card {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 18px 20px;
-  }
-  dl {
+    font: 14.5px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 8px 18px;
-    margin: 0;
+    grid-template-columns: 232px 1fr;
+    grid-template-rows: 1fr;
   }
-  dt { color: var(--ink-dim); }
-  dd {
-    margin: 0;
-    font-family: ui-monospace, Consolas, monospace;
-    font-size: 13.5px;
-    overflow-wrap: anywhere;
+  a { color: inherit; text-decoration: none; }
+
+  /* ---- sidebar ---- */
+  nav.side {
+    background: var(--surface-2);
+    border-right: 1px solid var(--line);
+    padding: 20px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 100vh;
   }
-  .note {
-    margin-top: 16px;
-    color: var(--ink-dim);
-    font-size: 13px;
+  .brand {
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 8px 18px;
   }
-  .accent { color: var(--accent); }
+  .brand .mark {
+    width: 30px; height: 30px; border-radius: 8px; flex: none;
+    background:
+      radial-gradient(circle at 50% 118%, transparent 46%, var(--surface-2) 47%),
+      conic-gradient(from 210deg at 50% 118%, var(--accent) 0 60%, transparent 0);
+    border: 1px solid var(--line-strong);
+  }
+  .brand b { font-size: 18px; letter-spacing: .06em; }
+  nav.side a.item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border-radius: 8px; color: var(--ink-2);
+    font-weight: 500; cursor: pointer;
+  }
+  nav.side a.item:hover { background: var(--surface); color: var(--ink); }
+  nav.side a.item.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+  nav.side a.item .ico { width: 18px; text-align: center; opacity: .8; }
+  nav.side .spacer { flex: 1; }
+  nav.side .foot { padding: 8px; color: var(--ink-3); font-size: 12px; }
+
+  /* ---- main ---- */
+  main { min-width: 0; padding: 26px 30px 60px; overflow-y: auto; height: 100vh; }
+  .crumbs { color: var(--ink-3); font-size: 13px; margin-bottom: 4px; }
+  .crumbs a { color: var(--accent); cursor: pointer; }
+  h1 { font-size: 23px; margin: 2px 0 4px; }
+  h2 { font-size: 16px; margin: 26px 0 12px; }
+  .lead { color: var(--ink-2); margin: 0 0 18px; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+  }
+  .pad { padding: 16px 18px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3); font-weight: 600; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--surface-2); }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* ---- status badges: colour + WORD, always ---- */
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--muted-status); }
+  .s-critical .dot { background: var(--critical); } .s-critical { color: var(--critical); }
+  .s-high .dot     { background: var(--serious); }  .s-high { color: var(--serious); }
+  .s-medium .dot   { background: var(--warning); }
+  .s-low .dot, .s-info .dot { background: var(--muted-status); }
+  .pill {
+    display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-2);
+  }
+  .muted { color: var(--ink-3); }
+
+  .grid { display: grid; gap: 14px; }
+  .cols-3 { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 780px) { .cols-3 { grid-template-columns: 1fr; } body { grid-template-columns: 64px 1fr; } .brand b, nav.side a.item span.lbl, nav.side .foot { display: none; } }
+
+  .tile .k { color: var(--ink-3); font-size: 12.5px; text-transform: uppercase; letter-spacing: .03em; }
+  .tile .v { font-size: 26px; font-weight: 650; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .tile .sub { color: var(--ink-3); font-size: 12.5px; margin-top: 2px; }
+
+  .finding { border-left: 3px solid var(--muted-status); background: var(--surface); border: 1px solid var(--line); border-left-width: 3px; border-radius: 8px; padding: 12px 15px; margin-bottom: 10px; }
+  .finding.critical { border-left-color: var(--critical); }
+  .finding.high     { border-left-color: var(--serious); }
+  .finding.medium   { border-left-color: var(--warning); }
+  .finding.low, .finding.info { border-left-color: var(--muted-status); }
+  .finding .title { font-weight: 650; }
+  .finding .detail { color: var(--ink-2); margin-top: 4px; }
+  .finding .meta { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .wprocket { margin-top: 8px; font-size: 13px; background: var(--surface-2); border: 1px dashed var(--line-strong); border-radius: 6px; padding: 7px 10px; }
+  .wprocket b { color: var(--accent); }
+
+  button.primary {
+    background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  button.primary:hover { filter: brightness(1.05); }
+  button.ghost { background: var(--surface); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 8px; padding: 9px 14px; font-weight: 600; cursor: pointer; }
+  textarea { width: 100%; min-height: 150px; resize: vertical; padding: 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); font: 13px/1.5 ui-monospace, Consolas, monospace; }
+  .notice { border-radius: 8px; padding: 12px 15px; margin-top: 14px; font-size: 13.5px; }
+  .notice.info { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); }
+  .notice.warn { background: color-mix(in srgb, var(--warning) 16%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--line)); }
+  .empty { text-align: center; color: var(--ink-3); padding: 54px 20px; }
+  .empty .big { font-size: 40px; opacity: .5; }
+  dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 7px 20px; margin: 0; }
+  dl.kv dt { color: var(--ink-3); }
+  dl.kv dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  svg.spark { display: block; }
+  .row-actions { display: flex; gap: 10px; align-items: center; margin: 6px 0 18px; flex-wrap: wrap; }
+  .seg { font-size: 12.5px; color: var(--ink-3); }
 </style>
 </head>
 <body>
-<main>
-  <div class="brand">
-    <h1>SLAP</h1>
-    <span class="tag">desktop preview</span>
-  </div>
-  <p class="sub">Super Lighthouse Analytics Project, phase 0 of the Tauri shell.</p>
-  <div class="card">
-    <dl id="status">
-      <dt>Status</dt><dd id="boot">starting</dd>
-    </dl>
-  </div>
-  <p class="note" id="footnote">
-    This shell proves the pipeline: window, IPC, packaging, self-check.
-    The audit screens arrive as the core ports over.
-  </p>
-</main>
+<nav class="side">
+  <div class="brand"><span class="mark"></span><b>SLAP</b></div>
+  <a class="item" data-route="sites"><span class="ico">◱</span><span class="lbl">Sites</span></a>
+  <a class="item" data-route="findings"><span class="ico">⚑</span><span class="lbl">Findings</span></a>
+  <a class="item" data-route="audit"><span class="ico">＋</span><span class="lbl">New audit</span></a>
+  <div class="spacer"></div>
+  <a class="item" data-route="diagnostics"><span class="ico">⚙</span><span class="lbl">Diagnostics</span></a>
+  <div class="foot" id="foot">SLAP</div>
+</nav>
+<main id="main"><div class="empty"><div class="big">◱</div><p>Loading…</p></div></main>
+
 <script>
-  // window.__TAURI__ exists because withGlobalTauri is on; there is no
-  // bundler here to import an API package through. Opened in a plain
-  // browser this file degrades to saying so instead of erroring.
-  const rows = [
-    ["App", s => `${s.name} ${s.version}`],
-    ["Core", s => `slap-core ${s.core_version}`],
-    ["Webview", s => s.webview || "unknown"],
-    ["Data directory", s => s.data_dir + (s.using_legacy_data ? "  (legacy salp fallback)" : "")],
-    ["Database", s => s.db_path],
-    ["Rules", s => `${s.rules_loaded} findings rules loaded`],
-  ];
-  const tauri = window.__TAURI__;
-  if (tauri && tauri.core && tauri.core.invoke) {
-    tauri.core.invoke("app_status").then(status => {
-      const list = document.getElementById("status");
-      list.innerHTML = "";
-      for (const [label, render] of rows) {
-        const term = document.createElement("dt");
-        term.textContent = label;
-        const detail = document.createElement("dd");
-        detail.textContent = render(status);
-        list.append(term, detail);
-      }
-    }).catch(error => {
-      document.getElementById("boot").textContent = "IPC failed: " + error;
-    });
-  } else {
-    document.getElementById("boot").textContent =
-      "not running inside the app shell (no Tauri IPC here)";
+"use strict";
+
+const TAURI = window.__TAURI__;
+const hasIPC = !!(TAURI && TAURI.core && TAURI.core.invoke);
+const invoke = (cmd, args) => hasIPC ? TAURI.core.invoke(cmd, args)
+  : Promise.reject(new Error("not running inside the SLAP app shell (no IPC)"));
+
+const el = (tag, attrs = {}, ...kids) => {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") node.className = v;
+    else if (k === "html") node.innerHTML = v;
+    else if (k.startsWith("on") && typeof v === "function") node.addEventListener(k.slice(2), v);
+    else if (v !== null && v !== undefined) node.setAttribute(k, v);
   }
+  for (const kid of kids.flat()) if (kid !== null && kid !== undefined)
+    node.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  return node;
+};
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c]));
+
+const SEVERITY = {
+  critical: { word: "Critical", cls: "s-critical" },
+  high:     { word: "High",     cls: "s-high" },
+  medium:   { word: "Medium",   cls: "s-medium" },
+  low:      { word: "Low",      cls: "s-low" },
+  info:     { word: "Info",     cls: "s-info" },
+};
+const sev = (s) => SEVERITY[s] || { word: s || "—", cls: "s-info" };
+function badge(severity) {
+  const { word, cls } = sev(severity);
+  return el("span", { class: "badge " + cls }, el("span", { class: "dot" }), word);
+}
+
+// Light client-side formatting for the few metrics a report strip shows.
+// The heavy formatting already happened server-side in finding text; this is
+// only for raw observation values.
+function fmt(key, value) {
+  if (value === null || value === undefined) return "—";
+  const n = Number(value);
+  if (key.endsWith(".p75") && key.includes("cls")) return n.toFixed(2);
+  if (key.startsWith("lh.score")) return String(Math.round(n));
+  if (key.includes("lcp") || key.includes("inp") || key.includes("ttfb") || key.startsWith("lh.")) {
+    if (!Number.isFinite(n)) return String(value);
+    return n >= 1000 ? (n / 1000).toFixed(1) + "s" : Math.round(n) + "ms";
+  }
+  return String(value);
+}
+function ago(iso) {
+  if (!iso) return "never";
+  const then = new Date(iso.replace(" ", "T"));
+  const days = Math.floor((Date.now() - then.getTime()) / 86400000);
+  if (Number.isNaN(days)) return esc(iso);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 30) return days + " days ago";
+  if (days < 365) return Math.floor(days / 30) + " mo ago";
+  return Math.floor(days / 365) + " yr ago";
+}
+
+// A one-series sparkline: no legend, the heading names it, endpoints labelled.
+function sparkline(points, { width = 320, height = 54, higherBetter = true } = {}) {
+  const vals = points.map(p => p.v).filter(v => v !== null && v !== undefined && Number.isFinite(v));
+  if (vals.length < 2) return el("div", { class: "muted", style: "font-size:12.5px" }, "not enough runs yet");
+  const min = Math.min(...vals), max = Math.max(...vals), span = (max - min) || 1;
+  const stepX = width / (points.length - 1);
+  const y = v => height - 6 - ((v - min) / span) * (height - 12);
+  let d = "", i = 0;
+  for (const p of points) {
+    if (p.v === null || p.v === undefined || !Number.isFinite(p.v)) { i++; continue; }
+    d += (d ? " L" : "M") + (i * stepX).toFixed(1) + " " + y(p.v).toFixed(1);
+    i++;
+  }
+  const last = vals[vals.length - 1], first = vals[0];
+  const trendUp = last >= first;
+  const good = higherBetter ? trendUp : !trendUp;
+  const stroke = good ? "var(--good)" : "var(--serious)";
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("class", "spark"); svg.setAttribute("width", width); svg.setAttribute("height", height);
+  const path = document.createElementNS(ns, "path");
+  path.setAttribute("d", d); path.setAttribute("fill", "none");
+  path.setAttribute("stroke", stroke); path.setAttribute("stroke-width", "2"); path.setAttribute("stroke-linejoin", "round");
+  svg.append(path);
+  for (const [vx, vv] of [[0, first], [(points.length - 1) * stepX, last]]) {
+    const c = document.createElementNS(ns, "circle");
+    c.setAttribute("cx", vx.toFixed(1)); c.setAttribute("cy", y(vv).toFixed(1)); c.setAttribute("r", "3"); c.setAttribute("fill", stroke);
+    svg.append(c);
+  }
+  return svg;
+}
+
+function crumbs(...parts) {
+  const c = el("div", { class: "crumbs" });
+  parts.forEach((p, i) => {
+    if (i) c.append(" / ");
+    if (p.route) c.append(el("a", { onclick: () => go(p.route) }, p.label));
+    else c.append(p.label ?? p);
+  });
+  return c;
+}
+const mount = (...nodes) => { const m = document.getElementById("main"); m.replaceChildren(...nodes); m.scrollTop = 0; };
+const loading = () => mount(el("div", { class: "empty" }, el("div", { class: "big" }, "◱"), el("p", {}, "Loading…")));
+function errorView(e) {
+  mount(el("div", { class: "empty" },
+    el("div", { class: "big" }, "⚠"),
+    el("p", {}, "Could not load this view."),
+    el("p", { class: "muted" }, String(e && e.message ? e.message : e))));
+}
+
+// -------- views --------
+
+async function viewSites() {
+  loading();
+  try {
+    const sites = await invoke("list_sites");
+    const head = el("div", {},
+      crumbs({ label: "Sites" }),
+      el("h1", {}, "Sites"),
+      el("p", { class: "lead" }, "Every site you have audited, newest activity summarised. The site is the thing you come back to, not the batch."));
+    if (!sites.length) {
+      return mount(head, el("div", { class: "card pad empty" },
+        el("div", { class: "big" }, "◱"),
+        el("p", {}, "No sites yet."),
+        el("p", { class: "muted" }, "Existing history from earlier versions opens here automatically. New audits arrive when the engine port lands."),
+        el("p", {}, el("button", { class: "ghost", onclick: () => go("audit") }, "New audit"))));
+    }
+    const rows = sites.map(s => {
+      const urgent = Number(s.urgent_count || 0), findings = Number(s.finding_count || 0);
+      const status = urgent > 0 ? badge("high") : (findings > 0 ? badge("medium") : badge("low"));
+      // Replace the severity word with a site-level reading of the same colour.
+      status.lastChild.textContent = urgent > 0 ? `${urgent} urgent` : (findings > 0 ? `${findings} open` : "clean");
+      return el("tr", { onclick: () => go("site/" + s.id) },
+        el("td", {}, el("b", {}, s.hostname), s.client ? el("div", { class: "muted", style: "font-size:12.5px" }, s.client) : null),
+        el("td", {}, status),
+        el("td", { class: "num" }, s.latest_run_id ? ago(s.last_audited) : el("span", { class: "muted" }, "—")),
+        el("td", { class: "num" }, String(s.run_count || 0)),
+        el("td", { class: "num" }, s.page_count ? String(s.page_count) : "—"));
+    });
+    const table = el("div", { class: "card" }, el("table", {},
+      el("thead", {}, el("tr", {},
+        el("th", {}, "Site"), el("th", {}, "Open findings"),
+        el("th", { class: "num" }, "Last audit"), el("th", { class: "num" }, "Runs"), el("th", { class: "num" }, "Pages"))),
+      el("tbody", {}, ...rows)));
+    mount(head, table);
+  } catch (e) { errorView(e); }
+}
+
+async function viewSite(id) {
+  loading();
+  try {
+    const data = await invoke("site_overview", { siteId: Number(id) });
+    const s = data.site || {};
+    const runs = data.runs || [];
+    const findings = data.findings || [];
+    const head = el("div", {},
+      crumbs({ label: "Sites", route: "sites" }, { label: s.hostname || ("Site " + id) }),
+      el("h1", {}, s.hostname || ("Site " + id)),
+      el("p", { class: "lead" }, s.client ? "Client: " + s.client : " "));
+
+    // Trend: performance score across completed runs (falls back to LCP).
+    const trend = data.trend || [];
+    const perf = trend.map(r => ({ v: r["lh.score.performance"] ?? null }));
+    const hasPerf = perf.some(p => p.v !== null);
+    const lcp = trend.map(r => ({ v: r["crux.lcp.p75"] ?? r["lh.lcp"] ?? null }));
+    const trendCard = el("div", { class: "card pad" },
+      el("div", { class: "k tile", style: "color:var(--ink-3);font-size:12.5px;text-transform:uppercase;letter-spacing:.03em" },
+        hasPerf ? "Performance score, by run" : "LCP, by run"),
+      el("div", { style: "margin-top:10px" }, hasPerf
+        ? sparkline(perf, { higherBetter: true })
+        : sparkline(lcp, { higherBetter: false })));
+
+    const summary = el("div", { class: "grid cols-3" },
+      tile("Runs", String(runs.length), (runs.filter(r => r.status === "completed").length) + " completed"),
+      tile("Open findings", String(findings.length), findings.filter(f => ["critical","high"].includes(f.severity)).length + " urgent"),
+      trendCard);
+
+    const runList = el("div", { class: "card" }, el("table", {},
+      el("thead", {}, el("tr", {},
+        el("th", {}, "Run"), el("th", {}, "Status"), el("th", { class: "num" }, "Findings"), el("th", { class: "num" }, "Pages"))),
+      el("tbody", {}, ...runs.map(r => el("tr", { onclick: () => r.status === "completed" && go("run/" + r.id) },
+        el("td", {}, ago(r.started_at), el("span", { class: "muted", style: "font-size:12px" }, "  " + (r.started_at || "").replace("T", " "))),
+        el("td", {}, runStatus(r.status)),
+        el("td", { class: "num" }, String(r.finding_count ?? "—")),
+        el("td", { class: "num" }, String(r.page_count ?? "—")))))));
+
+    const findingBlock = findings.length
+      ? el("div", {}, ...findings.map(findingCard))
+      : el("div", { class: "card pad muted" }, "No open findings in the latest completed run.");
+
+    mount(head, summary,
+      el("h2", {}, "Open findings"), findingBlock,
+      el("h2", {}, "Run history"), runList);
+  } catch (e) { errorView(e); }
+}
+
+function runStatus(status) {
+  const map = { completed: ["low", "Completed"], failed: ["high", "Failed"], cancelled: ["medium", "Cancelled"], running: ["medium", "Running"], pending: ["info", "Pending"] };
+  const [cls, word] = map[status] || ["info", status || "—"];
+  const b = badge(cls); b.lastChild.textContent = word; return b;
+}
+function tile(k, v, sub) {
+  return el("div", { class: "card pad tile" }, el("div", { class: "k" }, k), el("div", { class: "v" }, v), sub ? el("div", { class: "sub" }, sub) : null);
+}
+function findingCard(f) {
+  const card = el("div", { class: "finding " + (f.severity || "info") });
+  card.append(el("div", { class: "title" }, f.title));
+  if (f.detail) card.append(el("div", { class: "detail" }, f.detail));
+  const meta = el("div", { class: "meta" }, badge(f.severity));
+  if (f.effort) meta.append(el("span", { class: "pill" }, "effort: " + f.effort));
+  if (f.url) meta.append(el("span", { class: "muted", style: "font-size:12.5px" }, f.url));
+  card.append(meta);
+  if (f.remediation) card.append(el("div", { class: "detail", style: "margin-top:8px" }, f.remediation));
+  if (f.wp_rocket_setting) card.append(el("div", { class: "wprocket", html: "<b>In WP Rocket:</b> " + esc(f.wp_rocket_setting) }));
+  return card;
+}
+
+async function viewRun(id) {
+  loading();
+  try {
+    const data = await invoke("run_report", { runId: Number(id) });
+    const run = data.run || {};
+    const findings = data.findings || [];
+    const obs = data.observations || [];
+    const byKey = {};
+    for (const o of obs) if (!(o.metric_key in byKey)) byKey[o.metric_key] = o.numeric_value ?? o.text_value;
+
+    const head = el("div", {},
+      crumbs({ label: "Sites", route: "sites" }, { label: run.hostname || "site", route: run.site_id ? "site/" + run.site_id : "sites" }, { label: "Run " + id }),
+      el("h1", {}, "Report — " + (run.hostname || ("run " + id))),
+      el("p", { class: "lead" }, (run.started_at || "").replace("T", " ") + " · " + (findings.length) + " findings across " + (data.pages || []).length + " page(s)"));
+
+    const strip = el("div", { class: "grid cols-3" });
+    // Prefer the field verdict (CrUX) with the lab performance score beside
+    // it; fall back to lab-only when there is no field data.
+    const primary = [["lh.score.performance", "Performance"], ["crux.lcp.p75", "LCP (field)"], ["crux.inp.p75", "INP (field)"]];
+    let any = false;
+    for (const [key, label] of primary) if (key in byKey) { any = true; strip.append(tile(label, fmt(key, byKey[key]))); }
+    if (!any) for (const [key, label] of [["lh.lcp", "LCP (lab)"], ["lh.tbt", "TBT (lab)"], ["http.ttfb", "TTFB"]]) if (key in byKey) { any = true; strip.append(tile(label, fmt(key, byKey[key]))); }
+
+    const pages = data.pages || [];
+    let pagesSection = null;
+    if (pages.length > 1) {
+      const rows = pages.map(p => el("tr", {},
+        el("td", {}, el("b", {}, p.role === "home" ? "Home" : (p.template_class || "page")),
+          el("div", { class: "muted", style: "font-size:12px" }, p.url)),
+        el("td", {}, el("span", { class: "pill" }, p.discovered_via || "manual")),
+        el("td", { class: "num" }, String(p.finding_count ?? 0))));
+      pagesSection = el("div", {}, el("h2", {}, `Pages audited (${pages.length})`),
+        el("div", { class: "card" }, el("table", {},
+          el("thead", {}, el("tr", {}, el("th", {}, "Page"), el("th", {}, "Found via"), el("th", { class: "num" }, "Findings"))),
+          el("tbody", {}, ...rows))));
+    }
+
+    const grouped = {};
+    for (const f of findings) (grouped[f.severity] = grouped[f.severity] || []).push(f);
+    const order = ["critical", "high", "medium", "low", "info"];
+    const findingBlocks = [];
+    for (const s of order) if (grouped[s]) {
+      findingBlocks.push(el("h2", {}, sev(s).word + " (" + grouped[s].length + ")"));
+      grouped[s].forEach(f => findingBlocks.push(findingCard(f)));
+    }
+    mount(head, any ? strip : el("div", {}),
+      pagesSection || el("div", {}),
+      findings.length ? el("div", {}, ...findingBlocks) : el("div", { class: "card pad muted" }, "No findings recorded for this run."));
+  } catch (e) { errorView(e); }
+}
+
+async function viewFindings() {
+  loading();
+  try {
+    const rows = await invoke("findings_across_sites");
+    const head = el("div", {},
+      crumbs({ label: "Findings" }),
+      el("h1", {}, "Findings across sites"),
+      el("p", { class: "lead" }, "Open findings grouped by rule, with how many sites each affects. \"Open\" means present in each site's most recent completed run."));
+    if (!rows.length) return mount(head, el("div", { class: "card pad empty" }, el("div", { class: "big" }, "⚑"), el("p", {}, "No open findings across your sites."), el("p", { class: "muted" }, "Either nothing is wrong, or there is no completed history yet.")));
+    const body = rows.map(r => el("tr", {},
+      el("td", {}, badge(r.severity)),
+      el("td", {}, el("b", {}, r.title), r.wp_rocket_setting ? el("div", { class: "muted", style: "font-size:12.5px" }, "WP Rocket fix available") : null),
+      el("td", { class: "num" }, String(r.site_count)),
+      el("td", { class: "num" }, String(r.page_count))));
+    mount(head, el("div", { class: "card" }, el("table", {},
+      el("thead", {}, el("tr", {}, el("th", {}, "Severity"), el("th", {}, "Finding"), el("th", { class: "num" }, "Sites"), el("th", { class: "num" }, "Pages"))),
+      el("tbody", {}, ...body))));
+  } catch (e) { errorView(e); }
+}
+
+function viewAudit() {
+  const head = el("div", {},
+    crumbs({ label: "New audit" }),
+    el("h1", {}, "New audit"),
+    el("p", { class: "lead" }, "Paste site URLs, one per line. Normalisation and the run happen when you press Run."));
+  const box = el("textarea", { placeholder: "example.com\nhttps://another-site.org\n…" });
+  const lighthouse = el("input", { type: "checkbox" });
+  const opts = el("div", { class: "row-actions" },
+    el("label", { class: "seg" }, el("input", { type: "checkbox", checked: "checked", disabled: "disabled" }), " No-browser collectors"),
+    el("label", { class: "seg" }, lighthouse, " Lighthouse (adds ~90s/site)"));
+  const out = el("div", {});
+  const run = el("button", { class: "primary" });
+  run.textContent = "Run audit";
+  run.addEventListener("click", async () => {
+    const urls = box.value.split("\n").map(s => s.trim()).filter(Boolean);
+    out.replaceChildren();
+    if (!urls.length) { out.append(el("div", { class: "notice warn" }, "Add at least one URL first.")); return; }
+    run.disabled = true; run.textContent = "Running… (" + urls.length + ")";
+    try {
+      const summary = await invoke("start_audit", { urls, lighthouse: lighthouse.checked });
+      const ok = summary.succeeded, failed = summary.failed;
+      const note = el("div", { class: "notice info" },
+        el("b", {}, `Audited ${summary.total} site(s): ${ok} ok` + (failed ? `, ${failed} failed` : "")),
+        el("div", { style: "margin-top:8px" }, el("button", { class: "ghost", onclick: () => go("sites") }, "View sites →")));
+      out.append(note);
+    } catch (e) {
+      out.append(el("div", { class: "notice warn" }, String(e && e.message ? e.message : e)));
+    } finally {
+      run.disabled = false; run.textContent = "Run audit";
+    }
+  });
+  mount(head, el("div", { class: "card pad" }, box, opts, el("div", { class: "row-actions" }, run, el("span", { class: "seg" }, "Runs locally. No account, nothing uploaded.")), out));
+}
+
+async function viewDiagnostics() {
+  loading();
+  try {
+    const s = await invoke("app_status");
+    const rows = [
+      ["App", `${s.name} ${s.version}`], ["Core", `slap-core ${s.core_version}`],
+      ["Webview", s.webview || "unknown"],
+      ["Data directory", s.data_dir + (s.using_legacy_data ? "  (legacy salp fallback)" : "")],
+      ["Database", s.db_path], ["Rules", `${s.rules_loaded} findings rules loaded`],
+    ];
+    const dl = el("dl", { class: "kv" });
+    for (const [k, v] of rows) { dl.append(el("dt", {}, k), el("dd", {}, v)); }
+    mount(el("div", {}, crumbs({ label: "Diagnostics" }), el("h1", {}, "Diagnostics"),
+      el("p", { class: "lead" }, "What this install resolved at startup. The first thing to check when something misbehaves."),
+      el("div", { class: "card pad" }, dl)));
+  } catch (e) { errorView(e); }
+}
+
+// -------- router --------
+const routes = { sites: viewSites, findings: viewFindings, audit: viewAudit, diagnostics: viewDiagnostics };
+function go(route) { if (location.hash !== "#/" + route) location.hash = "#/" + route; else render(); }
+function render() {
+  const path = (location.hash || "#/sites").slice(2);
+  const [head, arg] = path.split("/");
+  document.querySelectorAll("nav.side a.item").forEach(a => a.classList.toggle("active", a.dataset.route === head));
+  if (head === "site") return viewSite(arg);
+  if (head === "run") return viewRun(arg);
+  (routes[head] || viewSites)();
+}
+
+document.querySelectorAll("nav.side a.item").forEach(a => a.addEventListener("click", () => go(a.dataset.route)));
+window.addEventListener("hashchange", render);
+
+(async () => {
+  if (hasIPC) {
+    try { const s = await invoke("app_status"); document.getElementById("foot").textContent = "SLAP " + s.version; } catch {}
+  } else {
+    return mount(el("div", { class: "empty" }, el("div", { class: "big" }, "◱"),
+      el("p", {}, "This page is the SLAP interface."),
+      el("p", { class: "muted" }, "It needs the app shell to reach your data. Open it inside SLAP.")));
+  }
+  if (!location.hash) location.hash = "#/sites";
+  render();
+})();
 </script>
 </body>
 </html>

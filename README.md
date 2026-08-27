@@ -33,7 +33,7 @@ SLAP began as a Python + PyInstaller application (FastAPI web UI, ~700MB
 bundles). It was rewritten as this Tauri app and the Python tree was
 retired on 2026-08-27. What carried over unchanged: the observation
 schema and metric registry, the SQLite database (existing history opens
-as-is, legacy `salp` fallback included), the findings rules
+as-is), the findings rules
 (`desktop/crates/slap-core/rules/rules.yaml`), the Lighthouse Node worker
 (`desktop/worker/`), the vulnerability database (`desktop/data/`), and
 the report templates (`desktop/templates/`). The `docs/` directory

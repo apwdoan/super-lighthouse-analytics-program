@@ -36,8 +36,7 @@ pub fn run_core_checks() -> Vec<Check> {
 }
 
 /// The data directory can be created and written. Creating it is safe: it
-/// is the same directory the Python app creates on first run, and the
-/// legacy fallback in `paths` has already decided which directory that is.
+/// is the same directory the Python app creates on first run.
 fn check_data_dir_writable() -> Check {
     let dir = crate::paths::default_data_dir();
     let attempt = (|| -> std::io::Result<()> {

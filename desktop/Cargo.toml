@@ -7,7 +7,7 @@
 
 [workspace]
 resolver = "2"
-members = ["crates/slap-core", "src-tauri"]
+members = ["crates/slap-core", "crates/slap-engine", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
