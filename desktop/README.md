@@ -84,11 +84,14 @@ How it resolves at runtime:
   `commands.rs::bundled_node` finds `slap-node[.exe]` there and passes it as
   Lighthouse's `node_path`, falling back to `node` on PATH when absent.
 
-Size: the worker adds ~105MB and the Node runtime ~80-120MB, so a release
-installer is roughly ~180-200MB rather than a few MB. That is the deliberate
-trade for zero-prerequisite Lighthouse. To go back to a small installer,
-remove `bundle.resources` and `bundle.externalBin` and skip the prepare
-step; Lighthouse then needs Node plus the repo's worker, as a dev build does.
+Size: the payload is mostly JS and a Node binary, which compress well, so the
+download stays modest even though the install does not. A verified Windows
+release build produced a **40MB NSIS `-setup.exe` and a 67MB MSI**, expanding
+to a **~224MB install** (app 18MB, `slap-node` 83MB, worker 123MB). That is
+the trade for zero-prerequisite Lighthouse: a few MB before, tens of MB to
+download now. To go back to a small install, remove `bundle.resources` and
+`bundle.externalBin` and skip the prepare step; Lighthouse then needs Node
+plus the repo's worker, as a dev build does.
 
 ## Mobile
 
