@@ -12,11 +12,9 @@
 
   <header class="masthead">
     <div>
-      {% if branding.logo_data_uri %}
-        <img class="logo" src="{{ branding.logo_data_uri }}" alt="">
-      {% else %}
-        <div class="brand">{{ branding.company_name | default('Site performance and security audit') }}</div>
-      {% endif %}
+      {% if branding.logo_data_uri %}<img class="logo" src="{{ branding.logo_data_uri }}" alt="">{% endif %}
+      {% if branding.company_name %}<div class="brand">{{ branding.company_name }}</div>
+      {% elif not branding.logo_data_uri %}<div class="brand">Site performance and security audit</div>{% endif %}
       <div class="site">{{ hostname }}</div>
     </div>
     <div class="meta">

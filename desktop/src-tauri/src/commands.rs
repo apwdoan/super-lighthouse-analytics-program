@@ -155,6 +155,18 @@ pub fn get_settings() -> Result<Json, String> {
         .as_ref()
         .map(|k| !k.is_empty())
         .unwrap_or(false);
+    let brand_name = settings
+        .branding
+        .get("company_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let brand_logo_set = settings
+        .branding
+        .get("logo_data_uri")
+        .and_then(|v| v.as_str())
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
     Ok(json!({
         "crux_key_set": has_key,
         "crux_key_from_env": env_key.is_some(),
@@ -163,6 +175,8 @@ pub fn get_settings() -> Result<Json, String> {
         // When SLAP_DB is set it pins the database location regardless of the
         // configured data directory, so the Settings screen says so.
         "db_from_env": std::env::var_os("SLAP_DB").is_some(),
+        "brand_name": brand_name,
+        "brand_logo_set": brand_logo_set,
     }))
 }
 
@@ -179,6 +193,80 @@ pub fn set_crux_key(key: String) -> Result<Json, String> {
     let path = save_setting("crux_api_key", value, Some("collector"), None)
         .map_err(|e| e.to_string())?;
     Ok(json!({ "saved": saved, "config": path.display().to_string() }))
+}
+
+/// Save (or clear, when empty) the brand name shown at the top of exported
+/// reports. Stored in `[branding] company_name`.
+#[tauri::command]
+pub fn set_brand_name(name: String) -> Result<Json, String> {
+    use slap_core::settings::{save_setting, SettingValue};
+    let trimmed = name.trim();
+    let value = (!trimmed.is_empty()).then(|| SettingValue::Str(trimmed.to_string()));
+    let saved = value.is_some();
+    save_setting("company_name", value, Some("branding"), None).map_err(|e| e.to_string())?;
+    Ok(json!({ "saved": saved }))
+}
+
+/// Pick an image and store it as the report logo. The image is embedded in the
+/// report, so it is base64-encoded into a data: URI and saved in
+/// `[branding] logo_data_uri`. Async so the native picker never blocks the main
+/// thread. Returns `{changed:false}` if the user cancelled.
+#[tauri::command]
+pub async fn set_brand_logo(app: tauri::AppHandle) -> Result<Json, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Choose a logo image for reports")
+        .add_filter("Image", &["png", "jpg", "jpeg", "gif", "webp", "svg"])
+        .pick_file(move |path| {
+            let _ = tx.send(path);
+        });
+    let Some(path) = rx.await.ok().flatten().and_then(|p| p.into_path().ok()) else {
+        return Ok(json!({ "changed": false }));
+    };
+
+    // The logo is embedded in every report, so keep it small.
+    const MAX_BYTES: usize = 1_000_000;
+    let bytes = std::fs::read(&path).map_err(|e| format!("could not read the image: {e}"))?;
+    if bytes.len() > MAX_BYTES {
+        return Err(format!(
+            "That image is {:.1} MB. Please choose a logo under 1 MB.",
+            bytes.len() as f64 / 1_000_000.0
+        ));
+    }
+    let mime = match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        _ => return Err("Please choose a PNG, JPEG, GIF, WebP or SVG image.".to_string()),
+    };
+    use base64::Engine;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let data_uri = format!("data:{mime};base64,{encoded}");
+    slap_core::settings::save_setting(
+        "logo_data_uri",
+        Some(slap_core::settings::SettingValue::Str(data_uri)),
+        Some("branding"),
+        None,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(json!({ "changed": true }))
+}
+
+/// Remove the report logo (`[branding] logo_data_uri`).
+#[tauri::command]
+pub fn clear_brand_logo() -> Result<Json, String> {
+    slap_core::settings::save_setting("logo_data_uri", None, Some("branding"), None)
+        .map_err(|e| e.to_string())?;
+    Ok(json!({ "changed": true }))
 }
 
 /// A sibling path formed by appending a suffix to a full file name, e.g. the

@@ -513,4 +513,39 @@ mod tests {
         assert_eq!(severity_class("medium"), "warning");
         assert_eq!(severity_word("critical"), "Critical");
     }
+
+    #[test]
+    fn the_masthead_renders_the_configured_brand_name_and_logo() {
+        // Also guards that the whole template still parses and renders.
+        let mut env = minijinja::Environment::new();
+        env.add_template("report.css", REPORT_CSS).unwrap();
+        env.add_template("report", REPORT_TMPL).unwrap();
+        let tmpl = env.get_template("report").unwrap();
+        let base = |branding: Json| -> Json {
+            json!({
+                "hostname": "example.com", "generated_at": "2026-01-01 00:00", "run_id": 1,
+                "branding": branding,
+                "verdict": {"flag_class":"unknown","flag_word":"No data","headline":"h","explanation":"e","has_field":false,"tiles":[],"scores":[]},
+                "total_findings": 0, "severity_counts": {"critical":0,"high":0,"medium":0,"low":0,"info":0},
+                "is_multipage": false, "significant": [], "minor": [], "pages": [], "software": Json::Null,
+                "security": {"headers_present":0,"headers_expected":4,"tls":[],"headers":[],"cookies":[]},
+                "appendix": [], "tech": {},
+                "provenance": {"run_id":1,"batch_id":"b","slap_version":"0.1.0","schema_version":1},
+            })
+        };
+        let render = |m: Json| tmpl.render(minijinja::Value::from_serialize(&m)).unwrap();
+
+        let both = render(base(
+            json!({ "company_name": "Acme Audits", "logo_data_uri": "data:image/png;base64,ZZZZ" }),
+        ));
+        assert!(both.contains("Acme Audits"), "brand name shown");
+        assert!(both.contains("data:image/png;base64,ZZZZ"), "logo shown");
+
+        let neither = render(base(json!({ "company_name": Json::Null, "logo_data_uri": Json::Null })));
+        assert!(
+            neither.contains("Site performance and security audit"),
+            "neutral default when unbranded"
+        );
+        assert!(!neither.contains("<img class=\"logo\""), "no logo image when unset");
+    }
 }

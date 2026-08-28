@@ -655,7 +655,42 @@ async function viewSettings() {
       el("div", { class: "row-actions" }, save, clear),
       out);
 
-    mount(head, dataCard, cruxCard);
+    // Report branding: the name and logo shown atop exported HTML/PDF reports.
+    const brandMsg = el("div", { class: "muted", style: "font-size:12px;margin-top:8px" });
+    const nameInput = el("input", { type: "text", placeholder: "Your company or agency name", value: s.brand_name || "", style: "width:100%;max-width:540px;padding:9px 11px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);color:var(--ink);font-size:14px" });
+    const nameSave = el("button", { class: "primary" }, "Save name");
+    nameSave.addEventListener("click", async () => {
+      nameSave.disabled = true; brandMsg.textContent = "Saving…";
+      try { await invoke("set_brand_name", { name: nameInput.value }); go("settings"); }
+      catch (e) { brandMsg.textContent = String(e && e.message ? e.message : e); nameSave.disabled = false; }
+    });
+    const setLogo = el("button", { class: "ghost" }, s.brand_logo_set ? "Replace logo…" : "Set logo…");
+    setLogo.addEventListener("click", async () => {
+      setLogo.disabled = true; brandMsg.textContent = "";
+      try {
+        const res = await invoke("set_brand_logo");
+        if (res && res.changed) { go("settings"); }
+        else { brandMsg.textContent = "Cancelled."; setLogo.disabled = false; }
+      } catch (e) { brandMsg.textContent = String(e && e.message ? e.message : e); setLogo.disabled = false; }
+    });
+    const rmLogo = el("button", { class: "ghost" }, "Remove logo");
+    rmLogo.disabled = !s.brand_logo_set;
+    rmLogo.addEventListener("click", async () => {
+      rmLogo.disabled = true; brandMsg.textContent = "";
+      try { await invoke("clear_brand_logo"); go("settings"); }
+      catch (e) { brandMsg.textContent = String(e && e.message ? e.message : e); rmLogo.disabled = false; }
+    });
+    const brandCard = el("div", { class: "card pad" },
+      el("h2", {}, "Report branding"),
+      el("p", { class: "secondary" }, "The name and logo shown at the top of exported HTML and PDF reports. Set either or both; leave both empty for a neutral heading. The logo is embedded in each report, so keep it under 1 MB (PNG, JPEG, GIF, WebP or SVG)."),
+      el("p", { class: "muted", style: "margin:2px 0 4px" }, "Brand name"),
+      el("div", { style: "margin-bottom:8px" }, nameInput),
+      el("div", { class: "row-actions" }, nameSave),
+      el("p", { class: "muted", style: "margin:16px 0 6px" }, "Logo — ", s.brand_logo_set ? el("b", { style: "color:var(--good,#0ca30c)" }, "a logo is set") : el("span", {}, "no logo set")),
+      el("div", { class: "row-actions" }, setLogo, rmLogo),
+      brandMsg);
+
+    mount(head, dataCard, brandCard, cruxCard);
   } catch (e) { errorView(e); }
 }
 

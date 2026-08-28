@@ -73,6 +73,9 @@ pub fn run() {
             commands::set_crux_key,
             commands::pick_data_dir,
             commands::set_data_dir,
+            commands::set_brand_name,
+            commands::set_brand_logo,
+            commands::clear_brand_logo,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the SLAP window");

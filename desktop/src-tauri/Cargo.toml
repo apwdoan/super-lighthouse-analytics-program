@@ -25,6 +25,8 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Encoding a chosen brand logo into a data: URI for the report branding setting.
+base64 = "0.22"
 slap-core = { path = "../crates/slap-core" }
 # The audit engine. Desktop-only: the mobile targets build this crate too
 # for now, but never call the engine (the viewer has no Run button); if the
