@@ -374,9 +374,14 @@ pub fn resolve_chrome() -> Option<PathBuf> {
     candidates.iter().map(PathBuf::from).find(|p| p.exists())
 }
 
-/// Where a pinned Chrome for Testing would live in app data.
+/// Where a pinned Chrome for Testing would live in app data. Follows the
+/// configured data directory so a relocated install keeps Chromium beside its
+/// database; falls back to the default location if the config cannot be read.
 fn pinned_chromium_path() -> Option<PathBuf> {
-    let dir = slap_core::paths::default_data_dir().join("chromium");
+    let base = slap_core::settings::Settings::load(None)
+        .map(|s| s.data_dir)
+        .unwrap_or_else(|_| slap_core::paths::default_data_dir());
+    let dir = base.join("chromium");
     let exe = if cfg!(windows) {
         dir.join("chrome.exe")
     } else if cfg!(target_os = "macos") {

@@ -158,6 +158,11 @@ pub fn get_settings() -> Result<Json, String> {
     Ok(json!({
         "crux_key_set": has_key,
         "crux_key_from_env": env_key.is_some(),
+        "data_dir": settings.data_dir.display().to_string(),
+        "db_path": settings.db_path.display().to_string(),
+        // When SLAP_DB is set it pins the database location regardless of the
+        // configured data directory, so the Settings screen says so.
+        "db_from_env": std::env::var_os("SLAP_DB").is_some(),
     }))
 }
 
@@ -174,6 +179,145 @@ pub fn set_crux_key(key: String) -> Result<Json, String> {
     let path = save_setting("crux_api_key", value, Some("collector"), None)
         .map_err(|e| e.to_string())?;
     Ok(json!({ "saved": saved, "config": path.display().to_string() }))
+}
+
+/// A sibling path formed by appending a suffix to a full file name, e.g. the
+/// `-wal`/`-shm` companions SQLite keeps beside the database. Unlike
+/// `with_extension`, this appends rather than replacing the extension.
+fn sidecar(path: &std::path::Path, suffix: &str) -> std::path::PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(suffix);
+    std::path::PathBuf::from(name)
+}
+
+/// Open the OS folder picker so the user can choose where SLAP keeps its data.
+/// Returns the chosen folder, or `None` if cancelled. Async so the native
+/// dialog never blocks the main thread (see `report_pdf` for why that matters).
+#[tauri::command]
+pub async fn pick_data_dir(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let start = slap_core::settings::Settings::load(None)
+        .map(|s| s.data_dir)
+        .unwrap_or_else(|_| slap_core::paths::default_data_dir());
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Choose a folder for SLAP's database and files")
+        .set_directory(&start)
+        .pick_folder(move |path| {
+            let _ = tx.send(path);
+        });
+    Ok(rx
+        .await
+        .ok()
+        .flatten()
+        .and_then(|p| p.into_path().ok())
+        .map(|p| p.display().to_string()))
+}
+
+/// Relocate the database and the app's saved files to `new_dir`, moving the
+/// existing data there and switching the live database over without a restart.
+///
+/// Safety: the database is copied (not renamed) and the copy is opened and
+/// verified before anything is switched or deleted; the new location is written
+/// to config.toml before the live connection is swapped; the old database is
+/// removed only once the new one is live. If any step fails, the old data and
+/// configuration are left exactly as they were.
+#[tauri::command]
+pub fn set_data_dir(state: State<'_, AppState>, new_dir: String) -> Result<Json, String> {
+    let new_dir = std::path::PathBuf::from(new_dir.trim());
+    if new_dir.as_os_str().is_empty() {
+        return Err("No folder was chosen.".to_string());
+    }
+    if std::env::var_os("SLAP_DB").is_some() {
+        return Err("The database location is currently fixed by the SLAP_DB environment \
+                    variable. Unset it to change the location here."
+            .to_string());
+    }
+
+    let settings = slap_core::settings::Settings::load(None).unwrap_or_default();
+    let old_dir = settings.data_dir.clone();
+    let old_db = settings.db_path.clone();
+    let new_db = new_dir.join(format!("{}.sqlite3", slap_core::paths::DIRNAME));
+
+    if new_db == old_db {
+        return Ok(json!({ "changed": false, "data_dir": new_dir.display().to_string() }));
+    }
+    std::fs::create_dir_all(&new_dir)
+        .map_err(|e| format!("cannot create {}: {e}", new_dir.display()))?;
+    if new_db.exists() {
+        return Err(format!(
+            "a SLAP database already exists at {}. Choose an empty folder, or move that \
+             file aside first.",
+            new_db.display()
+        ));
+    }
+
+    // 1. Flush the WAL into the main file so a plain file copy is complete.
+    {
+        let guard = state
+            .db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
+        if let Db::Open(conn) = &*guard {
+            let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+        }
+    }
+    // 2. Copy the database; the original is kept until the copy is verified.
+    if old_db.exists() {
+        std::fs::copy(&old_db, &new_db)
+            .map_err(|e| format!("could not copy the database: {e}"))?;
+    }
+    // 3. Verify the copy opens; this connection becomes the live one.
+    let new_conn = match storage::open_db(&new_db) {
+        Ok(conn) => conn,
+        Err(e) => {
+            let _ = std::fs::remove_file(&new_db);
+            return Err(format!(
+                "the copied database did not open ({e}); nothing was changed"
+            ));
+        }
+    };
+    // 4. Record the new location so a later restart resolves here too.
+    if let Err(e) = slap_core::settings::save_setting(
+        "data_dir",
+        Some(slap_core::settings::SettingValue::Str(new_dir.display().to_string())),
+        None,
+        None,
+    ) {
+        let _ = std::fs::remove_file(&new_db);
+        return Err(format!(
+            "could not save the new location: {e}; nothing was changed"
+        ));
+    }
+    // 5. Switch the live connection over.
+    {
+        let mut guard = state
+            .db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
+        *guard = Db::Open(new_conn);
+    }
+    // 6. Move the pinned Chromium and any other saved folders beside the new
+    //    database. Best effort: Chromium re-downloads if this cannot be done
+    //    (for example across drives), and the other folders are usually empty.
+    for sub in ["chromium", "artifacts", "reports"] {
+        let from = old_dir.join(sub);
+        let to = new_dir.join(sub);
+        if from.is_dir() && !to.exists() {
+            let _ = std::fs::rename(&from, &to);
+        }
+    }
+    // 7. The old database is now superseded by the verified, live copy.
+    let _ = std::fs::remove_file(&old_db);
+    let _ = std::fs::remove_file(sidecar(&old_db, "-wal"));
+    let _ = std::fs::remove_file(sidecar(&old_db, "-shm"));
+
+    Ok(json!({
+        "changed": true,
+        "data_dir": new_dir.display().to_string(),
+        "db_path": new_db.display().to_string(),
+    }))
 }
 
 /// Run a no-browser audit of the given URLs and return a summary.
@@ -193,25 +337,21 @@ pub fn set_crux_key(key: String) -> Result<Json, String> {
 /// bundled Node worker drives a Chromium the app fetches on first run. If the
 /// prerequisites are missing (no Node, no worker resources), the audit fails
 /// with a specific reason rather than silently skipping the lab run.
-/// Open a fresh connection and the settings, ensuring the report directory
-/// exists. The report commands write their own files, so they use their own
-/// connection rather than the managed read one.
-fn report_context() -> Result<(slap_core::settings::Settings, slap_core::rusqlite::Connection), String>
-{
+/// A fresh writer connection for the report commands. They write their own
+/// files, so they use their own connection rather than the managed read one.
+fn report_conn() -> Result<slap_core::rusqlite::Connection, String> {
     let settings = slap_core::settings::Settings::load(None).unwrap_or_default();
-    settings.ensure_dirs().map_err(|e| e.to_string())?;
-    let conn = storage::open_db(&settings.db_path).map_err(|e| e.to_string())?;
-    Ok((settings, conn))
+    storage::open_db(&settings.db_path).map_err(|e| e.to_string())
 }
 
-/// Where a run's report file lands: the reports directory, named by host and
-/// run so re-exports do not collide across sites.
-fn report_path(
-    settings: &slap_core::settings::Settings,
+/// The file name suggested in the Save dialog for a run's report: host and run
+/// id, sanitised so it is a legal name on every platform. Not a location: the
+/// user chooses where the file goes.
+fn report_filename(
     conn: &slap_core::rusqlite::Connection,
     run_id: i64,
     ext: &str,
-) -> Result<std::path::PathBuf, String> {
+) -> Result<String, String> {
     let run = storage::get_run(conn, run_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("run {run_id} not found"))?;
@@ -220,66 +360,107 @@ fn report_path(
         .chars()
         .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
         .collect();
-    Ok(settings.report_dir.join(format!("{safe}-run{run_id}.{ext}")))
+    Ok(format!("{safe}-run{run_id}.{ext}"))
 }
 
-/// Render a run's client report to a standalone HTML file in the reports
-/// directory, returning its path. Pure and fast: no browser needed.
+/// Ask the user where to save, through the OS "Save As" dialog, seeded with a
+/// sensible file name and an extension filter. `None` means the user cancelled
+/// (or the dialog could not be shown). Async and non-blocking: the plugin shows
+/// the dialog on the main thread and the result is awaited here, so the calling
+/// command must never itself block the main thread (both report commands are
+/// `async` for exactly this reason). Blocking here deadlocks the dialog.
+async fn ask_save_path(
+    app: &tauri::AppHandle,
+    file_name: &str,
+    filter_label: &str,
+    extensions: &[&str],
+) -> Option<std::path::PathBuf> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_file_name(file_name)
+        .add_filter(filter_label, extensions)
+        .save_file(move |path| {
+            let _ = tx.send(path);
+        });
+    rx.await.ok().flatten().and_then(|path| path.into_path().ok())
+}
+
+/// Render a run's client report to a standalone HTML file at a location the
+/// user picks in the Save dialog. Returns the chosen path, or `None` if the
+/// user cancelled. Async so the native dialog runs without blocking the main
+/// thread. Fast otherwise: no browser needed.
 #[tauri::command]
-pub fn report_html(run_id: i64) -> Result<String, String> {
-    let (settings, conn) = report_context()?;
-    let html = slap_engine::report::render_html(&conn, run_id)?;
-    let path = report_path(&settings, &conn, run_id, "html")?;
-    std::fs::write(&path, html).map_err(|e| e.to_string())?;
-    Ok(path.display().to_string())
+pub async fn report_html(app: tauri::AppHandle, run_id: i64) -> Result<Option<String>, String> {
+    let name = {
+        let conn = report_conn()?;
+        report_filename(&conn, run_id, "html")?
+    };
+    let Some(dest) = ask_save_path(&app, &name, "HTML page", &["html"]).await else {
+        return Ok(None);
+    };
+    let html = {
+        let conn = report_conn()?;
+        slap_engine::report::render_html(&conn, run_id)?
+    };
+    std::fs::write(&dest, html).map_err(|e| e.to_string())?;
+    Ok(Some(dest.display().to_string()))
 }
 
-/// Render a run's client report to PDF, using the pinned Chromium the app
-/// manages for Lighthouse (fetched on first use if absent). Runs on its own
-/// thread so building a runtime for the possible first-run download never
-/// collides with Tauri's.
+/// Render a run's client report to PDF at a location the user picks in the Save
+/// dialog, using the pinned Chromium the app manages for Lighthouse (fetched on
+/// first use if absent). Returns the chosen path, or `None` if the user
+/// cancelled. Async: the dialog is awaited (never blocking the main thread) and
+/// the Chromium print runs on a blocking task so it cannot stall the runtime.
 #[tauri::command]
-pub fn report_pdf(run_id: i64) -> Result<String, String> {
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(render_pdf_blocking(run_id));
-    });
-    rx.recv()
-        .map_err(|_| "the report thread stopped unexpectedly".to_string())?
-}
-
-fn render_pdf_blocking(run_id: i64) -> Result<String, String> {
-    let (settings, conn) = report_context()?;
-    let html = slap_engine::report::render_html(&conn, run_id)?;
-    let out = report_path(&settings, &conn, run_id, "pdf")?;
+pub async fn report_pdf(app: tauri::AppHandle, run_id: i64) -> Result<Option<String>, String> {
+    let name = {
+        let conn = report_conn()?;
+        report_filename(&conn, run_id, "pdf")?
+    };
+    // Ask before rendering: cancelling should cost nothing, and the PDF path is
+    // heavy (a Chromium print, and possibly a first-run Chromium fetch).
+    let Some(out) = ask_save_path(&app, &name, "PDF document", &["pdf"]).await else {
+        return Ok(None);
+    };
+    let html = {
+        let conn = report_conn()?;
+        slap_engine::report::render_html(&conn, run_id)?
+    };
 
     let tmp = std::env::temp_dir().join(format!("slap-report-{run_id}.html"));
     std::fs::write(&tmp, &html).map_err(|e| e.to_string())?;
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| e.to_string())?;
-    let chrome = runtime
-        .block_on(slap_engine::lighthouse::resolve_or_fetch_chrome())
+    let chrome = slap_engine::lighthouse::resolve_or_fetch_chrome()
+        .await
         .map_err(|e| format!("could not obtain Chromium for the PDF: {e}"))?;
 
-    let status = std::process::Command::new(&chrome)
-        .args([
-            "--headless=new",
-            "--no-sandbox",
-            "--disable-gpu",
-            "--no-pdf-header-footer",
-        ])
-        .arg(format!("--print-to-pdf={}", out.display()))
-        .arg(format!("file://{}", tmp.display()))
-        .status()
-        .map_err(|e| format!("could not run Chromium: {e}"))?;
-    let _ = std::fs::remove_file(&tmp);
+    // The Chromium print is a blocking subprocess; run it on a blocking task so
+    // it never stalls the async runtime. The temp HTML is cleaned up there too.
+    let out_arg = out.clone();
+    let status = tokio::task::spawn_blocking(move || {
+        let status = std::process::Command::new(&chrome)
+            .args([
+                "--headless=new",
+                "--no-sandbox",
+                "--disable-gpu",
+                "--no-pdf-header-footer",
+            ])
+            .arg(format!("--print-to-pdf={}", out_arg.display()))
+            .arg(format!("file://{}", tmp.display()))
+            .status();
+        let _ = std::fs::remove_file(&tmp);
+        status
+    })
+    .await
+    .map_err(|e| format!("the PDF task did not finish: {e}"))?
+    .map_err(|e| format!("could not run Chromium: {e}"))?;
+
     if !status.success() {
         return Err("Chromium did not produce the PDF".to_string());
     }
-    Ok(out.display().to_string())
+    Ok(Some(out.display().to_string()))
 }
 
 #[tauri::command]

@@ -56,6 +56,7 @@ fn resolve_db_path() -> std::path::PathBuf {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState::open(&resolve_db_path()))
         .invoke_handler(tauri::generate_handler![
             app_status,
@@ -70,6 +71,8 @@ pub fn run() {
             commands::delete_site,
             commands::get_settings,
             commands::set_crux_key,
+            commands::pick_data_dir,
+            commands::set_data_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the SLAP window");

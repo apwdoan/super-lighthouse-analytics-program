@@ -20,6 +20,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+# Native Save dialog: report exports prompt for a download location rather than
+# writing to a fixed directory.
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 slap-core = { path = "../crates/slap-core" }
@@ -27,8 +30,10 @@ slap-core = { path = "../crates/slap-core" }
 # for now, but never call the engine (the viewer has no Run button); if the
 # extra compile weight ever matters on mobile it goes behind a feature.
 slap-engine = { path = "../crates/slap-engine" }
-# For the current-thread runtime the audit command drives reqwest on.
-tokio = { version = "1", features = ["rt"] }
+# The audit command drives reqwest on its own current-thread runtime; the
+# report commands use `sync` (oneshot) to await the async Save dialog and
+# `spawn_blocking` for the Chromium print.
+tokio = { version = "1", features = ["rt", "sync"] }
 
 [target."cfg(windows)".dependencies]
 # For AttachConsole in --self-check: a windows-subsystem binary has no

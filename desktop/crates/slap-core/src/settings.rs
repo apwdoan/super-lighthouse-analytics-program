@@ -145,6 +145,11 @@ impl Default for DiscoveryConfig {
 
 #[derive(Clone, Debug)]
 pub struct Settings {
+    /// The base directory for the database and the app's saved files. Defaults
+    /// to the per-user data directory; a `data_dir` key in config.toml (set by
+    /// the Settings screen) relocates it, and the path fields below derive from
+    /// it unless individually overridden.
+    pub data_dir: PathBuf,
     pub db_path: PathBuf,
     pub artifact_dir: PathBuf,
     pub report_dir: PathBuf,
@@ -169,6 +174,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            data_dir: paths::default_data_dir(),
             db_path: paths::db_path(),
             artifact_dir: paths::default_data_dir().join("artifacts"),
             report_dir: paths::default_data_dir().join("reports"),
@@ -217,6 +223,16 @@ impl Settings {
                     .and_then(|value| value.as_str())
                     .map(|value| expand_user(PathBuf::from(value)))
             };
+            // A single relocated data directory: the base for the database and
+            // the app's saved files. The individual *_path overrides below still
+            // win, and SLAP_DB still wins for the database.
+            if let Some(dir) = path_of("data_dir") {
+                settings.data_dir = dir.clone();
+                settings.db_path = dir.join(format!("{}.sqlite3", paths::DIRNAME));
+                settings.artifact_dir = dir.join("artifacts");
+                settings.report_dir = dir.join("reports");
+                settings.vulndb_path = dir.join("vulndb.json");
+            }
             if let Some(value) = path_of("db_path") {
                 settings.db_path = value;
             }
@@ -322,7 +338,27 @@ impl SettingValue {
                     format!("{float}")
                 }
             }
-            SettingValue::Str(text) => format!("\"{text}\""),
+            SettingValue::Str(text) => {
+                // A TOML basic string: backslashes, quotes and control
+                // characters must be escaped, or a Windows path such as
+                // C:\Users\... is read as invalid unicode escapes and the
+                // whole config fails to parse.
+                let mut out = String::with_capacity(text.len() + 2);
+                out.push('"');
+                for c in text.chars() {
+                    match c {
+                        '\\' => out.push_str("\\\\"),
+                        '"' => out.push_str("\\\""),
+                        '\n' => out.push_str("\\n"),
+                        '\r' => out.push_str("\\r"),
+                        '\t' => out.push_str("\\t"),
+                        c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04X}", c as u32)),
+                        c => out.push(c),
+                    }
+                }
+                out.push('"');
+                out
+            }
         }
     }
 
@@ -673,5 +709,59 @@ mod tests {
         let config = dir.path().join("config.toml");
         save_setting("crux_api_key", None, Some("collector"), Some(&config)).unwrap();
         assert!(!config.exists());
+    }
+
+    #[test]
+    fn data_dir_relocates_the_saved_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.toml");
+        let data = dir.path().join("elsewhere");
+        // Backslashes must be escaped inside a TOML basic string on Windows.
+        let quoted = data.display().to_string().replace('\\', "\\\\");
+        write(&config, &format!("data_dir = \"{quoted}\"\n"));
+        let s = Settings::load(Some(&config)).unwrap();
+        assert_eq!(s.data_dir, data);
+        assert_eq!(s.report_dir, data.join("reports"));
+        assert_eq!(s.artifact_dir, data.join("artifacts"));
+        assert_eq!(s.vulndb_path, data.join("vulndb.json"));
+    }
+
+    #[test]
+    fn an_explicit_path_still_wins_over_data_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.toml");
+        let data = dir.path().join("elsewhere");
+        let custom = dir.path().join("myreports");
+        let q = |p: &Path| p.display().to_string().replace('\\', "\\\\");
+        write(
+            &config,
+            &format!("data_dir = \"{}\"\nreport_dir = \"{}\"\n", q(&data), q(&custom)),
+        );
+        let s = Settings::load(Some(&config)).unwrap();
+        assert_eq!(s.report_dir, custom, "explicit report_dir beats data_dir");
+        assert_eq!(
+            s.artifact_dir,
+            data.join("artifacts"),
+            "the ones left unset still follow data_dir"
+        );
+    }
+
+    #[test]
+    fn a_windows_style_path_round_trips_through_save_setting() {
+        // Backslashes in a path must be escaped for TOML, or the file fails to
+        // parse and save_setting's read-back guard rejects the write. This is
+        // the shape set_data_dir writes on Windows.
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.toml");
+        let winpath = r"C:\Users\Someone\AppData\Local\slap-data";
+        save_setting(
+            "data_dir",
+            Some(SettingValue::Str(winpath.to_string())),
+            None,
+            Some(&config),
+        )
+        .expect("a path with backslashes must save");
+        let parsed: toml::Table = std::fs::read_to_string(&config).unwrap().parse().unwrap();
+        assert_eq!(parsed.get("data_dir").and_then(|v| v.as_str()), Some(winpath));
     }
 }
