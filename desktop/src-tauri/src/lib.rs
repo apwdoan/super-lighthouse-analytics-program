@@ -55,6 +55,14 @@ fn resolve_db_path() -> std::path::PathBuf {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Adopt a user-regenerated database if it is newer than the embedded
+    // baseline, so a refresh from a previous session is active from launch.
+    // Best effort: a malformed config or missing file just keeps the embedded
+    // database, which is exactly the fallback we want.
+    if let Ok(settings) = slap_core::settings::Settings::load(None) {
+        slap_engine::vulndb::activate_if_newer(&settings.vulndb_path);
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::open(&resolve_db_path()))
@@ -76,6 +84,9 @@ pub fn run() {
             commands::set_brand_name,
             commands::set_brand_logo,
             commands::clear_brand_logo,
+            commands::set_nvd_key,
+            commands::vulndb_info,
+            commands::regenerate_vulndb,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the SLAP window");

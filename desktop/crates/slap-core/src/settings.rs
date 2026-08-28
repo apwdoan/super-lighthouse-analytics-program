@@ -158,6 +158,12 @@ pub struct Settings {
     pub lighthouse: LighthouseConfig,
     pub discovery: DiscoveryConfig,
     pub vulndb_path: PathBuf,
+    /// The NVD API key, if the user saved one. Optional: the in-app database
+    /// regenerator works without it at NVD's unauthenticated rate (~10 min);
+    /// a key raises the pace roughly sevenfold. A top-level key, not in a
+    /// section, and the `NVD_API_KEY` environment variable overrides it (as
+    /// `CRUX_API_KEY` does the CrUX key).
+    pub nvd_api_key: Option<String>,
     /// Endpoint probing. Off by default and authorised per host, never
     /// globally: a global flag gets switched on once and then silently
     /// applies to the next client, who never agreed to it.
@@ -183,6 +189,7 @@ impl Default for Settings {
             lighthouse: LighthouseConfig::default(),
             discovery: DiscoveryConfig::default(),
             vulndb_path: user_vulndb_path(),
+            nvd_api_key: None,
             probe_enabled: false,
             probe_rate_per_second: 2.0,
             branding: BTreeMap::new(),
@@ -281,6 +288,11 @@ impl Settings {
                 Some(toml::Value::Integer(rate)) => settings.probe_rate_per_second = *rate as f64,
                 _ => {}
             }
+            if let Some(toml::Value::String(key)) = raw.get("nvd_api_key") {
+                if !key.is_empty() {
+                    settings.nvd_api_key = Some(key.clone());
+                }
+            }
         }
 
         // Environment wins, so a teammate can point at their own key
@@ -288,6 +300,12 @@ impl Settings {
         if let Ok(key) = std::env::var("CRUX_API_KEY") {
             if !key.is_empty() {
                 settings.collector.crux_api_key = Some(key);
+            }
+        }
+        // Same convention for the NVD key the regenerator uses.
+        if let Ok(key) = std::env::var("NVD_API_KEY") {
+            if !key.is_empty() {
+                settings.nvd_api_key = Some(key);
             }
         }
         // SLAP_DB overrides the configured database location; see
@@ -554,6 +572,33 @@ pub fn save_crux_api_key(key: Option<&str>, path: Option<&Path>) -> Result<PathB
     )
 }
 
+/// Persist (or clear) the NVD API key. Top-level, so it never lands inside a
+/// strict `[collector]`/`[discovery]` section, and validated to the same shape
+/// as the CrUX key for the same reason: an arbitrary string quoted into a file
+/// the whole app parses at startup is an injection.
+pub fn save_nvd_api_key(key: Option<&str>, path: Option<&Path>) -> Result<PathBuf, SettingsError> {
+    let key = key.map(str::trim).filter(|text| !text.is_empty());
+    if let Some(text) = key {
+        let shape_ok = (10..=200).contains(&text.len())
+            && text
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+        if !shape_ok {
+            return Err(SettingsError(
+                "That does not look like an NVD API key (letters, digits, - and _ only). \
+                 Nothing was saved."
+                    .to_string(),
+            ));
+        }
+    }
+    save_setting(
+        "nvd_api_key",
+        key.map(|text| SettingValue::Str(text.to_string())),
+        None,
+        path,
+    )
+}
+
 /// Persist the global endpoint-probing switch. Top-level, not in a
 /// section, because that is the shape the app has always documented.
 pub fn save_probe_enabled(enabled: bool, path: Option<&Path>) -> Result<PathBuf, SettingsError> {
@@ -744,6 +789,25 @@ mod tests {
             data.join("artifacts"),
             "the ones left unset still follow data_dir"
         );
+    }
+
+    #[test]
+    fn the_nvd_key_saves_top_level_and_the_environment_overrides_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.toml");
+        // Saved top-level, above any section, so it never lands in a strict one.
+        write(&config, "[collector]\nhttp_concurrency = 12\n");
+        save_nvd_api_key(Some("nvd-key-abc123"), Some(&config)).unwrap();
+        let parsed: toml::Table = std::fs::read_to_string(&config).unwrap().parse().unwrap();
+        assert_eq!(parsed.get("nvd_api_key").and_then(|v| v.as_str()), Some("nvd-key-abc123"));
+        assert!(parsed["collector"].get("nvd_api_key").is_none());
+        let s = Settings::load(Some(&config)).unwrap();
+        assert_eq!(s.nvd_api_key.as_deref(), Some("nvd-key-abc123"));
+        // Environment wins, matching the CrUX convention.
+        std::env::set_var("NVD_API_KEY", "nvd-from-env-99");
+        let s = Settings::load(Some(&config)).unwrap();
+        std::env::remove_var("NVD_API_KEY");
+        assert_eq!(s.nvd_api_key.as_deref(), Some("nvd-from-env-99"));
     }
 
     #[test]

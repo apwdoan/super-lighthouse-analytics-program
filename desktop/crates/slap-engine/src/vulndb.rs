@@ -14,7 +14,7 @@
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock, RwLock};
 
 use serde::Deserialize;
 use slap_core::schema::{obs, Observation, Value};
@@ -61,11 +61,66 @@ pub struct VulnDb {
     by_package: HashMap<(String, String), Vec<Vuln>>,
 }
 
-/// The embedded database, parsed once. The embedded JSON is a build input, so
-/// a parse failure is a build-time mistake, not a runtime condition.
-pub fn db() -> &'static VulnDb {
-    static DB: OnceLock<VulnDb> = OnceLock::new();
-    DB.get_or_init(|| VulnDb::parse(VULNDB_JSON).expect("embedded vulndb.json parses"))
+/// The active database, behind a lock so the in-app regenerator can swap in a
+/// freshly-built one without a restart. The embedded JSON is the compiled-in
+/// baseline and a build input, so its parse failure is a build-time mistake,
+/// not a runtime condition; `activate_if_newer` and `set_active_from_json` may
+/// replace it later with a user-regenerated copy.
+fn cell() -> &'static RwLock<Arc<VulnDb>> {
+    static DB: OnceLock<RwLock<Arc<VulnDb>>> = OnceLock::new();
+    DB.get_or_init(|| {
+        RwLock::new(Arc::new(
+            VulnDb::parse(VULNDB_JSON).expect("embedded vulndb.json parses"),
+        ))
+    })
+}
+
+/// A snapshot of the active database. Cloning the `Arc` is cheap and detaches
+/// the caller from a concurrent swap, so an audit's matching always finishes
+/// against one consistent database even if a regeneration lands mid-run.
+pub fn db() -> Arc<VulnDb> {
+    cell().read().expect("vulndb lock not poisoned").clone()
+}
+
+/// Replace the active database with one parsed from `json`. A parse failure
+/// leaves the current database untouched. The regenerator calls this after it
+/// writes the new file, so the next audit uses it with no restart.
+pub fn set_active_from_json(json: &str) -> Result<(), serde_json::Error> {
+    let parsed = VulnDb::parse(json)?;
+    *cell().write().expect("vulndb lock not poisoned") = Arc::new(parsed);
+    Ok(())
+}
+
+/// At startup, adopt the database at `path` if it parses and carries a newer
+/// `generated_at` than the one currently active (the embedded baseline) - the
+/// Python app's "the newer of the bundled and user copies wins", so a teammate
+/// who refreshed keeps their fresher data, but a newer bundled build still
+/// supersedes an older refresh. Returns whether it replaced the active db.
+pub fn activate_if_newer(path: &std::path::Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(candidate) = VulnDb::parse(&text) else {
+        return false;
+    };
+    // The timestamps are the same fixed RFC3339 shape, so a byte comparison
+    // orders them correctly without a datetime dependency.
+    let newer = candidate.generated_at.as_str() > db().generated_at();
+    if newer {
+        *cell().write().expect("vulndb lock not poisoned") = Arc::new(candidate);
+    }
+    newer
+}
+
+/// The per-(ecosystem, package) CVE counts of the active database. The
+/// regenerator guards against this baseline so a rate-limited rebuild cannot
+/// silently ship fewer advisories than the copy it would replace.
+pub fn baseline_counts() -> BTreeMap<(String, String), usize> {
+    let db = db();
+    db.by_package
+        .iter()
+        .map(|((eco, pkg), vulns)| ((eco.clone(), pkg.clone()), vulns.len()))
+        .collect()
 }
 
 impl VulnDb {
@@ -118,6 +173,21 @@ impl VulnDb {
     pub fn sources_summary(&self) -> String {
         let distinct: BTreeSet<&str> = self.sources.values().map(String::as_str).collect();
         distinct.into_iter().collect::<Vec<_>>().join(", ")
+    }
+
+    /// The total number of CVEs across every covered package, for the settings
+    /// readout of what the database currently holds.
+    pub fn total_cves(&self) -> usize {
+        self.by_package.values().map(Vec::len).sum()
+    }
+
+    /// How many packages each ecosystem covers (npm, wordpress,
+    /// wordpress-plugin), for the same readout.
+    pub fn covered_counts(&self) -> BTreeMap<String, usize> {
+        self.covered
+            .iter()
+            .map(|(eco, set)| (eco.clone(), set.len()))
+            .collect()
     }
 }
 

@@ -596,6 +596,7 @@ async function viewSettings() {
   loading();
   try {
     const s = await invoke("get_settings");
+    const vinfo = await invoke("vulndb_info").catch(() => null);
     const head = el("div", {}, crumbs({ label: "Settings" }), el("h1", {}, "Settings"),
       el("p", { class: "lead" }, "App configuration, stored locally in your config.toml."));
 
@@ -690,7 +691,104 @@ async function viewSettings() {
       el("div", { class: "row-actions" }, setLogo, rmLogo),
       brandMsg);
 
-    mount(head, dataCard, brandCard, cruxCard);
+    // Vulnerability database: regenerate the offline CVE data from the NVD,
+    // and optionally save an API key that makes the pull fast.
+    const vulndbSummary = (v) => {
+      if (!v) return "Status unavailable.";
+      const cov = v.covered || {};
+      let age = v.generated_at || "unknown";
+      const t = Date.parse(v.generated_at || "");
+      if (!isNaN(t)) {
+        const days = Math.floor((Date.now() - t) / 86400000);
+        age = days <= 0 ? "today" : (days === 1 ? "yesterday" : days + " days ago");
+      }
+      return `${v.cve_count || 0} CVEs from ${v.sources || "NVD"}, generated ${age}. Covers `
+        + `${cov.npm || 0} JS libraries, ${cov.wordpress || 0} WordPress core, `
+        + `${cov["wordpress-plugin"] || 0} plugins.`;
+    };
+    const vinfoEl = el("span", {}, vulndbSummary(vinfo));
+
+    const regenMsg = el("div", { style: "margin-top:10px" });
+    const progBar = el("div", { style: "height:8px;width:0%;background:var(--accent,#3b6ef5);border-radius:4px;transition:width .25s" });
+    const progWrap = el("div", { style: "display:none;margin-top:10px" },
+      el("div", { style: "height:8px;background:var(--line,#e3e3e3);border-radius:4px;overflow:hidden" }, progBar),
+      el("div", { class: "muted", style: "font-size:12px;margin-top:6px" }));
+    const progText = progWrap.lastChild;
+    const regenBtn = el("button", { class: "primary" }, "Regenerate now");
+
+    regenBtn.addEventListener("click", async () => {
+      regenBtn.disabled = true;
+      regenMsg.innerHTML = "";
+      progWrap.style.display = "block";
+      progBar.style.width = "0%";
+      progText.textContent = "Starting… this takes several minutes without an API key.";
+      let unlisten = null;
+      try {
+        if (TAURI.event && TAURI.event.listen) {
+          unlisten = await TAURI.event.listen("slap://vulndb-progress", (e) => {
+            const p = e.payload || {};
+            if (p.total) progBar.style.width = Math.round((100 * p.done) / p.total) + "%";
+            progText.textContent = p.label === "done"
+              ? "Saving the database…"
+              : `Querying ${p.label}… (${p.done}/${p.total})`;
+          });
+        }
+        const res = await invoke("regenerate_vulndb");
+        progBar.style.width = "100%";
+        const cov = res.covered || {};
+        vinfoEl.textContent = vulndbSummary({
+          cve_count: res.cve_count, generated_at: res.generated_at, covered: cov, sources: "NIST NVD",
+        });
+        regenMsg.append(el("div", { class: "notice info" },
+          el("b", {}, `Database updated: ${res.cve_count} CVEs`),
+          el("div", { style: "margin-top:4px" },
+            `Now covering ${cov.npm || 0} JS libraries, ${cov.wordpress || 0} WordPress core, `
+            + `${cov["wordpress-plugin"] || 0} plugins. In effect from your next audit.`)));
+      } catch (e) {
+        regenMsg.append(el("div", { class: "notice warn" }, String(e && e.message ? e.message : e)));
+      } finally {
+        if (unlisten) unlisten();
+        regenBtn.disabled = false;
+        progWrap.style.display = "none";
+      }
+    });
+
+    const nvdStatus = s.nvd_key_from_env
+      ? el("span", {}, el("b", {}, "Set from the NVD_API_KEY environment variable"), el("span", { class: "muted" }, " — that overrides anything saved here"))
+      : (s.nvd_key_set
+        ? el("b", { style: "color:var(--good,#0ca30c)" }, "A key is saved")
+        : el("span", { class: "muted" }, "No key — regeneration still works, but takes ~10 minutes"));
+    const nvdInput = el("input", { type: "password", autocomplete: "off", placeholder: "Paste an optional NVD API key (makes regeneration ~90s)", style: "width:100%;max-width:540px" });
+    const nvdOut = el("div", { class: "muted", style: "font-size:12px;margin-top:8px" });
+    const nvdSave = el("button", { class: "ghost" }, "Save key");
+    const nvdClear = el("button", { class: "ghost" }, "Remove key");
+    nvdSave.addEventListener("click", async () => {
+      const key = nvdInput.value.trim();
+      if (!key) { nvdOut.textContent = "Enter a key first, or use Remove key."; return; }
+      nvdSave.disabled = true; nvdOut.textContent = "Saving…";
+      try { await invoke("set_nvd_key", { key }); nvdInput.value = ""; go("settings"); }
+      catch (e) { nvdOut.textContent = String(e && e.message ? e.message : e); nvdSave.disabled = false; }
+    });
+    nvdClear.addEventListener("click", async () => {
+      nvdClear.disabled = true; nvdOut.textContent = "Removing…";
+      try { await invoke("set_nvd_key", { key: "" }); go("settings"); }
+      catch (e) { nvdOut.textContent = String(e && e.message ? e.message : e); nvdClear.disabled = false; }
+    });
+
+    const vulndbCard = el("div", { class: "card pad" },
+      el("h2", {}, "Vulnerability database"),
+      el("p", { class: "secondary" }, "The offline CVE database SLAP matches detected components against. Regenerating pulls the latest advisories from the NIST NVD and replaces your local copy; the new data is used from your next audit, with no restart. It never ships a smaller database than the one it replaces."),
+      el("p", {}, "Current: ", vinfoEl),
+      el("div", { class: "row-actions", style: "margin-top:8px" }, regenBtn),
+      progWrap,
+      regenMsg,
+      el("p", { class: "muted", style: "margin:16px 0 6px" }, "NVD API key (optional) — ", nvdStatus),
+      el("p", { class: "secondary", style: "margin:0 0 8px" }, "A free key from the NVD raises the request rate, cutting a full rebuild from about ten minutes to about ninety seconds. Stored on this machine only and sent only to the NVD."),
+      el("div", { style: "margin-bottom:8px" }, nvdInput),
+      el("div", { class: "row-actions" }, nvdSave, nvdClear),
+      nvdOut);
+
+    mount(head, dataCard, vulndbCard, brandCard, cruxCard);
   } catch (e) { errorView(e); }
 }
 

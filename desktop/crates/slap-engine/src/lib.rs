@@ -26,5 +26,6 @@ pub mod report;
 pub mod run;
 pub mod tls;
 pub mod vulndb;
+pub mod vulndb_build;
 
 pub use run::{run_batch, AuditSummary, EngineConfig, RunSummary};

@@ -12,6 +12,7 @@
 //! a mutex is both necessary and cheap; nothing holds it across an await
 //! because these are not async.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use serde_json::{json, Value as Json};
@@ -167,6 +168,15 @@ pub fn get_settings() -> Result<Json, String> {
         .and_then(|v| v.as_str())
         .map(|s| !s.is_empty())
         .unwrap_or(false);
+    // The NVD key value is never returned, only whether one is in effect and
+    // whether it comes from the environment (which overrides config.toml), the
+    // same contract as the CrUX key above.
+    let nvd_env = std::env::var("NVD_API_KEY").ok().filter(|k| !k.is_empty());
+    let nvd_key_set = settings
+        .nvd_api_key
+        .as_ref()
+        .map(|k| !k.is_empty())
+        .unwrap_or(false);
     Ok(json!({
         "crux_key_set": has_key,
         "crux_key_from_env": env_key.is_some(),
@@ -177,6 +187,8 @@ pub fn get_settings() -> Result<Json, String> {
         "db_from_env": std::env::var_os("SLAP_DB").is_some(),
         "brand_name": brand_name,
         "brand_logo_set": brand_logo_set,
+        "nvd_key_set": nvd_key_set,
+        "nvd_key_from_env": nvd_env.is_some(),
     }))
 }
 
@@ -193,6 +205,100 @@ pub fn set_crux_key(key: String) -> Result<Json, String> {
     let path = save_setting("crux_api_key", value, Some("collector"), None)
         .map_err(|e| e.to_string())?;
     Ok(json!({ "saved": saved, "config": path.display().to_string() }))
+}
+
+/// Save (or clear, when empty) the optional NVD API key used by the database
+/// regenerator. Stored top-level; validated to an API-key shape so it cannot
+/// inject into config.toml. `NVD_API_KEY` in the environment still overrides it.
+#[tauri::command]
+pub fn set_nvd_key(key: String) -> Result<Json, String> {
+    let trimmed = key.trim();
+    let saved = !trimmed.is_empty();
+    slap_core::settings::save_nvd_api_key((!trimmed.is_empty()).then_some(trimmed), None)
+        .map_err(|e| e.to_string())?;
+    Ok(json!({ "saved": saved }))
+}
+
+/// What the Settings screen shows about the active vulnerability database: the
+/// date it was generated, how many CVEs it holds, and how many packages each
+/// ecosystem covers. Reads the live matcher, so it reflects a regeneration
+/// done this session.
+#[tauri::command]
+pub fn vulndb_info() -> Result<Json, String> {
+    let db = slap_engine::vulndb::db();
+    Ok(json!({
+        "generated_at": db.generated_at(),
+        "cve_count": db.total_cves(),
+        "covered": db.covered_counts(),
+        "sources": db.sources_summary(),
+    }))
+}
+
+/// Single-flight guard: a regeneration is minutes long, and two at once would
+/// race on the same output file and double the NVD load for nothing.
+static REGEN_RUNNING: AtomicBool = AtomicBool::new(false);
+
+/// Clears the single-flight flag on every exit path, errors and cancellations
+/// included.
+struct RegenGuard;
+impl Drop for RegenGuard {
+    fn drop(&mut self) {
+        REGEN_RUNNING.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Rebuild the vulnerability database from the NVD, write it to the user data
+/// directory, and hot-swap it into the matcher so the next audit uses it with
+/// no restart. Long: ~10 minutes without an NVD API key (NVD's unauthenticated
+/// rate limit), around 90 seconds with one. Progress is emitted to the window
+/// as `slap://vulndb-progress` events; the returned summary is the source of
+/// truth. Async so it runs on the runtime (reqwest and the pacing timer need
+/// one) rather than blocking the UI thread.
+///
+/// The generator refuses to write a database smaller than the one it replaces
+/// (a rate-limited rebuild that came back short), and that refusal surfaces
+/// here as an error with the old database left in place.
+#[tauri::command]
+pub async fn regenerate_vulndb(app: tauri::AppHandle) -> Result<Json, String> {
+    use tauri::Emitter;
+    if REGEN_RUNNING.swap(true, Ordering::SeqCst) {
+        return Err("A database regeneration is already running.".to_string());
+    }
+    let _guard = RegenGuard;
+
+    let settings = slap_core::settings::Settings::load(None).unwrap_or_default();
+    let api_key = settings.nvd_api_key.clone();
+    let out_path = settings.vulndb_path.clone();
+    let baseline = slap_engine::vulndb::baseline_counts();
+
+    let progress_app = app.clone();
+    let outcome = slap_engine::vulndb_build::build(api_key, &baseline, move |p| {
+        // A dropped progress event must not fail the build; the return value is
+        // the source of truth and the events are a live convenience.
+        let _ = progress_app.emit(
+            "slap://vulndb-progress",
+            json!({ "done": p.done, "total": p.total, "label": p.label }),
+        );
+    })
+    .await?;
+
+    // Write to the user data directory, then make it the active database.
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
+    }
+    std::fs::write(&out_path, &outcome.json)
+        .map_err(|e| format!("could not write {}: {e}", out_path.display()))?;
+    slap_engine::vulndb::set_active_from_json(&outcome.json)
+        .map_err(|e| format!("the rebuilt database did not parse: {e}"))?;
+
+    Ok(json!({
+        "cve_count": outcome.cve_count,
+        "covered": outcome.covered,
+        "by_severity": outcome.by_severity,
+        "generated_at": outcome.generated_at,
+        "path": out_path.display().to_string(),
+    }))
 }
 
 /// Save (or clear, when empty) the brand name shown at the top of exported
