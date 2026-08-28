@@ -15,27 +15,40 @@ discovery  ──►  collectors  ──►  observations  ──►  findings  
 SLAP is a **Tauri desktop app** (Rust core, system webview, Node sidecar
 for Lighthouse) with iOS/Android companion viewers built from the same
 codebase. Everything lives under [`desktop/`](desktop/README.md), which has
-the layout, build commands, and the rules the codebase holds itself to.
+the full layout, the deeper build notes, and the rules the codebase holds
+itself to.
+
+## Building from source
+
+**Prerequisites:** a stable Rust toolchain and Node.js — Node drives the
+Lighthouse worker, the bundle-prep step, and the Tauri CLI. On Linux, install
+the webkit2gtk and GTK development packages first (the exact list is in
+[`.github/workflows/desktop.yml`](.github/workflows/desktop.yml)).
+
+**Dev build** — the desktop binary, no installer:
 
     cd desktop
-    cargo test -p slap-core
-    cargo build
-    ./target/debug/slap-desktop --self-check
+    cargo test -p slap-core                    # the core's tests
+    cargo build                                # builds target/debug/slap-desktop
+    ./target/debug/slap-desktop --self-check   # real storage + rules roundtrip
 
-Distributables are built by `.github/workflows/desktop.yml` (Windows,
-macOS Apple Silicon, macOS Intel, Linux) on `v*` tags or manual dispatch,
-with every artifact self-checked on the runner that built it before
-upload. `android.yml` is the experimental phone lane.
+Lighthouse in a dev build needs Node on PATH and the worker's dependencies
+(`cd desktop/worker && npm install`); the pinned Chrome for Testing is fetched
+on first use.
 
-## History
+**Release build** — the self-contained installer, with Lighthouse and a Node
+runtime bundled so an installed SLAP needs neither the repo nor Node:
 
-SLAP began as a Python + PyInstaller application (FastAPI web UI, ~700MB
-bundles). It was rewritten as this Tauri app and the Python tree was
-retired on 2026-08-27. What carried over unchanged: the observation
-schema and metric registry, the SQLite database (existing history opens
-as-is), the findings rules
-(`desktop/crates/slap-core/rules/rules.yaml`), the Lighthouse Node worker
-(`desktop/worker/`), the vulnerability database (`desktop/data/`), and
-the report templates (`desktop/templates/`). The `docs/` directory
-records the Python era's design notes and postmortems; the project docs
-carry the rewrite's plan and status.
+    cd desktop
+    node scripts/prepare-bundle.mjs            # installs the worker, fetches a pinned Node
+    npx --yes @tauri-apps/cli@^2 build         # produces the platform installer
+
+The prepare step is required: a `tauri build` without it fails by design,
+because Tauri expects the bundled Node binary to exist.
+[`desktop/README.md`](desktop/README.md) covers what it fetches, the resulting
+install size, and how the worker and Node resolve at runtime.
+
+Distributables are built by `.github/workflows/desktop.yml` (Windows, macOS
+Apple Silicon, macOS Intel, Linux) on `v*` tags or manual dispatch, with every
+artifact self-checked on the runner that built it before upload. `android.yml`
+is the experimental phone lane.
