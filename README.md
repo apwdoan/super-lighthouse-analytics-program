@@ -17,6 +17,43 @@ SLAP is a cross-platform **Tauri desktop app** for Windows, macOS, and Linux
 under [`desktop/`](desktop/README.md), which has the full layout, the deeper
 build notes, and the rules the codebase holds itself to.
 
+## The report
+
+Every audit ends in a client-facing report rendered from one Jinja2 template
+set in [`desktop/templates/report/`](desktop/templates/report/) —
+`report.html.j2` for a single site, `batch.html.j2` for a multi-site summary,
+and `report.css` shared by both. The HTML is the deliverable: fully
+self-contained (inlined CSS, no external assets), so it survives being
+emailed. The PDF is a print-to-PDF rendering of that same document, so the
+two can never disagree.
+
+Page one is the verdict, not the data: a plain-language headline, the Core Web
+Vitals against their thresholds, and a strip of lab measurements. After that
+comes **What to fix first** — every critical and high finding in full, each
+with its specific fix — then **Security** (certificate, response headers,
+cookies), and an appendix with the methodology, run provenance, detected
+technology, and every measurement collected. The design rules behind this
+layout live in [`docs/reports.md`](docs/reports.md).
+
+### Branding
+
+Reports are neutral out of the box, but you can put your own name and logo on
+them. Under **Settings → Report branding** in the app:
+
+- **Brand name** — printed in the masthead of every report.
+- **Logo** — chosen from a local image (PNG, JPEG, GIF, WebP or SVG, under
+  1 MB) and embedded in each report as a data URI, which is what keeps the
+  HTML self-contained.
+
+Either one or both works; with neither set the report falls back to the
+neutral "Site performance and security audit" heading. Both are saved under
+`[branding]` in SLAP's `config.toml`, so a config file alone is enough to
+brand a run:
+
+    [branding]
+    company_name = "Your Company"
+    logo_data_uri = "data:image/png;base64,..."
+
 ## Building from source
 
 **Prerequisites:** a stable Rust toolchain and Node.js — Node drives the
