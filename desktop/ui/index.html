@@ -454,7 +454,7 @@ async function viewRun(id) {
     };
     head.append(el("div", { class: "row-actions", style: "margin-top:8px" },
       exportBtn("Export report (HTML)", "report_html", "HTML report"),
-      exportBtn("Export PDF", "report_pdf", "PDF report"),
+      exportBtn("Export report (PDF)", "report_pdf", "PDF report"),
       exportOut));
 
     const strip = el("div", { class: "grid cols-3" });
