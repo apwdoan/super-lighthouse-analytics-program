@@ -17,8 +17,8 @@ edition.workspace = true
 # The Python app pins its SQLite the same way (via Python's own build), and
 # the migration code depends on version-gated features like
 # ALTER TABLE ... RENAME COLUMN (3.25+), so "some system sqlite" is a bug.
-# bundled also makes the same engine ship on Android and iOS, where a
-# system SQLite may be old or absent.
+# bundled also means the app carries its own SQLite on every platform,
+# rather than depending on whatever version the OS happens to ship.
 rusqlite = { version = "0.32", features = ["bundled"] }
 dirs = "5"
 serde = { version = "1", features = ["derive"] }

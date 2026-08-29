@@ -1,10 +1,10 @@
 //! slap-engine: the audit engine. The collectors that measure a site and
 //! the orchestration that runs them, persists a run, and reports progress.
 //!
-//! Kept out of slap-core so the mobile viewer never compiles an HTTP stack
-//! it cannot use: a phone cannot audit (Lighthouse needs Node and a full
-//! Chrome), so the phone wants the core's schema, storage, and rules, and
-//! none of this.
+//! Kept out of slap-core so the core stays a light, HTTP-free layer that
+//! anything reading and rendering a stored audit can depend on without
+//! pulling in a full HTTP and browser-driving stack: the core is schema,
+//! storage, and rules; this crate is everything that reaches the network.
 //!
 //! What is here today: the page collectors (HTTP, security headers,
 //! cookies, redirects, the technology fingerprint, and software component

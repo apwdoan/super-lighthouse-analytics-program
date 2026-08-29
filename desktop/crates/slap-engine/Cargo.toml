@@ -1,10 +1,9 @@
 # The audit engine: the collectors and the orchestration that runs them.
 #
-# Separate from slap-core on purpose. The core is what the mobile VIEWER
-# needs (schema, storage, rules) and stays light; the engine pulls a real
-# HTTP stack and only the desktop app ever compiles it. Audits cannot run
-# on a phone anyway (Lighthouse needs Node and Chrome), so the phone never
-# wants this crate.
+# Separate from slap-core on purpose. The core stays a light, HTTP-free
+# layer (schema, storage, rules); the engine is where the real HTTP stack
+# and the browser-driving collectors live, so that weight stays out of
+# anything that only needs to read and render a stored audit.
 [package]
 name = "slap-engine"
 version.workspace = true

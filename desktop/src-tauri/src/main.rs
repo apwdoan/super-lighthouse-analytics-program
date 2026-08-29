@@ -14,8 +14,7 @@ fn main() {
     // Before any window: `SLAP --self-check` is how CI proves a built
     // artifact actually runs on the machine that built it, the practice
     // the Python bundle arrived at after shipping a build that only worked
-    // in the environment that made it. Desktop-only by design; phones have
-    // no command line to ask from.
+    // in the environment that made it.
     if std::env::args().skip(1).any(|arg| arg == "--self-check") {
         std::process::exit(slap_desktop_lib::selfcheck::run());
     }

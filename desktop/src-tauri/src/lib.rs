@@ -1,13 +1,9 @@
-//! The SLAP shell, shared by every target. Desktop `main()` and the mobile
-//! entry point both land in [`run`]; what differs per platform stays in the
-//! callers, which is why this library holds no `--self-check` parsing (a
-//! CLI is a desktop concept) and no window chrome decisions.
-//!
-//! On phones the app is a companion viewer: audits can never run there,
-//! because Lighthouse requires Node plus a full Chrome, and neither exists
-//! on iOS or Android. The core compiles for both regardless (storage,
-//! schema, rules), which is exactly what a viewer needs: read the history,
-//! render the findings, never pretend to measure.
+//! The SLAP shell: the window, the IPC command surface, and the startup that
+//! wires them to the core and the audit engine. It is a library so the command
+//! modules stay unit-testable and the entry point stays trivial — the binary
+//! (`main()`) parses `--self-check`, calling this library's [`selfcheck`], and
+//! otherwise just calls [`run`]. Window chrome and CLI concerns stay in the
+//! binary, not here.
 
 pub mod commands;
 pub mod selfcheck;
@@ -53,7 +49,6 @@ fn resolve_db_path() -> std::path::PathBuf {
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Adopt a user-regenerated database if it is newer than the embedded
     // baseline, so a refresh from a previous session is active from launch.

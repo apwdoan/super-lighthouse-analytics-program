@@ -1,5 +1,5 @@
-# The SLAP app: a Tauri shell over a Rust core, with iOS/Android viewer
-# targets built from the same crate. This replaced the Python + PyInstaller
+# The SLAP app: a cross-platform (Windows, macOS, Linux) desktop app, a Tauri
+# shell over a Rust core. This replaced the Python + PyInstaller
 # app on 2026-08-27; the assets both eras shared (the findings rules, the
 # Node worker, the vulnerability database, the report templates, the
 # slowsite fixture) moved in here when the Python tree was retired. Plan

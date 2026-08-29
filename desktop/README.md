@@ -1,7 +1,7 @@
-# SLAP desktop and mobile (Tauri)
+# SLAP desktop (Tauri)
 
-The SLAP app: a Rust core in a Tauri shell, with iOS/Android viewer targets
-built from the same crate. This replaced the Python + PyInstaller app on
+The SLAP app: a Rust core in a Tauri shell, a cross-platform desktop app for
+Windows, macOS, and Linux. This replaced the Python + PyInstaller app on
 2026-08-27. The plan, the architecture decisions, and the phase status live
 in the project doc `claude/tauri-rewrite.md`.
 
@@ -17,10 +17,9 @@ in the project doc `claude/tauri-rewrite.md`.
                           the findings rules, unchanged from the Python
                           app; embedded at compile time, overridable via
                           `rules_path` in config.toml.
-      src-tauri/          the shell. A library (`run()`) shared by every
-                          target: the desktop binary is a thin main() over
-                          it, and the mobile entry point is the same
-                          function behind `#[tauri::mobile_entry_point]`.
+      src-tauri/          the shell. A library (`run()`) with the desktop
+                          binary a thin main() over it; the IPC command
+                          modules live here and stay unit-testable.
       ui/                 static frontend, no build step, no bundler.
       worker/             the Lighthouse Node worker (worker.js), carried
                           over verbatim; now driven as a subprocess by
@@ -92,17 +91,6 @@ the trade for zero-prerequisite Lighthouse: a few MB before, tens of MB to
 download now. To go back to a small install, remove `bundle.resources` and
 `bundle.externalBin` and skip the prepare step; Lighthouse then needs Node
 plus the repo's worker, as a dev build does.
-
-## Mobile
-
-Tauri 2 builds iOS and Android apps from this same crate. On phones SLAP
-is a **companion viewer**: audits can never run there, because Lighthouse
-requires Node plus a full Chrome and neither exists on a phone OS. Audit
-data reaches a phone file-based first (an exported site pack); anything
-fancier is a later decision. `src-tauri/gen/` stays untracked while
-pre-release; CI regenerates it. `.github/workflows/android.yml` is the
-experimental Android lane (dispatch-only, debug APK). iOS needs a macOS
-runner plus Xcode and follows once the Android lane proves out.
 
 ## Rules carried over from the Python app
 

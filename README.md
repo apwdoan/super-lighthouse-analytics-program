@@ -12,11 +12,10 @@ discovery  ──►  collectors  ──►  observations  ──►  findings  
 
 ## The app
 
-SLAP is a **Tauri desktop app** (Rust core, system webview, Node sidecar
-for Lighthouse) with iOS/Android companion viewers built from the same
-codebase. Everything lives under [`desktop/`](desktop/README.md), which has
-the full layout, the deeper build notes, and the rules the codebase holds
-itself to.
+SLAP is a cross-platform **Tauri desktop app** for Windows, macOS, and Linux
+(Rust core, system webview, Node sidecar for Lighthouse). Everything lives
+under [`desktop/`](desktop/README.md), which has the full layout, the deeper
+build notes, and the rules the codebase holds itself to.
 
 ## Building from source
 
@@ -50,5 +49,4 @@ install size, and how the worker and Node resolve at runtime.
 
 Distributables are built by `.github/workflows/desktop.yml` (Windows, macOS
 Apple Silicon, macOS Intel, Linux) on `v*` tags or manual dispatch, with every
-artifact self-checked on the runner that built it before upload. `android.yml`
-is the experimental phone lane.
+artifact self-checked on the runner that built it before upload.
