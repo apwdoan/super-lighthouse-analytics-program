@@ -50,3 +50,51 @@ install size, and how the worker and Node resolve at runtime.
 Distributables are built by `.github/workflows/desktop.yml` (Windows, macOS
 Apple Silicon, macOS Intel, Linux) on `v*` tags or manual dispatch, with every
 artifact self-checked on the runner that built it before upload.
+
+## API keys
+
+SLAP draws on two external data sources, each with its own free API key.
+Neither key is needed to build or launch the app, but they change what you
+get:
+
+- **CrUX** — required for *field* (real-user) Core Web Vitals. Without it SLAP
+  still audits, but reports carry Lighthouse lab data only.
+- **NVD** — optional. A key raises the NVD request rate, cutting a full
+  vulnerability-database rebuild from about ten minutes to about ninety
+  seconds.
+
+Both can be set two ways, with the environment variable winning over the
+saved value:
+
+- **CrUX** — export `CRUX_API_KEY`, or save it under **Settings** in the app
+  (it is written to `config.toml` in SLAP's data directory).
+- **NVD** — export `NVD_API_KEY`, or paste it under **Settings** in the app
+  (saved as `nvd_api_key` in `config.toml`, on this machine only).
+
+### CrUX (required for field data)
+
+The [Chrome UX Report API](https://developer.chrome.com/docs/crux/api) needs a
+Google Cloud API key provisioned for the Chrome UX Report API.
+
+1. Sign in to the [Google Cloud Console](https://console.cloud.google.com).
+2. Search for `Chrome UX Report API` and **Enable** it (enabling creates the
+   service in your project, and a project for you if you have none).
+3. Open **APIs & Services → Credentials**, choose **Create credentials → API
+   key**, and copy the key.
+
+Google's one-step shortcut is the ["Get a key"](https://goo.gle/crux-api-key)
+link on the CrUX docs page. The key is free (150 queries/minute per project).
+
+### NVD (optional, speeds up vulnerability data)
+
+The [NVD](https://nvd.nist.gov) issues a free API key that raises your request
+rate.
+
+1. Go to
+   [Request an API key](https://nvd.nist.gov/developers/request-an-api-key).
+2. Enter your organisation name, a valid email, and your organisation type,
+   accept the Terms of Use, and submit.
+3. Open the activation email and click its link to activate the key. Activate
+   it within seven days or the request expires and you must re-request.
+
+The key is stored on this machine only and sent only to the NVD.
