@@ -189,6 +189,8 @@ pub fn get_settings() -> Result<Json, String> {
         "brand_logo_set": brand_logo_set,
         "nvd_key_set": nvd_key_set,
         "nvd_key_from_env": nvd_env.is_some(),
+        // A report-content switch: whether findings carry WP Rocket suggestions.
+        "wp_rocket_suggestions": settings.wp_rocket_suggestions,
     }))
 }
 
@@ -217,6 +219,17 @@ pub fn set_nvd_key(key: String) -> Result<Json, String> {
     slap_core::settings::save_nvd_api_key((!trimmed.is_empty()).then_some(trimmed), None)
         .map_err(|e| e.to_string())?;
     Ok(json!({ "saved": saved }))
+}
+
+/// Toggle whether exported reports include WP Rocket remediation suggestions
+/// (the "In WP Rocket" fix line shown under a finding). Stored top-level as
+/// `wp_rocket_suggestions`; on by default. WP Rocket detection in the report
+/// technology section is unaffected. Takes effect on the next report render,
+/// with no restart.
+#[tauri::command]
+pub fn set_wp_rocket_suggestions(enabled: bool) -> Result<Json, String> {
+    slap_core::settings::save_wp_rocket_suggestions(enabled, None).map_err(|e| e.to_string())?;
+    Ok(json!({ "enabled": enabled }))
 }
 
 /// What the Settings screen shows about the active vulnerability database: the

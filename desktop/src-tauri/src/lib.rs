@@ -80,6 +80,7 @@ pub fn run() {
             commands::set_brand_logo,
             commands::clear_brand_logo,
             commands::set_nvd_key,
+            commands::set_wp_rocket_suggestions,
             commands::vulndb_info,
             commands::regenerate_vulndb,
         ])

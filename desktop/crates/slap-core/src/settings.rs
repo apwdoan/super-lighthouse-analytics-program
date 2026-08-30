@@ -169,6 +169,12 @@ pub struct Settings {
     /// applies to the next client, who never agreed to it.
     pub probe_enabled: bool,
     pub probe_rate_per_second: f64,
+    /// Whether the client-facing report includes WP Rocket remediation
+    /// suggestions (the "In WP Rocket" line under a finding's fix). On by
+    /// default; turned off for a site that does not run WP Rocket, or a
+    /// report that should not carry plugin-specific advice. Top-level, like
+    /// `probe_enabled`, so a bare key is never trapped inside a strict section.
+    pub wp_rocket_suggestions: bool,
     /// Report branding. Deliberately a plain map so a settings page and a
     /// TOML file can both populate it without a schema change.
     pub branding: BTreeMap<String, toml::Value>,
@@ -192,6 +198,7 @@ impl Default for Settings {
             nvd_api_key: None,
             probe_enabled: false,
             probe_rate_per_second: 2.0,
+            wp_rocket_suggestions: true,
             branding: BTreeMap::new(),
             config_path: None,
         }
@@ -282,6 +289,11 @@ impl Settings {
             }
             if let Some(toml::Value::Boolean(enabled)) = raw.get("probe_enabled") {
                 settings.probe_enabled = *enabled;
+            }
+            // Absent means on, so a report keeps its WP Rocket advice unless a
+            // config explicitly switches it off.
+            if let Some(toml::Value::Boolean(enabled)) = raw.get("wp_rocket_suggestions") {
+                settings.wp_rocket_suggestions = *enabled;
             }
             match raw.get("probe_rate_per_second") {
                 Some(toml::Value::Float(rate)) => settings.probe_rate_per_second = *rate,
@@ -610,6 +622,22 @@ pub fn save_probe_enabled(enabled: bool, path: Option<&Path>) -> Result<PathBuf,
     )
 }
 
+/// Persist whether reports carry WP Rocket remediation suggestions. Written
+/// top-level, matching `probe_enabled`: a bare key inside a strict section
+/// would be rejected on the next load. The value is always written (true or
+/// false) so the Settings screen can flip a stored `false` back on.
+pub fn save_wp_rocket_suggestions(
+    enabled: bool,
+    path: Option<&Path>,
+) -> Result<PathBuf, SettingsError> {
+    save_setting(
+        "wp_rocket_suggestions",
+        Some(SettingValue::Bool(enabled)),
+        None,
+        path,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -827,5 +855,30 @@ mod tests {
         .expect("a path with backslashes must save");
         let parsed: toml::Table = std::fs::read_to_string(&config).unwrap().parse().unwrap();
         assert_eq!(parsed.get("data_dir").and_then(|v| v.as_str()), Some(winpath));
+    }
+
+    #[test]
+    fn wp_rocket_suggestions_default_on_and_toggle_round_trips() {
+        // Default is on, and absent from a config leaves it on.
+        assert!(Settings::default().wp_rocket_suggestions);
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.toml");
+        write(&config, "[collector]\nhttp_concurrency = 12\n");
+        assert!(
+            Settings::load(Some(&config)).unwrap().wp_rocket_suggestions,
+            "absent means on"
+        );
+        // Turning it off writes a top-level key, never inside [collector].
+        save_wp_rocket_suggestions(false, Some(&config)).unwrap();
+        let parsed: toml::Table = std::fs::read_to_string(&config).unwrap().parse().unwrap();
+        assert_eq!(
+            parsed.get("wp_rocket_suggestions"),
+            Some(&toml::Value::Boolean(false))
+        );
+        assert!(parsed["collector"].get("wp_rocket_suggestions").is_none());
+        assert!(!Settings::load(Some(&config)).unwrap().wp_rocket_suggestions);
+        // And back on again overrides the stored false.
+        save_wp_rocket_suggestions(true, Some(&config)).unwrap();
+        assert!(Settings::load(Some(&config)).unwrap().wp_rocket_suggestions);
     }
 }

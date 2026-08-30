@@ -691,6 +691,28 @@ async function viewSettings() {
       el("div", { class: "row-actions" }, setLogo, rmLogo),
       brandMsg);
 
+    // Report content: whether findings carry WP Rocket remediation suggestions.
+    const wpToggle = el("input", { type: "checkbox" });
+    wpToggle.checked = s.wp_rocket_suggestions !== false; // absent/default is on
+    const wpMsg = el("div", { class: "muted", style: "font-size:12px;margin-top:8px" });
+    wpToggle.addEventListener("change", async () => {
+      wpToggle.disabled = true; wpMsg.textContent = "Saving…";
+      try {
+        await invoke("set_wp_rocket_suggestions", { enabled: wpToggle.checked });
+        wpMsg.textContent = wpToggle.checked
+          ? "On — reports show the “In WP Rocket” fix line on relevant findings."
+          : "Off — reports omit WP Rocket suggestions.";
+      } catch (e) {
+        wpToggle.checked = !wpToggle.checked; // revert on failure
+        wpMsg.textContent = String(e && e.message ? e.message : e);
+      } finally { wpToggle.disabled = false; }
+    });
+    const wpRocketCard = el("div", { class: "card pad" },
+      el("h2", {}, "Report content"),
+      el("p", { class: "secondary" }, "WP Rocket suggestions add an “In WP Rocket” line to a finding’s fix, naming the exact plugin setting that addresses it. Turn this off for clients who do not run WP Rocket, or reports that should not carry plugin-specific advice. Detection of WP Rocket in the technology section is unaffected."),
+      el("label", { class: "seg" }, wpToggle, " Include WP Rocket suggestions in reports"),
+      wpMsg);
+
     // Vulnerability database: regenerate the offline CVE data from the NVD,
     // and optionally save an API key that makes the pull fast.
     const vulndbSummary = (v) => {
@@ -788,7 +810,7 @@ async function viewSettings() {
       el("div", { class: "row-actions" }, nvdSave, nvdClear),
       nvdOut);
 
-    mount(head, dataCard, vulndbCard, brandCard, cruxCard);
+    mount(head, dataCard, vulndbCard, brandCard, wpRocketCard, cruxCard);
   } catch (e) { errorView(e); }
 }
 

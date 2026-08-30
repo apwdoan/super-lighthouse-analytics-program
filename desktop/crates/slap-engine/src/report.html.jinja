@@ -106,10 +106,10 @@
       </div>
       {% endif %}
 
-      {% if f.remediation or f.wp_rocket_setting %}
+      {% if f.remediation or (f.wp_rocket_setting and show_wp_rocket) %}
       <div class="fix">
         {% if f.remediation %}<span class="fix-label">Fix</span>{{ f.remediation }}{% endif %}
-        {% if f.wp_rocket_setting %}<div class="wp-rocket"><span class="fix-label">In WP Rocket</span>{{ f.wp_rocket_setting }}</div>{% endif %}
+        {% if f.wp_rocket_setting and show_wp_rocket %}<div class="wp-rocket"><span class="fix-label">In WP Rocket</span>{{ f.wp_rocket_setting }}</div>{% endif %}
       </div>
       {% endif %}
 

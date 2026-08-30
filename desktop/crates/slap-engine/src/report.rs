@@ -428,6 +428,10 @@ fn build_model(conn: &Connection, run_id: i64) -> Result<Json, String> {
         "generated_at": generated_at,
         "run_id": run_id,
         "branding": branding,
+        // A report-content switch (Settings screen): whether findings carry
+        // the "In WP Rocket" remediation line. Detection in the tech section
+        // is unaffected by it.
+        "show_wp_rocket": settings.wp_rocket_suggestions,
         "verdict": {
             "flag_class": flag_class, "flag_word": flag_word,
             "headline": headline, "explanation": explanation,
@@ -547,5 +551,52 @@ mod tests {
             "neutral default when unbranded"
         );
         assert!(!neither.contains("<img class=\"logo\""), "no logo image when unset");
+    }
+
+    #[test]
+    fn wp_rocket_suggestion_shows_only_when_enabled() {
+        // The "In WP Rocket" fix line follows the show_wp_rocket flag; the
+        // plain fix advice is always shown. Also proves no empty .fix block is
+        // left when the WP Rocket setting is a finding sole fix and it is off.
+        let mut env = minijinja::Environment::new();
+        env.add_template("report.css", REPORT_CSS).unwrap();
+        env.add_template("report", REPORT_TMPL).unwrap();
+        let tmpl = env.get_template("report").unwrap();
+        let model = |show: bool, remediation: Json| -> Json {
+            json!({
+                "hostname": "example.com", "generated_at": "2026-01-01 00:00", "run_id": 1,
+                "branding": {"company_name": Json::Null, "logo_data_uri": Json::Null},
+                "show_wp_rocket": show,
+                "verdict": {"flag_class":"poor","flag_word":"Failing","headline":"h","explanation":"e","has_field":false,"tiles":[],"scores":[]},
+                "total_findings": 1, "severity_counts": {"critical":0,"high":1,"medium":0,"low":0,"info":0},
+                "is_multipage": false,
+                "significant": [{
+                    "status":"serious","severity_word":"High","title":"Slow images","detail":"d",
+                    "remediation": remediation, "wp_rocket_setting":"Enable LazyLoad for images",
+                    "effort_label": Json::Null, "impact_text": Json::Null, "scope_text":"",
+                    "is_sitewide": false, "page_count": 1, "pages": []
+                }],
+                "minor": [], "pages": [], "software": Json::Null,
+                "security": {"headers_present":0,"headers_expected":4,"tls":[],"headers":[],"cookies":[]},
+                "appendix": [], "tech": {},
+                "provenance": {"run_id":1,"batch_id":"b","slap_version":"0.1.0","schema_version":1},
+            })
+        };
+        let render = |m: Json| tmpl.render(minijinja::Value::from_serialize(&m)).unwrap();
+
+        let on = render(model(true, json!("Compress the hero image")));
+        assert!(on.contains("In WP Rocket"), "suggestion shown when enabled");
+        assert!(on.contains("Enable LazyLoad for images"));
+
+        let off = render(model(false, json!("Compress the hero image")));
+        assert!(!off.contains("In WP Rocket"), "suggestion hidden when disabled");
+        assert!(!off.contains("Enable LazyLoad for images"));
+        assert!(off.contains("Compress the hero image"), "the plain fix still shows");
+
+        // A finding whose ONLY fix is the WP Rocket one: off means no fix block.
+        let only_wpr_off = render(model(false, Json::Null));
+        assert!(!only_wpr_off.contains("class=\"fix\""), "no empty fix block");
+        let only_wpr_on = render(model(true, Json::Null));
+        assert!(only_wpr_on.contains("In WP Rocket"), "lone WP Rocket fix shows when on");
     }
 }
