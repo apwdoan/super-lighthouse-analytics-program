@@ -19,13 +19,13 @@ build notes, and the rules the codebase holds itself to.
 
 ## The report
 
-Every audit ends in a client-facing report rendered from one Jinja2 template
-set in [`desktop/templates/report/`](desktop/templates/report/) —
-`report.html.j2` for a single site, `batch.html.j2` for a multi-site summary,
-and `report.css` shared by both. The HTML is the deliverable: fully
-self-contained (inlined CSS, no external assets), so it survives being
-emailed. The PDF is a print-to-PDF rendering of that same document, so the
-two can never disagree.
+Every audit ends in a client-facing report, rendered by the engine's `report`
+module from a single self-contained Jinja template
+([`report.html.jinja`](desktop/crates/slap-engine/src/report.html.jinja)) and
+styled by [`report.css`](desktop/templates/report/report.css), which it reuses
+verbatim from the Python era. The HTML is the deliverable: fully self-contained
+(inlined CSS, no external assets), so it survives being emailed. The PDF is a
+print-to-PDF rendering of that same document, so the two can never disagree.
 
 Page one is the verdict, not the data: a plain-language headline, the Core Web
 Vitals against their thresholds, and a strip of lab measurements. After that
@@ -53,6 +53,19 @@ brand a run:
     [branding]
     company_name = "Your Company"
     logo_data_uri = "data:image/png;base64,..."
+
+### WP Rocket suggestions
+
+When a finding can be resolved from inside
+[WP Rocket](https://wp-rocket.me), the report adds an "In WP Rocket" line to
+that finding naming the exact setting to change. It is on by default. Turn it
+off under **Settings → Report content** for clients who do not run WP Rocket,
+or for reports that should not carry plugin-specific advice; WP Rocket
+detection in the report's technology section is unaffected either way. Like
+branding, the choice is saved in `config.toml`, as a top-level key (not inside
+a section), so a config file alone controls it:
+
+    wp_rocket_suggestions = false
 
 ## Building from source
 
