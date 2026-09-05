@@ -29,9 +29,9 @@ pub mod selfcheck;
 pub mod settings;
 pub mod storage;
 
-/// The observation schema's version, recorded on every run row. Mirrors
-/// `slap.SCHEMA_VERSION`; the two apps write the same value into the same
-/// column while they coexist.
+/// The observation schema's version, recorded on every run row. Every app
+/// version writes the same value into the same column, so a run written
+/// by one version is readable by any other.
 pub const SCHEMA_VERSION: i64 = 1;
 
 /// The core's own version, distinct from the app shell's.

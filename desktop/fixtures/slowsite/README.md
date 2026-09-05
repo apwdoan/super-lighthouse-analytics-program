@@ -1,6 +1,6 @@
 # Slow-site fixture
 
-A deliberately awful page, served offline by `tests/fixture_server.py`.
+A deliberately awful page, served by any static server.
 
 It exists because a *clean* page cannot test the Lighthouse extractor: every
 opportunity reports zero savings, so a broken extractor looks identical to a
@@ -16,12 +16,11 @@ What each piece is for:
 | `app.js` | unminified, legacy transpilation patterns, main-thread work |
 | `hero.png` | photo-shaped PNG served at 2x its display size |
 
-The server adds `Cache-Control: no-store`, no compression, and an insecure
-cookie.
+The recording server adds `Cache-Control: no-store`, no compression, and
+an insecure cookie, so the recorded LHR carries those findings.
 
 `slow-lhr.json.gz` in the parent directory is real Lighthouse 13.4.1 output
 recorded against this page. Regenerate both together if you change anything
-here, or the recorded run stops matching the fixture:
-
-    python -m tests.fixture_server 8899
-    # then run a Lighthouse job against http://127.0.0.1:8899/index.html
+here, or the recorded run stops matching the fixture: serve this directory
+with any static server that reproduces those headers, and run a Lighthouse
+job against it.

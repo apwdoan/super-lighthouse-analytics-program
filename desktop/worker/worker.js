@@ -13,9 +13,9 @@
  *   - no storage: it never touches the database or the filesystem
  *   - no formatting: the raw LHR goes out untouched
  *
- * Everything downstream of "what did Chrome measure" is Python's job. If you
- * find yourself wanting to add a condition here, it belongs in
- * slap/collectors/lighthouse.py or in findings/rules.yaml instead.
+ * Everything downstream of "what did Chrome measure" is the engine's job.
+ * If you find yourself wanting to add a condition here, it belongs in the
+ * engine's Lighthouse collector or in findings/rules.yaml instead.
  *
  * Exit codes: 0 success, 1 job failed (envelope on stdout explains), 2 bad
  * invocation. Diagnostics go to stderr so stdout stays parseable.
@@ -127,9 +127,9 @@ async function killQuietly(chrome) {
 }
 
 /**
- * Lighthouse's own throttling presets, named so Python can record which one
- * produced a run. Comparing a simulated-3G number against an unthrottled one
- * is meaningless, so the profile name is stored on every run.
+ * Lighthouse's own throttling presets, named so the engine can record which
+ * one produced a run. Comparing a simulated-3G number against an unthrottled
+ * one is meaningless, so the profile name is stored on every run.
  */
 function settingsFor(job) {
   const formFactor = job.formFactor === "desktop" ? "desktop" : "mobile";
@@ -191,7 +191,7 @@ function throttlingProfileName(job) {
 }
 
 async function probe() {
-  // Used by Python to record provenance and to fail early with a useful
+  // Used by the engine to record provenance and to fail early with a useful
   // message rather than mid-batch.
   let chrome;
   try {
@@ -250,8 +250,8 @@ async function runJob(job) {
       return;
     }
     // runtimeError is how Lighthouse reports "the page did not load" rather
-    // than throwing. Surfacing it as a failure keeps Python from storing a
-    // run full of zeroes that look like real measurements.
+    // than throwing. Surfacing it as a failure keeps the engine from storing
+    // a run full of zeroes that look like real measurements.
     if (result.lhr.runtimeError) {
       fail("runtime_error", result.lhr.runtimeError.message, {
         runtimeErrorCode: result.lhr.runtimeError.code,
@@ -267,7 +267,7 @@ async function runJob(job) {
         chromeVersion: chromeVersionFrom(result.lhr.environment?.hostUserAgent),
         userAgent: result.lhr.environment?.hostUserAgent ?? null,
         // Lighthouse's own CPU benchmark for the machine that took this
-        // measurement. Python compares it across a batch: a benchmarkIndex
+        // measurement. The engine compares it across a batch: a benchmarkIndex
         // that sags mid-run is direct evidence of the CPU contention that
         // silently inflates TBT and TTI.
         benchmarkIndex: result.lhr.environment?.benchmarkIndex ?? null,
@@ -322,8 +322,8 @@ async function main() {
  *
  * Node's default behaviour there is to print the stack and die immediately.
  * The envelope had already been written to stdout, but a pipe write is not
- * synchronous, so whether Python sees a complete result or a truncated one
- * came down to flush timing. Handling it here means the process unwinds
+ * synchronous, so whether the engine sees a complete result or a truncated
+ * one came down to flush timing. Handling it here means the process unwinds
  * normally and stdout is flushed before exit.
  */
 function lateFailure(kind) {

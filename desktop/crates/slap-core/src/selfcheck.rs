@@ -64,7 +64,7 @@ fn check_data_dir_writable() -> Check {
 /// `open_db` (migrations and DDL included), a site, a run, a page, real
 /// observations through the schema registry, and the flattened read the
 /// findings engine consumes. Deliberately NOT the real database: proving
-/// the engine works must never race the other app for the file that holds
+/// the engine works must never race a live audit for the file that holds
 /// history, and a self-check that can modify user data is not a check.
 fn check_storage_roundtrip() -> Check {
     let attempt = (|| -> Result<String, Box<dyn std::error::Error>> {

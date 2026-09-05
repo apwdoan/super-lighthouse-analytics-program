@@ -22,8 +22,9 @@ build notes, and the rules the codebase holds itself to.
 Every audit ends in a client-facing report, rendered by the engine's `report`
 module from a single self-contained Jinja template
 ([`report.html.jinja`](desktop/crates/slap-engine/src/report.html.jinja)) and
-styled by [`report.css`](desktop/templates/report/report.css), which it reuses
-verbatim from the Python era. The HTML is the deliverable: fully self-contained
+styled by [`report.css`](desktop/templates/report/report.css), which it
+reuses verbatim from earlier versions of the app. The HTML is the
+deliverable: fully self-contained
 (inlined CSS, no external assets), so it survives being emailed. The PDF is a
 print-to-PDF rendering of that same document, so the two can never disagree.
 

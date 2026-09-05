@@ -11,7 +11,7 @@ use std::io::Write;
 /// Write a line without panicking. `println!` panics when the write fails,
 /// and in a windows-subsystem process launched bare from a shell, stdout
 /// is an invalid handle: the check would die reporting its own success.
-/// The uvicorn-under-Explorer crash was this exact shape in Python.
+/// A previous build's web-server crash under Explorer was this exact shape.
 fn say(line: &str) {
     let mut out = std::io::stdout();
     let _ = writeln!(out, "{line}");

@@ -465,7 +465,7 @@ rules:
   # audits via their metricSavings API. The pre-13 audit IDs the industry
   # still quotes (render-blocking-resources, uses-long-cache-ttl,
   # modern-image-formats, offscreen-images) no longer exist; see the
-  # LIGHTHOUSE_OPPORTUNITIES table in schema.py.
+  # LIGHTHOUSE_OPPORTUNITIES table in schema.rs.
   #
   # This is also where the roadmap's WP Rocket remediation mapping lives.
   # ======================================================================

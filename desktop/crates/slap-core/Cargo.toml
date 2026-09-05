@@ -1,11 +1,10 @@
 # The core: everything that is not a window and not a browser.
 #
-# The rule this crate exists to enforce is ported from the Python side,
-# where it is the single most protective decision the project made:
-# nothing in the core imports a UI framework. `src/slap/` never imported
-# Qt or FastAPI; `slap-core` never depends on tauri. A test reads this
-# manifest and fails if that changes, the same way the Python AST test
-# catches an ambitious import. Front ends are clients of the core.
+# The rule this crate exists to enforce is the single most protective
+# decision the project ever made: nothing in the core imports a UI
+# framework. `slap-core` never depends on tauri. A test reads this
+# manifest and fails if that changes, the way an import scan catches an
+# ambitious import. Front ends are clients of the core.
 
 [package]
 name = "slap-core"
@@ -14,7 +13,7 @@ edition.workspace = true
 
 [dependencies]
 # bundled: compile SQLite in rather than binding whatever the OS carries.
-# The Python app pins its SQLite the same way (via Python's own build), and
+# Every earlier version of the app bundled its own SQLite the same way, and
 # the migration code depends on version-gated features like
 # ALTER TABLE ... RENAME COLUMN (3.25+), so "some system sqlite" is a bug.
 # bundled also means the app carries its own SQLite on every platform,
@@ -23,17 +22,18 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 dirs = "5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# The rules file is YAML and stays YAML: rules are data shared verbatim
-# with the Python app, not something the port rewrites.
+# The rules file is YAML and stays YAML: rules are data, byte-for-byte the
+# file the app has always shipped, not something the engine rewrites.
 serde_yaml = "0.9"
 # Read side of config.toml; the surgical writer in settings.rs uses it to
 # verify an edit parses back correctly BEFORE replacing the user's file.
 toml = "0.8"
 # Rule conditions support `matches`, and rule text carries {metric.key}
-# placeholders. Same regex semantics the Python engine used.
+# placeholders. Same regex semantics the rule interpreter has always used.
 regex = "1"
-# Timestamps must byte-match the Python app's utcnow() format, because the
-# two apps share one database and sort each other's rows.
+# Timestamps must byte-match the row format earlier versions of the app
+# wrote, because one database is shared across versions and rows from
+# different versions sort against each other.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [dev-dependencies]

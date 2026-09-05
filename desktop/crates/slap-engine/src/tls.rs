@@ -1,5 +1,4 @@
-//! TLS collector: certificate validity, expiry, protocol, cipher. Ported
-//! from `collectors/tls_probe.py`.
+//! TLS collector: certificate validity, expiry, protocol, cipher.
 //!
 //! It runs a REAL handshake rather than trusting whatever the HTTP client
 //! negotiated, because the two questions a client report must answer are
@@ -20,7 +19,7 @@ use tokio_rustls::TlsConnector;
 use x509_parser::prelude::FromDer;
 
 /// Prefer organizationName, then commonName, then organizationalUnit, then
-/// anything, matching the Python `flatten_name` on `getpeercert()` output.
+/// whatever else the name carries.
 fn first_attr<'a>(
     it: impl Iterator<Item = &'a x509_parser::x509::AttributeTypeAndValue<'a>>,
 ) -> Option<String> {

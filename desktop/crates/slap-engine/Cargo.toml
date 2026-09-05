@@ -17,15 +17,16 @@ url = "2"
 futures = "0.3"
 
 # The client report render. minijinja is pure Rust (no C, no build step) and
-# reads the salvaged Python Jinja stylesheet closely enough to reuse it.
+# speaks Jinja, so it renders the shared report stylesheet and template
+# unchanged.
 minijinja = "2"
 
 # rustls, not native-tls: one TLS story across Windows/macOS/Linux, no
 # OpenSSL to find at build time. Auto-decompression is deliberately OFF (no
 # gzip/brotli features): the collector reads Content-Encoding itself and
 # decodes by hand, because knowing whether a response WAS compressed is an
-# observation, and reqwest strips the header when it decodes for you. That
-# is the Rust face of the Python encoding gotcha.
+# observation, and reqwest strips the header when it decodes for you.
+# Decoding by hand is what makes "was it compressed" a fact we can record.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "json"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "process", "io-util"] }
 

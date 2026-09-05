@@ -5,7 +5,7 @@
 //! It carries, per ecosystem, the packages it covers and the CVEs affecting
 //! specific versions or version ranges, all sourced from the NIST NVD.
 //!
-//! The matcher's one hard rule, inherited from the Python app: a version that
+//! The matcher's one hard rule: a version that
 //! was only INFERRED (from a `?ver=` asset string) can never produce a
 //! confirmed finding, and above all never a confirmed critical. A confidently
 //! wrong critical in a client report is the worst thing this tool can print,
@@ -92,9 +92,9 @@ pub fn set_active_from_json(json: &str) -> Result<(), serde_json::Error> {
 }
 
 /// At startup, adopt the database at `path` if it parses and carries a newer
-/// `generated_at` than the one currently active (the embedded baseline) - the
-/// Python app's "the newer of the bundled and user copies wins", so a teammate
-/// who refreshed keeps their fresher data, but a newer bundled build still
+/// `generated_at` than the one currently active (the embedded baseline) —
+/// the newer of the bundled and user copies wins, so a teammate who
+/// refreshed keeps their fresher data, but a newer bundled build still
 /// supersedes an older refresh. Returns whether it replaced the active db.
 pub fn activate_if_newer(path: &std::path::Path) -> bool {
     let Ok(text) = std::fs::read_to_string(path) else {

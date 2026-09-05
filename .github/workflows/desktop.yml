@@ -1,16 +1,15 @@
 name: Build desktop app (Tauri)
 
-# THE release lane, since the Python app's retirement (2026-08-27): this
-# is the pipeline that ships SLAP. It began life dispatch-only, proving
-# the four-target pipeline on a near-empty app before any logic was
-# ported, because the Python bundle's packaging failures (codesign walking
+# THE release lane: the pipeline that ships SLAP. It began life
+# dispatch-only, proving the four-target pipeline on a near-empty app
+# before any logic landed, because packaging failures (codesign walking
 # the runtime tree, PowerShell not waiting for GUI processes, retired
-# runner images) all surfaced only when a real runner built and ran a real
-# artifact.
+# runner images) all surface only when a real runner builds and runs a
+# real artifact.
 #
-# Tag a release, or run it by hand. Same trigger philosophy as the old
-# build.yml: each platform produces a real artifact and real minutes, so
-# not on every push.
+# Tag a release, or run it by hand. Same trigger philosophy as the
+# original build workflow: each platform produces a real artifact and real
+# minutes, so not on every push.
 on:
   workflow_dispatch:
     inputs:
@@ -55,7 +54,7 @@ jobs:
             family: macos
             bundles: app,dmg
 
-          # Intel. macos-15-intel, same reasoning as build.yml: macos-13
+          # Intel. macos-15-intel: macos-13
           # was retired 2025-12-04, and 15 is the oldest supported image,
           # available until Actions drops x86_64 in August 2027.
           - os: macos-15-intel
@@ -73,8 +72,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Same single gate as build.yml, values through env rather than
-      # interpolated into the script, for the same reasons.
+      # The single gate decides whether to build, values through env
+      # rather than interpolated into the script.
       - name: Decide whether to build this platform
         id: gate
         shell: bash
@@ -127,7 +126,7 @@ jobs:
             libayatana-appindicator3-dev librsvg2-dev patchelf
 
       # Runs on every platform in the matrix regardless of what is being
-      # built, mirroring build.yml: "does the core compile and pass on
+      # built: "does the core compile and pass on
       # Intel macOS" is worth knowing even on a run that only ships the
       # arm64 bundle.
       - name: Run the core tests
@@ -152,9 +151,9 @@ jobs:
         run: tauri build --bundles ${{ matrix.bundles }}
 
       # ----------------------------------------------------------------
-      # Run the artifact that was just built. Same doctrine as build.yml:
-      # the assertions live in the binary (--self-check); this step only
-      # finds the executable and reads the exit code.
+      # Run the artifact that was just built. The assertions live in
+      # the binary (--self-check); this step only finds the executable
+      # and reads the exit code.
       # ----------------------------------------------------------------
       - name: Self-check the built binary
         if: steps.gate.outputs.build == 'true' && runner.os != 'Windows'
@@ -173,8 +172,9 @@ jobs:
           # Piped, never bare: slap-desktop.exe is a GUI-subsystem binary
           # in release, and PowerShell does not wait for those. The pipe
           # forces a read to EOF, which means waiting for the exit code.
-          # docs/packaging.md records the day this lesson cost an
-          # afternoon; it applies to the Rust binary identically.
+          # This lesson was learned the expensive way on a release that
+          # only worked in the environment that built it; it applies to
+          # the Rust binary identically.
           & $app --self-check 2>&1 | ForEach-Object { "$_" }
           if ($LASTEXITCODE -ne 0) { throw "self-check failed (exit $LASTEXITCODE)" }
 

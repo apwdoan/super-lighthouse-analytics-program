@@ -2,10 +2,10 @@
 //!
 //! The rules did NOT get rewritten, and that is the design paying off:
 //! `rules/rules.yaml` beside this crate is the file every engine version
-//! interpreted byte-for-byte. While two apps shared one copy, a differential
-//! test proved they agreed finding-for-finding, rendered text included; that
-//! agreement is what makes findings written into the database by either
-//! version comparable.
+//! interpreted byte-for-byte. While app versions shared one copy, a
+//! differential test proved they agreed finding-for-finding, rendered text
+//! included; that agreement is what makes findings written into the
+//! database by any version comparable.
 //!
 //! Conditions are evaluated by a small declarative interpreter rather than
 //! anything eval-like: rule files are the thing most likely to be edited

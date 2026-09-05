@@ -1,9 +1,8 @@
 # SLAP desktop (Tauri)
 
 The SLAP app: a Rust core in a Tauri shell, a cross-platform desktop app for
-Windows, macOS, and Linux. This replaced the Python + PyInstaller app on
-2026-08-27. The plan, the architecture decisions, and the phase status live
-in the project doc `claude/tauri-rewrite.md`.
+Windows, macOS, and Linux. The architecture decisions and phase history live
+in the project docs under `docs/`.
 
 ## Layout
 
@@ -14,9 +13,9 @@ in the project doc `claude/tauri-rewrite.md`.
                           metric registry, storage, settings, events, the
                           findings engine.
       crates/slap-core/rules/rules.yaml
-                          the findings rules, unchanged from the Python
-                          app; embedded at compile time, overridable via
-                          `rules_path` in config.toml.
+                          the findings rules, unchanged since the app
+                          first shipped them; embedded at compile time,
+                          overridable via `rules_path` in config.toml.
       src-tauri/          the shell. A library (`run()`) with the desktop
                           binary a thin main() over it; the IPC command
                           modules live here and stay unit-testable.
@@ -92,20 +91,18 @@ download now. To go back to a small install, remove `bundle.resources` and
 `bundle.externalBin` and skip the prepare step; Lighthouse then needs Node
 plus the repo's worker, as a dev build does.
 
-## Rules carried over from the Python app
+## Rules the codebase holds itself to
 
 - **The core imports no UI framework.** Front ends are clients of
   `slap-core`, never the other way around.
 - **Same database, same paths.** Every existing install's history was
-  written by the Python app; this app resolves the identical SQLite file
-  (`slap/slap.sqlite3`, `SLAP_DB` override included) and opens it with the
-  identical DDL. Cross-app compatibility was proven in both directions
-  before the retirement (`crates/slap-core/tests/python_compat.rs` records
-  how). The pre-rename SALP fallbacks (the old `salp/` data directory and
-  the `SALP_DB` env var) have been removed.
+  written by an earlier version of the app; this one resolves the
+  identical SQLite file (`slap/slap.sqlite3`, `SLAP_DB` override included)
+  and opens it with the identical DDL. The pre-rename SALP fallbacks (the
+  old `salp/` data directory and the `SALP_DB` env var) have been removed.
 - **Rules are data.** The engine embeds `rules/rules.yaml`, byte-for-byte
-  the Python app's file; the engine differential proved the two
-  interpreters agreed finding-for-finding, rendered text included.
+  the file every version has shipped; a differential run proved the
+  interpreters agree finding-for-finding, rendered text included.
 - **Check the thing the real code path does, not a proxy for it.**
   `--self-check` runs a real storage roundtrip and loads the real rules;
   CI runs it on every built artifact, piped on Windows because PowerShell
