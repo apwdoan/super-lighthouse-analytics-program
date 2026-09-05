@@ -3,28 +3,26 @@
 *Designed and built 2026-08-02. Extends the roadmap; supersedes nothing.*
 
 A report covers **every page of a site**, not the home page, and carries
-per-page security alongside performance. The design rationale and the
-sequencing live in `per-page-and-vulnerabilities.md`; this is what was built,
-and what building it taught.
+per-page security alongside performance. This is what was built, and what
+building it taught.
 
 **Status: phases 5a and 5b are done.** Discovery, multi-page persistence, the
 aggregation fixes, two-dimensional concurrency, template sampling, the page
 inventory, rule-grouped findings, metric scope, and the per-page subresource
-collector. 319 tests pass with no network. 5c (CVE matching) and 5d (endpoint
-probing) are not started.
+collector. The core and engine test suites pass with no network. 5c (CVE
+matching) and 5d (endpoint probing) are not started.
 
 ---
 
 ## 1. The GUI did not change
 
-FastAPI + Jinja2 + HTMX on a loopback port, PyInstaller one-dir bundle, the
-user's own browser as the window. Decided in `ui-redesign.md`, re-examined
+A Rust core in a Tauri shell, a Node sidecar for Lighthouse, the system
+webview as the window. Decided when the desktop app was scoped, re-examined
 against per-page, unchanged.
 
 Per-page strengthened it: the new UI surface is a page inventory table with
-drill-down and per-page status, which is a `<table>` in HTML and hand-painted
-`QPainter` widgets in Qt, because `QtCharts` is excluded from the spec to save
-~150MB. Nothing was added to the bundle.
+drill-down and per-page status, which is a `<table>` in the static frontend —
+no bundler, no paint framework, nothing new in the bundle.
 
 ---
 
@@ -36,7 +34,7 @@ already joined through it, and `idx_page_run` was already there.
 
 Only the **cardinality** was pinned to one, and only in a handful of places.
 Four columns were added to `page` (`role`, `discovered_via`, `audit_depth`,
-`template_class`) through `db.migrate()`, guarded on `PRAGMA table_info`,
+`template_class`) through `storage::migrate()`, guarded on `PRAGMA table_info`,
 because `CREATE TABLE IF NOT EXISTS` never reaches a table that already
 exists — the same trap as the SALP → SLAP column rename.
 
@@ -67,7 +65,7 @@ screenshot, and all of them are wrong.
 The fixes: `COUNT(DISTINCT f.rule_id)` for problems and
 `COUNT(DISTINCT p.id)` for pages, both kept alongside the raw
 `finding_instances`; and every "one representative row" lookup goes through
-`db.home_page_id()`, which falls back to the lowest page id so a run with no
+`home_page_id()`, which falls back to the lowest page id so a run with no
 home page still reports something rather than blanking a report that has good
 data in it.
 
@@ -75,16 +73,16 @@ data in it.
 to track a stable subject or it is noise rendered as a line, and the home page
 is the one page every run of every site is guaranteed to have.
 
-`tests/test_pages.py` writes each of these as a number, and each was checked
-against the pre-per-page SQL before the fix: the site list read 8 where it
-should read 2, and the trend read 10.0 (the worst page) where the home page
-scored 70.0.
+The per-page tests in the engine suite write each of these as a number, and
+each was checked against the pre-per-page SQL before the fix: the site list
+read 8 where it should read 2, and the trend read 10.0 (the worst page) where
+the home page scored 70.0.
 
 ---
 
 ## 4. Discovery
 
-`src/slap/discovery.py`. **Not a collector**: a collector takes a
+`slap-engine`'s `discovery` module. **Not a collector**: a collector takes a
 `PageContext` and returns observations for one URL, and discovery runs before
 any context exists. Bending the protocol to fit would have been the first
 crack in the thing that has kept the pipeline clean.
@@ -98,10 +96,11 @@ Three failure modes, all silent, all covered by the offline fixture:
    elements pointing at more sitemaps. A parser that reads `<loc>` without
    checking the root element audits zero real pages and reports success.
 2. **`.xml.gz` is served as `Content-Type: application/gzip`**, where the gzip
-   is the *payload*, not the transfer encoding, so httpx does not decode it.
-   `decode_body()` sniffs the magic bytes instead of trusting the header.
+   is the *payload*, not the transfer encoding, so the HTTP client does not
+   decode it. `decode_body()` sniffs the magic bytes instead of trusting the
+   header.
 3. **A cap applied and not stated reads as full coverage.** `DiscoveryResult`
-   carries `found` and `dropped`, and both the report and the CLI print them.
+   carries `found` and `dropped`, and both the report and the UI print them.
 
 `canonical_url()` is shared by discovery, the crawler and the report, because
 two implementations produce `/about` and `/about/` as separate pages and the
@@ -178,11 +177,12 @@ version of the fixture audit is 105 finding rows describing 15 problems, which
 is a two-hundred-page PDF that gets skimmed and binned, and which buries the
 three findings that only affect `/checkout`.
 
-Grouping happens in `report/model.py`, not in SQL and not in the findings
-engine. The engine evaluates one page's flat `{metric_key: value}` dict and
-cannot express "3 of 12 pages"; teaching it to would turn a small declarative
-interpreter into code, which is what rule 3 exists to prevent. Rules fire per
-page, stay dumb, and aggregation lives with every other presentation decision.
+Grouping happens in the engine's `report` module, not in SQL and not in the
+findings engine. The engine evaluates one page's flat `{metric_key: value}`
+dict and cannot express "3 of 12 pages"; teaching it to would turn a small
+declarative interpreter into code, which is what rule 3 exists to prevent.
+Rules fire per page, stay dumb, and aggregation lives with every other
+presentation decision.
 
 Three things the first render got wrong:
 
@@ -192,8 +192,9 @@ Three things the first render got wrong:
    because the problem stops there. A finding whose evidence keys are *all*
    origin-scoped now prints "Site-wide". Understating a critical finding by a
    factor of ten is worse than not scoping it at all.
-3. **The CLI reimplemented the grouping** and immediately drifted from the
-   model on exactly that point. It calls `build_finding_views` now.
+3. **The frontend reimplemented the grouping** and immediately drifted from
+   the model on exactly that point. It renders the engine's grouped findings
+   now.
 
 The verdict, the TLS section and the technology fingerprint read
 `home_values`, the home page's observations alone. Flattening every page into
@@ -214,9 +215,9 @@ measured".
 ## 8. Metric scope
 
 `Metric.scope` (`page` | `origin`) is declared in the registry, which already
-gates every key at collection time. `Metric` is a frozen slots dataclass built
-positionally through `_m()`, so `scope` defaults to `page` — a required field
-would have broken all ~90 existing entries at import.
+gates every key at collection time. `Metric` is a plain struct built
+positionally through `M()`, so `scope` defaults to `page` — a required field
+would have broken all ~90 existing entries at load.
 
 TLS and CrUX are origin-scoped: one certificate serves every page, and the
 CrUX collector queries the origin, so per-page collection is N identical
@@ -230,26 +231,25 @@ asserts no origin-scoped observation lands on a non-home page.
 
 Discovery metadata (`discovery.method`, `discovery.found`, …) is written as
 observations, because that is the only per-page store there is. The first
-version attached it before `_persist` computed whether the run had learned
-anything, so `n_obs` was non-zero for an unreachable host, the run reported
-`completed`, the findings engine ran against an empty value set, and the
-report told a client that a host nobody reached has no HSTS header.
+version attached it before the persistence step computed whether the run had
+learned anything, so `n_obs` was non-zero for an unreachable host, the run
+reported `completed`, the findings engine ran against an empty value set, and
+the report told a client that a host nobody reached has no HSTS header.
 
 That is precisely the failure this project's oldest guard exists to prevent,
-and it walked around it through the back door. `test_core.py` caught it on the
-first run. The metadata is now written *after* the check, and
-`test_pages.py::test_an_unreachable_host_still_fails_the_run` guards the
-ordering explicitly.
+and it walked around it through the back door. The engine's run test caught it
+on the first run. The metadata is now written *after* the check, and the
+unreachable-host test guards the ordering explicitly.
 
 ---
 
 ## 10. One pre-existing bug found on the way in
 
-`viewmodel.stamp` was written so several runs on the same afternoon get
+The report's `stamp` was written so several runs on the same afternoon get
 distinct chart labels. It appended the time only when a run was less than 24
-hours old and fell back to `"%-d %b"` after that, so the five runs seeded on
-2026-07-31 read distinctly that afternoon and collapsed to five identical
-"31 Jul" ticks the next morning.
+hours old and fell back to a date-only form after that, so the five runs
+seeded on 2026-07-31 read distinctly that afternoon and collapsed to five
+identical "31 Jul" ticks the next morning.
 
 Its own test passed on the day it was written and failed from the following
 day onwards. That is the tell: **a test whose result depends on how long ago
@@ -263,9 +263,8 @@ test pins a date in 2020 so no clock can rescue it.
 
 - **CVE matching (5c) and endpoint probing (5d).** These are the two that can
   damage a client relationship rather than merely annoy you, and they should
-  land after the plumbing under them is boring. See
-  `per-page-and-vulnerabilities.md` §4c and §4d for the guardrails, and for
-  why WPScan's terms rule it out as a source for a bundled offline product.
+  land after the plumbing under them is boring. The guardrails live in
+  `docs/vulnerabilities.md`.
 - **Mixed content from the LHR network log.** The current collector parses the
   markup, which finds declared subresources and misses script-injected ones. A
   browser sees both. The method is recorded as `mixed.method` precisely so the

@@ -1,11 +1,13 @@
-//! The frozen observation contract, ported from `src/slap/schema.py`.
+//! The frozen observation contract.
 //!
 //! Every collector writes into this shape and every report reads out of it.
-//! The registry, the units, and the formatter are the parts of SLAP that must
-//! not drift between the Python app and this one while they coexist: both
-//! write rows into the same `observation` table, and both render them.
+//! The registry, the units, and the formatter are the parts of SLAP that
+//! must not drift between app versions: they all write rows into the same
+//! `observation` table and render the same rows, so a metric that means one
+//! thing in one version and another in the next would silently corrupt
+//! months of stored runs.
 //!
-//! Two rules that keep the contract honest, unchanged from the Python side:
+//! Two rules that keep the contract honest:
 //!
 //! 1. A metric key must be registered in [`metric_registry`] before a
 //!    collector may emit it. Unregistered keys error at collection time
@@ -171,8 +173,8 @@ string_enum! {
 }
 
 // ---------------------------------------------------------------------------
-// Values. Python passed observation values around as dynamic `Any`; the
-// Rust port names the three shapes they actually take.
+// Values. Observation values arrive as dynamic, untyped data; this enum
+// names the three shapes they actually take.
 // ---------------------------------------------------------------------------
 
 /// One observation value as the engine and templates consume it.
@@ -192,7 +194,7 @@ impl Value {
         }
     }
 
-    /// Python truthiness, because rule operators like `is: true` lean on it.
+    /// Truthiness, because rule operators like `is: true` lean on it.
     pub fn truthy(&self) -> bool {
         match self {
             Value::Num(n) => *n != 0.0,
@@ -201,10 +203,10 @@ impl Value {
         }
     }
 
-    /// `str(value)` as Python renders it, for the substring operators.
-    /// Integral floats keep their ".0" (`str(2.0)` is `"2.0"`), and bools
-    /// are capitalised, so `contains` matches the same text it always has.
-    pub fn to_py_string(&self) -> String {
+    /// Plain-text form of a value, for the substring operators. Integral
+    /// floats keep their ".0" and bools are capitalised, so `contains`
+    /// matches the same text it always has.
+    pub fn to_plain_string(&self) -> String {
         match self {
             Value::Text(t) => t.clone(),
             Value::Bool(b) => (if *b { "True" } else { "False" }).to_string(),
@@ -1032,7 +1034,7 @@ pub fn metric_registry() -> &'static HashMap<&'static str, Metric> {
                 },
             );
         }
-        // The lh.opp.* family, appended exactly as the Python module does.
+        // The lh.opp.* family, appended after the static entries.
         // The labels leak, once, at first use: 19 short strings for the
         // life of the process, in exchange for a registry of &'static str
         // that every call site can borrow from freely.
@@ -1079,7 +1081,7 @@ fn plural(number: f64, noun: &str) -> String {
     }
 }
 
-/// Python's `%g`-ish default: integers drop the decimal point, everything
+/// `%g`-ish default: integers drop the decimal point, everything
 /// else prints shortest-roundtrip. Scores and CLS values are the traffic
 /// here (95, 0.06), where the two formats agree exactly.
 fn general(number: f64) -> String {
@@ -1255,8 +1257,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_registry_matches_the_python_registry_size() {
-        // 138 entries carried over from the Python registry, plus 2 desktop-era
+    fn the_registry_matches_the_known_registry_size() {
+        // 138 entries carried forward unchanged, plus 2 desktop-era
         // additions (https.unreachable, https.error, for the http-fallback
         // finding), plus the 19 lh.opp.* family. A drift here means a metric was
         // added without updating this count; keep it deliberate so an accidental

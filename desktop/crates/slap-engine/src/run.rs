@@ -1,8 +1,7 @@
 //! Batch orchestration: for each site, discover its pages, run every
-//! collector, persist one run holding all the pages, emit progress. The Rust
-//! face of `core.py`'s per-site pipeline.
+//! collector, persist one run holding all the pages, emit progress.
 //!
-//! Collectors by scope, matching the Python design:
+//! Collectors by scope:
 //! - **Page**: HTTP (the one shared fetch) and the technology fingerprint,
 //!   run for every discovered page.
 //! - **Origin**: TLS (one certificate serves the whole host) and CrUX field

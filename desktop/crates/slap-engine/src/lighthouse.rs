@@ -1,7 +1,6 @@
 //! The Lighthouse runner: drives the Node worker as a subprocess, takes the
-//! median of N runs, and records the spread. Ported from
-//! `collectors/lighthouse.py`; the worker itself (`worker/worker.js`) is the
-//! salvaged Python-era file, unchanged.
+//! median of N runs, and records the spread. The worker itself
+//! (`worker/worker.js`) is carried over unchanged.
 //!
 //! Why a subprocess and not a Rust Lighthouse: Lighthouse is Node-only, and
 //! the language boundary the roadmap drew ("Node owns everything that touches

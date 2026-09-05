@@ -27,10 +27,10 @@ Three things were wrong, and all three are worth keeping fixed:
    failure after a delivered result goes to stderr and exits with the status
    the result earned. Envelopes are also newline-terminated now, so two can
    never be concatenated into one unparseable line.
-3. **The Python side preferred the crash.** It took the *last* JSON object it
-   could find. It now decodes objects one at a time with `raw_decode` and
-   takes the *first* envelope. Line splitting could not have separated these
-   two anyway, since there was no separator between them.
+3. **The engine side preferred the crash.** It took the *last* JSON object it
+   could find. It now decodes objects one at a time with a streaming
+   decoder and takes the *first* envelope. Line splitting could not have
+   separated these two anyway, since there was no separator between them.
 
 4. **The throw did not come from the call we were guarding.** `killQuietly`
    wraps the `kill()` the worker awaits, but chrome-launcher *also* calls
@@ -45,8 +45,8 @@ Three things were wrong, and all three are worth keeping fixed:
 
    Node's default there is to print the stack and die on the spot. The
    envelope had already been written, but a pipe write is not synchronous,
-   so whether Python saw a complete result or a truncated one was down to
-   flush timing. `process.on("uncaughtException")` and
+   so whether the engine saw a complete result or a truncated one was down
+   to flush timing. `process.on("uncaughtException")` and
    `("unhandledRejection")` now let the process unwind normally when a
    result has already been delivered.
 
@@ -63,10 +63,9 @@ failure envelope and exit 1, so the fix does not swallow real errors.
 ## Setup
 
 ```bash
-cd src/slap/node_worker && npm install       # Lighthouse + chrome-launcher
-cd -
-playwright install chromium                  # the pinned browser (shared with PDF export)
-slap doctor                                  # confirm every backend
+cd desktop/worker && npm install   # Lighthouse + chrome-launcher
+# the pinned Chrome for Testing is fetched on first use (shared with PDF export)
+./target/debug/slap-desktop --self-check     # confirm every backend
 ```
 
 Run npm from *inside* the worker directory. `npm install --prefix <dir>`
@@ -81,16 +80,10 @@ whole problem: it passes everywhere you are likely to test it.
 Node **>= 22.19** is required; Lighthouse 13 declares it in `engines` and
 fails on older LTS in ways that do not obviously point at the Node version.
 
-Then:
-
-```bash
-slap audit example.com --lighthouse
-slap audit -f sites.txt --lighthouse --lh-runs 3 --lh-concurrency 3
-```
-
-Off by default. Phase 1 alone takes seconds per site; enabling Lighthouse
-takes it to roughly 90 seconds per site, so it is an explicit choice rather
-than a surprise.
+Lighthouse is a per-run option toggled in the app, and it is off by default.
+Phase 1 alone takes seconds per site; enabling Lighthouse takes it to
+roughly 90 seconds per site, so it is an explicit choice rather than a
+surprise.
 
 ## The thing that would have silently broken this
 
@@ -112,16 +105,16 @@ And savings moved from `details.overallSavingsMs` to
 
 Writing the extractor from memory produces rules that never fire and an
 audit that reports nothing wrong, which is far worse than an error. The
-mapping lives in `schema.LIGHTHOUSE_OPPORTUNITIES`, and
-`test_opportunity_ids_are_lighthouse_13_names` fails if any pre-13 ID
-creeps back in.
+mapping lives in `schema::LIGHTHOUSE_OPPORTUNITIES`, and
+`every_lighthouse_opportunity_registered` fails if any entry drifts from the
+Lighthouse 13 names the extractor reads.
 
-A related trap: `_audit_savings()` must **not** fall back to `numericValue`
+A related trap: `audit_savings()` must **not** fall back to `numericValue`
 for insight audits. `dom-size-insight`'s `numericValue` is an element
 count, so a naive fallback reports "3604ms of saving" in a client report.
 
 **A clean test page cannot catch any of this** — every saving is zero and a
-broken extractor looks fine. `tests/fixtures/slowsite/` is a deliberately
+broken extractor looks fine. `desktop/fixtures/slowsite/` is a deliberately
 awful page (3.6MB unoptimised PNG, 1500 unused CSS rules, render-blocking
 head, 3600-element DOM) served with no compression and no caching, offline.
 Against it the extractor produces real savings: image delivery 17.2s,
@@ -130,24 +123,24 @@ render-blocking 3.0s, unused CSS 2.2s.
 ## Architecture
 
 ```
-slap.core (Python)
-    │  asyncio.create_subprocess_exec
+slap-engine (Rust)
+    │  spawns the Node worker as a subprocess
     ▼
-src/slap/node_worker/worker.js         one job on stdin, one LHR on stdout
+worker/worker.js                      one job on stdin, one LHR on stdout
     │  chrome-launcher
     ▼
-Chromium (pinned, via Playwright)
+Chromium (pinned Chrome for Testing, fetched on first use)
 ```
 
 **The Node worker is deliberately dumb.** No business logic, no thresholds,
 no storage, no formatting. It launches Chrome, runs Lighthouse, writes the
-raw LHR, exits. Everything downstream of "what did Chrome measure" is
-Python's job. If you want to add a condition to `worker.js`, it belongs in
-`collectors/lighthouse.py` or `findings/rules.yaml` instead.
+raw LHR, exits. Everything downstream of "what did Chrome measure" is the
+engine's job. If you want to add a condition to `worker.js`, it belongs in
+the engine's Lighthouse collector or in `rules/rules.yaml` instead.
 
-`asyncio.create_subprocess_exec`, **not** Qt's `QProcess`, even though
-`QProcess` is the nicer API: the subprocess belongs to the core and the core
-does not import Qt.
+The worker runs as a plain subprocess, owned by the engine, which keeps it
+out of the core: `slap-core` still imports no browser, no Node, and no UI
+framework, exactly as the core's own tests enforce.
 
 ## Concurrency
 
@@ -162,9 +155,9 @@ number stops trusting the whole report.
 
 The runner holds its own semaphore, and Lighthouse is its own pipeline
 stage, so 20 sites can be in flight on the network collectors while only 3
-are inside Chrome. The CLI keeps the flags separate (`-c` vs
-`--lh-concurrency`) and the GUI must not offer a single "concurrency"
-control that moves both.
+are inside Chrome. The app keeps the two settings separate in its UI; a
+single "concurrency" control that moves both would reintroduce exactly this
+failure.
 
 Budget for 100 sites, mobile median-of-3, concurrency 3: roughly 50 minutes.
 
@@ -174,7 +167,7 @@ an option. Worth measuring on the 7950X before adding the complexity.
 ## Median and spread
 
 Three runs per site per form factor; the **median** is reported, because a
-single Lighthouse run is noise. `statistics.median`, not the mean: one
+single Lighthouse run is noise. The median, not the mean: one
 outlier run should not move the number.
 
 The **spread** (max − min) is recorded beside it for LCP, TBT, the
@@ -225,17 +218,17 @@ replayed against archived runs without re-auditing anything.
 
 ## Chrome selection
 
-Playwright's pinned Chromium, resolved by `default_chrome_path()` and passed
-to the worker as `CHROME_PATH`. Every teammate measures on the identical
-build, which is what makes run-to-run and person-to-person comparison
-meaningful, and it reuses the browser already installed for PDF export.
+A pinned **Chrome for Testing**, resolved by `resolve_or_fetch_chrome()` and
+passed to the worker as `CHROME_PATH`. Every teammate measures on the
+identical build, which is what makes run-to-run and person-to-person
+comparison meaningful, and it reuses the same browser the PDF export path
+fetches.
 
-**`default_chrome_path()` must not be called from inside a running event
-loop** in its Playwright-API path, which is why the runner resolves it
-through `asyncio.to_thread`. It tries `CHROME_PATH`, then a filesystem scan
-of the Playwright browsers directory (cheap, no loop constraint), then the
-sync API. This is the same trap as the sync PDF wrapper, and it surfaces as
-a confusing "CHROME_PATH must be set" error that does not point back here.
+The resolution order is `CHROME_PATH`, then the known install location
+(a cheap filesystem check), then a first-run download from the Chrome for
+Testing CDN — unless the egress policy blocks it, in which case
+`CHROME_PATH` is the escape hatch and the runner surfaces a clear
+"CHROME_PATH must be set" error rather than a confusing network failure.
 
 ## Failure behaviour
 
@@ -252,12 +245,12 @@ Every failure degrades rather than aborts, and says so:
   failed run rather than stored, so a run full of zeroes never reaches the
   report looking like real measurements.
 
-`slap doctor` reports on all of it in one place, which exists precisely
-because every one of these degrades quietly by design.
+The app's self-check reports on all of it in one place, which exists
+precisely because every one of these degrades quietly by design.
 
 ## Rules and the WP Rocket mapping
 
-`findings/rules.yaml` gained 17 `lh-*` rules keyed off `lh.opp.*` and
+`rules/rules.yaml` carries the `lh-*` rules keyed off `lh.opp.*` and
 `lh.score.*`. This is where the roadmap's WP Rocket remediation mapping
 landed, attached to each rule's `wp_rocket_setting` field rather than kept
 in a separate file, so a rule and its fix cannot drift apart:
@@ -275,9 +268,9 @@ in a separate file, so a rule and its fix cannot drift apart:
 
 ## What Phase 2 does not do
 
-- Desktop form factor is available (`--lh-desktop`) but off by default.
-  Google ranks mobile-first and CrUX field data is phone-only, so the
-  default matches the verdict page.
+- Desktop form factor is wired through (the worker takes a `formFactor`
+  per run) but the app ships mobile-only. Google ranks mobile-first and
+  CrUX field data is phone-only, so the default matches the verdict page.
 - No trend or before/after comparison yet; that is Phase 4, and the
   immutable-run design already makes it cheap.
 - No core pinning, no `throttlingMethod: provided` for real-device

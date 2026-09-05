@@ -1,15 +1,13 @@
-//! SQLite storage, ported from `src/slap/db.py`. Immutable, append-only runs.
+//! SQLite storage. Immutable, append-only runs.
 //!
-//! The DDL is byte-for-byte the Python app's DDL: every existing install's
-//! history was written by that app into this exact schema, and this app
-//! opens the same file. Cross-app compatibility was proven in both
-//! directions before the Python app retired (see tests/python_compat.rs).
-//! WAL mode made the coexistence-era sharing safe and still makes the UI
-//! thread safe beside a batch writer.
+//! The DDL is byte-for-byte what every existing install's database was
+//! created with: history was written into this exact schema by earlier
+//! versions, and this app opens the same file. WAL mode made concurrent
+//! sharing safe and still makes the UI thread safe beside a batch writer.
 //!
-//! One deliberate translation: the Python module kept a thread-local
-//! connection cache with an init-once memo, because Python front ends passed
-//! `db.connect(path)` around freely and sqlite3 connections cannot cross
+//! One deliberate translation: the earlier storage module kept a
+//! thread-local connection cache with an init-once memo, because its front
+//! ends passed connections around freely and the connections could not cross
 //! threads. Rust makes ownership explicit, so this module hands back a
 //! [`rusqlite::Connection`] and the caller decides where it lives (the Tauri
 //! shell keeps one behind a mutex in app state). The bug that cache grew,
@@ -150,10 +148,10 @@ CREATE TABLE IF NOT EXISTS artifact (
 CREATE INDEX IF NOT EXISTS idx_artifact_run ON artifact(run_id);
 "#;
 
-/// The exact timestamp format the Python app writes:
-/// `datetime.now(timezone.utc).isoformat(timespec="seconds")`. Rows from the
-/// two apps sort against each other lexicographically, so the format is a
-/// compatibility contract, not a style choice.
+/// The exact timestamp format stored on run rows:
+/// `datetime.now(timezone.utc).isoformat(timespec="seconds")`. Rows from
+/// different app versions sort against each other lexicographically, so the
+/// format is a compatibility contract, not a style choice.
 pub fn utcnow() -> String {
     chrono::Utc::now()
         .format("%Y-%m-%dT%H:%M:%S+00:00")
@@ -162,8 +160,8 @@ pub fn utcnow() -> String {
 
 /// Open (creating if needed), apply pragmas, migrate, and ensure the DDL.
 ///
-/// This is `connect` + `init_db` from the Python side folded into one,
-/// because without a hidden connection cache there is no reason to offer a
+/// This is `connect` + `init_db` folded into one, because without a hidden
+/// connection cache there is no reason to offer a
 /// connect that skips initialisation.
 pub fn open_db(path: &Path) -> Result<Connection> {
     if path.to_str() != Some(":memory:") {
@@ -271,7 +269,7 @@ fn column_names(conn: &Connection, table: &str) -> Result<std::collections::Hash
 }
 
 // ---------------------------------------------------------------------------
-// Row-to-JSON plumbing. The Python reads returned dicts; the UI consumes
+// Row-to-JSON plumbing. The earlier reads returned dicts; the UI consumes
 // them as JSON over IPC, so the Rust reads return serde_json objects.
 // ---------------------------------------------------------------------------
 
@@ -875,7 +873,7 @@ pub fn site_metric_history(
     let mut stmt = conn.prepare(&sql)?;
     let rows = rows_to_json(&mut stmt, &params_vec)?;
 
-    // Group by run, preserving run order, mirroring the Python dict build.
+    // Group by run, preserving run order.
     let mut order: Vec<i64> = Vec::new();
     let mut by_run: HashMap<i64, Json> = HashMap::new();
     for row in rows {
@@ -1125,10 +1123,10 @@ mod tests {
     }
 
     #[test]
-    fn utcnow_matches_the_python_apps_format() {
+    fn utcnow_matches_the_stored_row_format() {
         // datetime.now(timezone.utc).isoformat(timespec="seconds") gives
-        // 2026-08-27T21:30:00+00:00. Both apps sort each other's rows, so
-        // this is a compatibility contract.
+        // 2026-08-27T21:30:00+00:00. Different app versions sort each
+        // other's rows, so this is a compatibility contract.
         let now = utcnow();
         let re = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$").unwrap();
         assert!(re.is_match(&now), "unexpected timestamp shape: {now}");

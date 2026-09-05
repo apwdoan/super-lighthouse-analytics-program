@@ -1,13 +1,13 @@
-//! slap-core: the Rust port of `src/slap/`, the part of SLAP that is not a
-//! window and not a browser.
+//! slap-core: the core, the part of SLAP that is not a window and not a
+//! browser.
 //!
-//! Porting order follows the project's own doctrine: the data contracts
-//! freeze first. Phase 0 ported the *path* contract (which database file,
-//! which data directory), because the desktop app must read the SAME
-//! SQLite database the Python app wrote. Everything else arrives in later
-//! phases; see the project doc `claude/tauri-rewrite.md` for the sequence.
+//! The build order follows the project's own doctrine: the data contracts
+//! freeze first. The *path* contract was nailed down earliest (which database
+//! file, which data directory), because the app must read the SAME
+//! SQLite database its predecessors wrote. Everything else arrives in later
+//! phases.
 //!
-//! Two rules carried over from the Python core, both load-bearing:
+//! Two core rules, both load-bearing:
 //!
 //! - Nothing here depends on a UI framework. A test reads Cargo.toml and
 //!   fails if `tauri` ever appears in it.
@@ -43,9 +43,9 @@ pub fn version() -> &'static str {
 mod tests {
     #[test]
     fn the_core_never_depends_on_a_ui_framework() {
-        // The Rust port of the Python AST test that keeps `src/slap/` free
-        // of Qt and FastAPI imports. That rule is what made replacing Qt
-        // with the web UI a one-package rewrite, and it is what will keep
+        // The rule that keeps the core reusable: it never imports a UI
+        // framework, whatever shell drives it. That rule is what made each
+        // front-end rewrite a one-package change, and it is what will keep
         // the core reusable if the shell ever changes again.
         let manifest = include_str!("../Cargo.toml");
         let deps = manifest

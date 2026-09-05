@@ -1,17 +1,16 @@
-//! Progress events: the seam between the core and any front-end. Ported
-//! from `src/slap/events.py`.
+//! Progress events: the seam between the core and any front-end.
 //!
-//! The Python module deliberately imported nothing from Qt or asyncio; this
-//! one deliberately imports nothing from Tauri. The core emits plain typed
+//! The core deliberately imports nothing from Tauri. It emits plain typed
 //! events; front ends decide what to do with them. In the desktop shell
 //! that is one subscriber forwarding each event to `app.emit(...)`, which
 //! is the whole replacement for the web UI's SSE channel.
 //!
-//! What did NOT port: `QueueSink`. It existed so Qt could drain events from
-//! a `QTimer` on the main thread, and the web UI kept it for SSE. Tauri's
-//! event system does its own cross-thread delivery, so the sink's entire
-//! problem class (the same one that produced signals garbage-collected
-//! mid-emit) has no Rust counterpart to house it.
+//! What did NOT carry over: a queue-based sink. Older front ends needed one
+//! because their main loop drained events off a background queue, and a
+//! slow sink could clog every other producer. Tauri's event system does
+//! its own cross-thread delivery, so that whole problem class (the one
+//! that produced a sink drained mid-emit and dropped in the race) has no
+//! Rust counterpart to house it.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -88,8 +87,8 @@ impl Event {
         }
     }
 
-    /// Human-readable one-liner, matching the Python `message` properties
-    /// so the log pane reads identically whichever app produced the line.
+    /// Human-readable one-liner, matching the log-line format every
+    /// front-end has rendered, so the log pane reads identically.
     pub fn message(&self) -> String {
         match self {
             Event::BatchStarted { total, .. } => format!("Batch started: {total} site(s)"),
@@ -183,8 +182,8 @@ impl EventBus {
     }
 
     pub fn emit(&self, event: &Event) {
-        // Snapshot under the lock, call outside it, exactly as the Python
-        // bus did: a slow sink must not serialise every other producer.
+        // Snapshot under the lock, call outside it: a slow sink must not
+        // serialise every other producer.
         let sinks: Vec<Sink> = self
             .sinks
             .lock()
@@ -251,7 +250,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn messages_match_the_python_log_lines() {
+    fn messages_match_the_log_lines() {
         let started = Event::SiteStarted {
             batch_id: "b".into(),
             url: "https://example.com".into(),

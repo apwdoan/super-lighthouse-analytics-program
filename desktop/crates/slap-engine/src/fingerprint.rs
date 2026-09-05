@@ -1,5 +1,4 @@
-//! Technology fingerprint, including the WP Rocket signals. Ported from
-//! `collectors/fingerprint.py`.
+//! Technology fingerprint, including the WP Rocket signals.
 //!
 //! Per the roadmap, WP Rocket is not a data source; it is a detectable
 //! signal and a remediation target. The observation that earns its keep is

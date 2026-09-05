@@ -1,5 +1,5 @@
-//! Active endpoint probing: does the origin serve files it should not? Ported
-//! from the Python probe collector. ORIGIN-scoped and strictly opt-in: it runs
+//! Active endpoint probing: does the origin serve files it should not?
+//! ORIGIN-scoped and strictly opt-in: it runs
 //! only for a host the user has explicitly authorised, because unlike every
 //! other collector it actively requests sensitive paths rather than reading the
 //! page the site already served.

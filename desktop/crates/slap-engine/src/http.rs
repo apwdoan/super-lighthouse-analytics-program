@@ -1,20 +1,20 @@
 //! The HTTP collector: the one request every no-browser collector shares.
 //!
-//! Ported from the Python `collectors/http_probe.py`. The parsing is pure
-//! functions over a fetched document so the interesting logic tests without
-//! a network, exactly as it did in Python; `fetch` is the only part that
+//! The parsing is pure functions over a fetched document so the
+//! interesting logic tests without a network; `fetch` is the only part that
 //! touches a socket.
 //!
-//! Two Python gotchas carried across:
+//! Two gotchas this stack was built around:
 //!
 //! - **Advertise only what you can decode.** `accept_encoding()` names the
 //!   encodings this build actually has decoders for, and `fetch` decodes by
 //!   hand, because reqwest's auto-decompression strips the Content-Encoding
 //!   header when it decodes, and "was this compressed" is an observation.
-//!   The Python bug was analysing 28KB of brotli as if it were HTML.
+//!   The failure this prevents is analysing 28KB of brotli as if it were
+//!   HTML.
 //! - **Never report a wrong HTTP version.** reqwest does real ALPN over
-//!   rustls, so `response.version()` is trustworthy here; the Python code
-//!   had to suppress the field when its h2 support was missing, a hazard
+//!   rustls, so `response.version()` is trustworthy here; an HTTP client
+//!   without real h2 support would have had to suppress the field, a hazard
 //!   this stack does not have.
 
 use std::collections::BTreeMap;
@@ -30,7 +30,7 @@ pub struct FetchedDocument {
     pub final_url: String,
     pub status: u16,
     pub http_version: String,
-    /// Header names lowercased, exactly as the Python collector kept them.
+    /// Header names lowercased, as the collector keeps them.
     pub headers: BTreeMap<String, String>,
     pub set_cookie: Vec<String>,
     pub text: String,
@@ -147,7 +147,7 @@ pub fn observations_from_document(doc: &FetchedDocument) -> Vec<Observation> {
     let mut out: Vec<Observation> = Vec::new();
     let mut add = |key: &str, value: Option<Value>| {
         if let Some(value) = value {
-            // Skip empty strings, matching the Python `value != ""` guard.
+            // Skip empty strings, as the `value != ""` guard does.
             if let Value::Text(t) = &value {
                 if t.is_empty() {
                     return;
@@ -365,7 +365,7 @@ pub async fn fetch(
         if name.as_str().eq_ignore_ascii_case("set-cookie") {
             set_cookie.push(value.clone());
         }
-        // BTreeMap keeps the last value per header, matching the Python dict.
+        // BTreeMap keeps the last value per header, like a header dict would.
         headers.insert(name.as_str().to_ascii_lowercase(), value);
     }
 

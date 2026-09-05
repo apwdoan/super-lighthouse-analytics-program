@@ -1,12 +1,11 @@
 //! Settings, resolved from defaults, a TOML file, and the environment.
-//! Ported from `src/slap/config.py`.
 //!
-//! The same config.toml serves both apps while they coexist, so the read
-//! side matches Python's behaviour exactly, quirks included: unknown keys
-//! in `[collector]` and `[discovery]` are errors (Python's
-//! `dataclasses.replace` raised on them), while unknown keys in
-//! `[lighthouse]` are ignored (Python checked `hasattr` first). Freezing
-//! the quirk beats changing which files load between one app and the other.
+//! The same config.toml serves every app version, so the read side
+//! preserves the original behaviour exactly, quirks included: unknown keys
+//! in `[collector]` and `[discovery]` are errors (the strict dataclasses
+//! path raised on them), while unknown keys in `[lighthouse]` are ignored
+//! (that section was checked with `hasattr` first). Freezing the quirk
+//! beats changing which files load between versions.
 //!
 //! The write side is the same surgical editor: config.toml is user-owned,
 //! may carry comments and hand-tuned settings, and there is no TOML writer
@@ -31,9 +30,9 @@ fn expand_user(path: PathBuf) -> PathBuf {
 
 /// The writable vulnerability-database copy, in the per-user data directory.
 ///
-/// The Python app prefers the NEWER of this and the bundle's copy; the
-/// bundled path needs the Tauri resource dir, which only the shell knows,
-/// so the newer-of choice lands there when the vulndb module ports.
+/// The app prefers the NEWER of this and the bundle's copy; the bundled
+/// path needs the Tauri resource dir, which only the shell knows, so the
+/// newer-of choice lands there in the vulndb module.
 pub fn user_vulndb_path() -> PathBuf {
     paths::default_data_dir().join("vulndb.json")
 }
@@ -264,8 +263,8 @@ impl Settings {
             }
 
             // Sections. collector and discovery are strict (unknown keys
-            // error, as dataclasses.replace did); lighthouse ignores
-            // unknown keys (Python checked hasattr first).
+            // error, as the dataclasses path did); lighthouse ignores
+            // unknown keys (checked with hasattr first).
             if let Some(section) = raw.get("collector") {
                 settings.collector = section
                     .clone()
@@ -343,9 +342,9 @@ impl Settings {
 // Writing one setting back.
 // ---------------------------------------------------------------------------
 
-/// The value shapes `save_setting` accepts, rendered exactly as the Python
-/// `_render` did (bools lowercase, numbers via their natural display,
-/// strings quoted).
+/// The value shapes `save_setting` accepts, rendered exactly as the
+/// original `_render` did (bools lowercase, numbers via their natural
+/// display, strings quoted).
 #[derive(Clone, Debug, PartialEq)]
 pub enum SettingValue {
     Str(String),
@@ -360,8 +359,8 @@ impl SettingValue {
             SettingValue::Bool(b) => (if *b { "true" } else { "false" }).to_string(),
             SettingValue::Int(int) => int.to_string(),
             SettingValue::Float(float) => {
-                // Python str(2.0) == "2.0"; TOML needs the point anyway to
-                // keep the value a float on read-back.
+                // A whole float keeps its ".0" so TOML reads it back as a
+                // float, not an int.
                 if float.fract() == 0.0 && float.is_finite() {
                     format!("{float:.1}")
                 } else {
@@ -647,7 +646,7 @@ mod tests {
     }
 
     #[test]
-    fn defaults_match_the_python_defaults() {
+    fn defaults_match_the_shipped_defaults() {
         let collector = CollectorConfig::default();
         assert_eq!(collector.http_concurrency, 20);
         assert_eq!(collector.crux_rate_per_second, 2.0);
@@ -703,7 +702,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_collector_key_is_an_error_matching_python_replace() {
+    fn an_unknown_collector_key_is_an_error_matching_strict_replace() {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join("config.toml");
         write(&config, "[collector]\ntypo_key = 1\n");

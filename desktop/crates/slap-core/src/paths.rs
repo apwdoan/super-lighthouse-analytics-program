@@ -1,16 +1,14 @@
-//! The data-directory contract, ported line for line from
-//! `src/slap/config.py`.
+//! The data-directory contract, preserved line for line.
 //!
-//! This is the one piece of the core that HAD to port first: every
-//! existing install's history lives in the file the Python app resolved,
-//! so this app must resolve the same one or it starts fine and simply
-//! shows no history, which the rename postmortem identified as worse than
-//! an error.
+//! This is the one piece of the core that had to be nailed down first: every
+//! existing install's history lives in one specific file, so this must
+//! resolve the same one or the app starts fine and simply shows no history,
+//! which the rename postmortem identified as worse than an error.
 //!
 //! Deliberate quirk kept: macOS uses the XDG path (`~/.local/share/slap`),
-//! not `~/Library/Application Support`. That is where the Python app has
-//! kept every Mac user's history (its check is `os.name == "nt"`, nothing
-//! else), and following platform convention here would strand it.
+//! not `~/Library/Application Support`. The platform check was "is it
+//! Windows?" and nothing else, so every Mac user's history has lived under
+//! the XDG path; following platform convention here would strand it.
 
 use std::env;
 use std::path::PathBuf;

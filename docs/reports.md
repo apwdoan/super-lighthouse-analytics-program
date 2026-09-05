@@ -5,66 +5,57 @@
 ## The pipeline
 
 ```
-core.get_run_detail(run_id)
+build_model(conn, run_id)     pure transform → report model (unit tested, no HTML)
     │
     ▼
-report/model.py      pure transform → ReportModel   (unit tested, no HTML)
+render_html()                minijinja + report.css → self-contained HTML (the artifact of record)
     │
     ▼
-report/render.py     Jinja2 → self-contained HTML   (the artifact of record)
-    │
-    ▼
-report/pdf.py        Chromium print-to-PDF          (a rendering of that file)
+report_pdf()                 headless Chromium print-to-PDF of that HTML (a rendering of that file)
 ```
 
 **HTML is the deliverable; the PDF is a rendering of it.** That ordering is
 load-bearing, not stylistic:
 
 - The PDF can never contain something the HTML does not.
-- A failure in the PDF backend costs the user nothing. `export_report`
-  writes the HTML first and returns `pdf_error` set, so a teammate who
-  skipped `playwright install chromium` still gets a usable report and a
-  message naming the exact command.
+- A failure in the PDF backend costs the user nothing. `report_pdf` renders
+  the HTML first and only then drives Chromium, so a machine without the
+  pinned browser still gets a usable HTML report and a clear error naming
+  what is missing.
 - A client who would rather have a link than an attachment is already
-  served.
+  served: the HTML export button writes the same document.
 
 The HTML is fully self-contained: CSS inlined, no `<link>`, no external
 fonts, logos as data URIs. It survives being emailed.
 
-## The engine, and why not the alternatives
+## The browser, and why not the alternatives
 
-**Playwright's pinned Chromium.**
+**The pinned Chrome for Testing** the app already downloads for Lighthouse —
+the same binary serves PDF export, fetched on first use if absent.
 
 | Rejected | Why |
 |---|---|
-| WeasyPrint | Excellent paged-media CSS, but on Windows it needs GTK/Pango DLLs installed out of band. The audience is teammates on Windows; that is a support burden per machine. |
+| WeasyPrint-style pure-Rust paged media | Excellent paged-media CSS, but on Windows it needs GTK/Pango DLLs installed out of band. The audience is teammates on Windows; that is a support burden per machine. |
 | System Chrome `--headless --print-to-pdf` | Zero install, but no running header/footer and no page numbers, and output shifts between teammates on different Chrome versions. A client-facing document must not do that. |
-| ReportLab / direct PDF | Would mean maintaining a second layout engine that shares nothing with the HTML. |
+| A second layout engine that shares nothing with the HTML | Would mean maintaining a layout that the HTML is not built from. |
 
-Cost of the choice: one setup step per machine.
+Cost of the choice: one pinned browser per machine, shared with Lighthouse.
 
-```bash
-pip install "slap[report]"
-playwright install chromium
-```
-
-`core.pdf_backend_status()` probes for this without launching a browser and
-returns a `BackendStatus` that renders directly in a settings screen. Call
-it from the GUI's preferences panel rather than discovering the problem
-when a user clicks Export.
+`report_pdf` asks for the destination **before** it renders anything:
+cancelling costs nothing, and the PDF path is heavy (a Chromium print, and
+possibly a first-run fetch). The print runs as a blocking subprocess on a
+blocking task so it cannot stall the async runtime, and the temp HTML it
+writes is cleaned up on the same task.
 
 ## Two Chromium settings that are not optional
 
-```python
-await page.emulate_media(media="print")   # or @media print rules never apply
-await page.pdf(print_background=True)     # or every badge prints white-on-white
-```
-
-`print_background=False` is Chromium's default and silently strips every
-background colour. The severity badges, verdict panel, and status dots all
-disappear, and the PDF looks *fine* at a glance because the text is still
-there. Do not remove `print-color-adjust: exact` from `report.css` either;
-it is the same defence.
+The print invocation must carry `--no-pdf-header-footer` and keep backgrounds
+on. Chromium's default header/footer prints a URL line and page numbers on
+top of the report's own masthead, and its default `print_background=false`
+silently strips every background colour. So the badges, verdict panel, and
+status dots all disappear, and the PDF looks *fine* at a glance because the
+text is still there. `report.css` carries `print-color-adjust: exact` as the
+same defence — do not remove it.
 
 ## Structure
 
@@ -84,16 +75,17 @@ Page one is the verdict, not the data.
 
 ### The finding split, and a bug worth remembering
 
-`split_findings()` gives the detailed treatment to **every** critical and
-high finding, with no cap.
+The model splits findings into **significant** (critical, high, medium —
+full cards) and **minor** (the one-line list), with no cap on the detailed
+treatment.
 
 The first version took the top 5. On a site with six critical-or-high
 findings that meant an alphabetical rule-id tiebreak decided which one got
 demoted to a one-liner, and in the first real test it demoted
 `wprocket-cache-cold` — the single most actionable thing SLAP produces.
-**Never cap by count what you have ranked by severity.** The test
-`test_every_high_and_critical_finding_gets_the_detailed_treatment` guards
-this.
+**Never cap by count what you have ranked by severity.** A test renders the
+report and asserts the detailed treatment appears for the seeded
+critical/high findings.
 
 ## Colour and accessibility
 
@@ -115,7 +107,8 @@ sit adjacent in the findings list. So:
 - **Every badge, tile, and status cell prints its status WORD.** Never
   reduce one to a bare coloured dot. This is the documented mitigation for
   both findings above, and it is the reason the report is readable in
-  greyscale, which is how a lot of clients will actually print it.
+  greyscale, which is how a lot of clients will actually print it. The model
+  carries `status_word` on every tile and card for exactly this.
 - **Status colours are used as fills, rules, and dots beside dark ink,
   never as text colour.** Text always wears the ink tokens.
 
@@ -126,17 +119,16 @@ columns that must align vertically.
 
 The meter's track is neutral with hairline ticks at 33% and 66%, where the
 good and needs-improvement thresholds land on **every** tile, so the three
-can be compared by eye without re-reading each axis. `meter_fraction()` is
+can be compared by eye without re-reading each axis. `meter_pct` is
 non-linear to make that true, and
-`test_meter_thresholds_land_at_the_same_place_on_every_tile` keeps the
-maths and the hard-coded tick positions in agreement.
+`meter_pins_thresholds_at_a_third_and_two_thirds` keeps the maths and the
+hard-coded tick positions in agreement.
 
 ## Formatting lives in the schema
 
-`schema.format_value()` renders a value using the metric registry's
-declared unit, and both the findings engine and the report model call it.
-That single source of truth exists because rule text substitutes metric
-values:
+`schema::format_value` renders a value using the metric registry's declared
+unit, and both the findings engine and the report model call it. That single
+source of truth exists because rule text substitutes metric values:
 
 ```yaml
 detail: "The document came back at {http.content_bytes}."   # → "402 KB"
@@ -145,9 +137,8 @@ detail: "The document came back at {http.content_bytes}."   # → "402 KB"
 Two consequences:
 
 - **Rule text must not append its own unit.** Write `{http.ttfb}`, never
-  `{http.ttfb}ms`, or you ship "412msms".
-  `test_no_shipped_rule_appends_a_unit_after_a_placeholder` scans the whole
-  rules file for this.
+  `{http.ttfb}ms`, or you ship "412msms". A test scans the whole rules
+  file for this.
 - **A metric's declared unit is a formatting decision, not just metadata.**
   `crux.cls.p75` was declared `RATIO`, which rendered 0.06 as "6%" in a
   client-facing document. It is `SCORE`. Check the unit when registering a
@@ -155,60 +146,42 @@ Two consequences:
 
 ## Branding
 
-Neutral by default. `Settings.branding` is a plain dict so a Qt preferences
-dialog and a TOML file can both populate it without a schema change:
+Neutral by default. `Settings.branding` is a plain map so the app's
+settings screen and a TOML file can both populate it without a schema
+change:
 
 ```toml
 [branding]
 company_name = "Your Company"
-accent = "#2a78d6"
 logo_data_uri = "data:image/png;base64,..."
 ```
 
 A logo replaces the wordmark in the masthead. Keep it a data URI so the
-HTML stays self-contained.
+HTML stays self-contained. `the_masthead_renders_the_configured_brand_name_and_logo`
+pins both the set and the unset cases.
 
-## Wiring it into the GUI
+## Exporting
 
-`core.export_report()` is synchronous and must not be called from a thread
-with a running event loop; it raises a clear `PdfError` if you try. In the
-GUI, run it from a `QRunnable` on `QThreadPool`:
+Exporting is two Tauri commands, both per-run:
 
-```python
-class ExportTask(QRunnable):
-    def run(self):
-        result = core.export_report(self.settings, self.run_id, pdf=True)
-        # emit result back to the main thread via a QObject signal
-```
+- `report_html` renders `render_html` and hands the file to the user's
+  system handler for a Save dialog.
+- `report_pdf` does the same through headless Chromium, as described above.
 
-To export automatically at the end of a batch, from inside the
-`BatchWorker` thread's loop, await `core.export_report_async()` instead.
+Both ask for the destination before doing any work, so cancelling costs
+nothing. Viewing uses the OS handler rather than an embedded viewer — that
+keeps a heavyweight webview component out of the install until someone
+actually asks for an in-app preview.
 
-For viewing, open the PDF or HTML with the system handler rather than
-embedding it:
+## Per-run output, not per-batch
 
-```python
-QDesktopServices.openUrl(QUrl.fromLocalFile(str(result.pdf_path)))
-```
+Each run exports its own report: one site, one HTML, one PDF. A multi-site
+audit is just several runs under one `batch-<id>`, and the app's report
+screen picks the run. There is deliberately no concatenated "batch
+report": it would need a second layout (one page per site) and a second
+source of truth for what a run contains.
 
-That keeps `QWebEngineView` (~150MB, and a real PyInstaller complication)
-out of the build until someone actually asks for an embedded preview.
-
-## Batch output
-
-```
-reports/batch-<id>/
-  index.html / index.pdf          summary, ranked worst-first
-  <hostname>-<run>.html / .pdf    one per site
-  batch-<id>.pdf                  everything concatenated (--merge)
-```
-
-The index ranks by highest severity present, not by a score: a site with
-one critical finding sorts above a site with twenty low ones, which is
-usually the right order to work in. Sites with no findings read as
-"Clean" and sort last.
-
-Merging uses `pypdf`. Filenames go through `safe_filename()`, which strips
-path-hostile characters and prefixes the Windows reserved device names
-(`CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`) — those fail to open on
-Windows even with an extension appended.
+Filenames go through `report_filename`, which strips path-hostile characters
+and prefixes the Windows reserved device names (`CON`, `PRN`, `AUX`, `NUL`,
+`COM1-9`, `LPT1-9`) — those fail to open on Windows even with an extension
+appended.

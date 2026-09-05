@@ -1,11 +1,11 @@
-//! Finding the pages of a site. Ported from `discovery.py`.
+//! Finding the pages of a site.
 //!
 //! Discovery is deliberately NOT a collector: a collector takes one URL and
 //! returns observations, and discovery runs before any URL list exists and
 //! produces it. The order is robots.txt `Sitemap:` directives, then the
 //! conventional sitemap locations, then a shallow same-origin crawl.
 //!
-//! Three silent failure modes shaped the Python and are preserved here:
+//! Three silent failure modes shaped this and are preserved here:
 //! a `<sitemapindex>` is a list of *sitemaps*, not pages (checked on the root
 //! element, never by a substring); `.xml.gz` is served as `application/gzip`
 //! with no content-encoding, so the gzip is the payload and is sniffed by

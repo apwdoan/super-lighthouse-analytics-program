@@ -1,18 +1,16 @@
-//! The findings engine: rules are data, not code. Ported from the Python
-//! app's `findings/engine.py`.
+//! The findings engine: rules are data, not code.
 //!
 //! The rules did NOT get rewritten, and that is the design paying off:
-//! `rules/rules.yaml` beside this crate is the identical file the Python
-//! app shipped, moved here unchanged when that app was retired
-//! (2026-08-27). While the two apps coexisted, both engines interpreted
-//! one shared copy, and a differential test proved they agreed
-//! finding-for-finding, rendered text included; that agreement is what
-//! makes findings written into the database by either era comparable.
+//! `rules/rules.yaml` beside this crate is the file every engine version
+//! interpreted byte-for-byte. While two apps shared one copy, a differential
+//! test proved they agreed finding-for-finding, rendered text included; that
+//! agreement is what makes findings written into the database by either
+//! version comparable.
 //!
 //! Conditions are evaluated by a small declarative interpreter rather than
-//! anything eval-like, for the reason the Python engine chose: rule files
-//! are the thing most likely to be edited casually, and an engine that
-//! executes them turns a typo in a config file into arbitrary code.
+//! anything eval-like: rule files are the thing most likely to be edited
+//! casually, and an engine that executes them turns a typo in a config file
+//! into arbitrary code.
 //!
 //! Supported condition operators:
 //!
@@ -33,9 +31,8 @@ use serde_yaml::Value as Yaml;
 
 use crate::schema::{format_value, Finding, Severity, Value};
 
-/// The shipped rules, embedded at compile time. Byte-for-byte the file the
-/// Python app carried; a custom `rules_path` in settings overrides it at
-/// runtime.
+/// The shipped rules, embedded at compile time. A custom `rules_path` in
+/// settings overrides it at runtime.
 pub const RULES_YAML: &str = include_str!("../rules/rules.yaml");
 
 #[derive(Debug)]
@@ -89,8 +86,8 @@ const LEAF_OPS: &[&str] = &[
     "present",
 ];
 
-/// Python truthiness for a YAML operand (`missing: true`, but also the
-/// odd `missing: 1` a hand-edited file might carry).
+/// Truthiness for a YAML operand (`missing: true`, but also the odd
+/// `missing: 1` a hand-edited file might carry).
 fn yaml_truthy(operand: &Yaml) -> bool {
     match operand {
         Yaml::Null => false,
@@ -103,8 +100,8 @@ fn yaml_truthy(operand: &Yaml) -> bool {
     }
 }
 
-/// `str(operand)` as Python would spell it, for the substring operators.
-fn yaml_py_string(operand: &Yaml) -> String {
+/// Render a YAML operand the way the substring operators compare it.
+fn yaml_as_string(operand: &Yaml) -> String {
     match operand {
         Yaml::String(s) => s.clone(),
         Yaml::Bool(b) => (if *b { "True" } else { "False" }).to_string(),
@@ -136,10 +133,10 @@ fn yaml_as_f64(operand: &Yaml) -> Option<f64> {
     }
 }
 
-/// Python `==` between an observation value and a YAML operand: numbers
-/// compare numerically (True == 1 included, because bool is an int there),
+/// Equality between an observation value and a YAML operand: numbers
+/// compare numerically (a boolean against a number becomes 1.0/0.0),
 /// strings compare as strings, and cross-type comparisons are unequal.
-fn py_eq(value: &Value, operand: &Yaml) -> bool {
+fn value_eq(value: &Value, operand: &Yaml) -> bool {
     match (value, operand) {
         (Value::Text(text), Yaml::String(s)) => text == s,
         (Value::Num(n), Yaml::Number(_)) => yaml_as_f64(operand) == Some(*n),
@@ -167,30 +164,30 @@ fn compare(value: Option<&Value>, op: &str, operand: &Yaml) -> bool {
             if let Yaml::Bool(wanted) = operand {
                 value.truthy() == *wanted
             } else {
-                py_eq(value, operand)
+                value_eq(value, operand)
             }
         }
-        "ne" => !py_eq(value, operand),
+        "ne" => !value_eq(value, operand),
         "in" => match operand {
-            Yaml::Sequence(items) => items.iter().any(|item| py_eq(value, item)),
+            Yaml::Sequence(items) => items.iter().any(|item| value_eq(value, item)),
             _ => false,
         },
         "not_in" => match operand {
-            Yaml::Sequence(items) => !items.iter().any(|item| py_eq(value, item)),
+            Yaml::Sequence(items) => !items.iter().any(|item| value_eq(value, item)),
             _ => false,
         },
         "contains" => value
-            .to_py_string()
+            .to_plain_string()
             .to_lowercase()
-            .contains(&yaml_py_string(operand).to_lowercase()),
+            .contains(&yaml_as_string(operand).to_lowercase()),
         "not_contains" => !value
-            .to_py_string()
+            .to_plain_string()
             .to_lowercase()
-            .contains(&yaml_py_string(operand).to_lowercase()),
-        "matches" => RegexBuilder::new(&yaml_py_string(operand))
+            .contains(&yaml_as_string(operand).to_lowercase()),
+        "matches" => RegexBuilder::new(&yaml_as_string(operand))
             .case_insensitive(true)
             .build()
-            .map(|re| re.is_match(&value.to_py_string()))
+            .map(|re| re.is_match(&value.to_plain_string()))
             .unwrap_or(false),
         "gt" | "gte" | "lt" | "lte" => {
             let (Some(left), Some(right)) = (value.as_f64(), yaml_as_f64(operand)) else {
@@ -227,7 +224,7 @@ pub fn evaluate(condition: &Yaml, values: &HashMap<String, Value>) -> Result<boo
                 any_true |= hit;
                 all_true &= hit;
             }
-            // Empty lists keep Python's semantics: all([]) is true,
+            // Empty lists keep the classic semantics: all([]) is true,
             // any([]) is false, none of [] is true.
             return Ok(match combinator {
                 "all" => all_true,
@@ -384,8 +381,8 @@ impl Rule {
                 evidence.insert(key, json);
             }
         }
-        // Python: float(impact) if isinstance(impact, (int, float)), and a
-        // Python bool IS an int, so a boolean source becomes 1.0 or 0.0.
+        // A boolean impact source counts as 1.0/0.0 (bool coerces to a
+        // number); any non-numeric source yields no impact.
         let impact_ms = self
             .impact_ms_from
             .as_ref()
@@ -501,7 +498,7 @@ mod tests {
         serde_yaml::from_str(text).unwrap()
     }
 
-    // -- templating, matching the Python tests line for line ---------------
+    // -- templating, pinned line for line ------------------------------------
 
     #[test]
     fn render_template_formats_by_the_registry_unit() {
@@ -542,8 +539,7 @@ mod tests {
 
     #[test]
     fn no_shipped_rule_appends_a_unit_after_a_placeholder() {
-        // Guards the '412msms' regression across the whole rules file,
-        // exactly as the Python suite does.
+        // Guards the '412msms' regression across the whole rules file.
         let offender = Regex::new(r"\{[a-z][\w.]*\}\s*(?:ms|bytes|seconds|days)\b").unwrap();
         let hits: Vec<&str> = offender.find_iter(RULES_YAML).map(|m| m.as_str()).collect();
         assert!(
@@ -555,7 +551,7 @@ mod tests {
     // -- conditions --------------------------------------------------------
 
     #[test]
-    fn operators_behave_like_the_python_interpreter() {
+    fn operators_behave_like_a_declarative_interpreter() {
         let v = values(&[
             ("http.ttfb", Value::Num(900.0)),
             ("tls.protocol", Value::Text("TLSv1.1".into())),
@@ -625,7 +621,7 @@ mod tests {
     #[test]
     fn the_shipped_rules_load_and_count() {
         let engine = FindingsEngine::load(None).unwrap();
-        // 63 rules carried from the Python app, plus the desktop-era
+        // 63 rules carried forward unchanged, plus the desktop-era
         // https-unreachable rule that flags an http-fallback audit.
         assert_eq!(engine.rules.len(), 64, "rules.yaml rule count drifted");
     }

@@ -1,5 +1,4 @@
-//! CrUX field data and 25-week history: the report's verdict layer. Ported
-//! from `collectors/crux.py` and `collectors/crux_history.py`.
+//! CrUX field data and 25-week history: the report's verdict layer.
 //!
 //! Field data comes from the dedicated CrUX API, not PageSpeed Insights
 //! (whose embedded CrUX data Google is retiring). Two behaviours matter:

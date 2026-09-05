@@ -1,11 +1,11 @@
 //! The core's slice of `--self-check`.
 //!
-//! The self-check is the Rust port of `slap verify`, and it inherits the
-//! rule that made verify worth having: check the thing the real code path
-//! does, not a proxy for it. The Python `doctor` once stat-ed a Chromium
-//! binary Playwright never launched and reported a broken bundle healthy;
-//! the checks here open a real database and write a real file rather than
-//! testing that paths look plausible.
+//! The self-check inherits the rule that made the old verify step worth
+//! having: check the thing the real code path does, not a proxy for it.
+//! An earlier doctor once stat-ed a Chromium binary that was never launched
+//! and reported a broken bundle healthy; the checks here open a real
+//! database and write a real file rather than testing that paths look
+//! plausible.
 //!
 //! Checks exist only for code that exists: today that is the data
 //! directory, the full storage layer, and the findings rules. Every later
@@ -36,7 +36,7 @@ pub fn run_core_checks() -> Vec<Check> {
 }
 
 /// The data directory can be created and written. Creating it is safe: it
-/// is the same directory the Python app creates on first run.
+/// is the same directory every app version creates on first run.
 fn check_data_dir_writable() -> Check {
     let dir = crate::paths::default_data_dir();
     let attempt = (|| -> std::io::Result<()> {

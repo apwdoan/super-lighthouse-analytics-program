@@ -1,13 +1,13 @@
 //! The client-facing report: a stored run rendered to standalone HTML, and
-//! (through the shell) to PDF. Ported from the Python `templates/report/`.
+//! (through the shell) to PDF.
 //!
-//! It reuses that era's stylesheet, `report.css`, verbatim, so the look is
-//! unchanged; what is rebuilt here is the model. Rather than reconstruct the
-//! Python report-model builder field for field (its source did not survive the
-//! rewrite), the model is assembled straight from the stored run — the same
-//! observations, findings and pages the app already persists — and every value
-//! is formatted through `schema::format_value`, so a byte in the report is a
-//! byte from the database.
+//! It reuses the shared stylesheet, `report.css`, verbatim, so the look is
+//! unchanged; what is rebuilt here is the model. Rather than reconstruct a
+//! report-model builder field for field, the model is assembled straight
+//! from the stored run — the same observations, findings and pages the app
+//! already persists — and every value is formatted through
+//! `schema::format_value`, so a byte in the report is a byte from the
+//! database.
 //!
 //! One discipline carried over: a status colour never stands alone. Every
 //! severity badge and every metric tile also prints its status WORD, because
