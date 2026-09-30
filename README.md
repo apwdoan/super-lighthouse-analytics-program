@@ -1,4 +1,4 @@
-# SLAP: Super Lighthouse Analytics Project
+# SLAP: Super Lighthouse Analytics Program
 
 **Per-page** website performance and security auditing. Finds a site's pages,
 audits each one, turns the result into findings a site owner will act on, and
