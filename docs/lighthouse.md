@@ -80,10 +80,12 @@ whole problem: it passes everywhere you are likely to test it.
 Node **>= 22.19** is required; Lighthouse 13 declares it in `engines` and
 fails on older LTS in ways that do not obviously point at the Node version.
 
-Lighthouse is a per-run option toggled in the app, and it is off by default.
-Phase 1 alone takes seconds per site; enabling Lighthouse takes it to
-roughly 90 seconds per site, so it is an explicit choice rather than a
-surprise.
+Lighthouse is a per-run option in New audit, and it starts ticked: the
+report's gauges and speed figures come from it, so an audit without it is
+the exception. New audit shows what it will cost before anything starts
+(about 30 seconds a page at the default concurrency), and unticking it
+gives a server-and-security pass in seconds. `[lighthouse] enabled = false`
+in `config.toml` makes the box start unticked instead.
 
 ## The thing that would have silently broken this
 

@@ -345,6 +345,157 @@ fn gauge(label: &str, score: Option<f64>) -> Json {
     }
 }
 
+/// What the Security checks are made from, read off the home page and the
+/// origin. `None` (or an empty list) where it was not measured, and that
+/// check is left out rather than guessed.
+#[derive(Default)]
+struct SecurityFacts {
+    certificate_valid: Option<bool>,
+    certificate_error: Option<String>,
+    issuer: Option<String>,
+    /// Days left, and the same in words ("54 days").
+    days_to_expiry: Option<(f64, String)>,
+    protocol: Option<String>,
+    upgrades_to_https: Option<bool>,
+    /// What each header protects, its name, and whether it is set.
+    headers: Vec<(String, String, bool)>,
+    cookies_total: Option<i64>,
+    cookies_insecure: Option<i64>,
+    cookies_no_httponly: Option<i64>,
+    cookies_no_samesite: Option<i64>,
+}
+
+/// The Security section as Lighthouse would list it, and its gauge.
+struct SecurityChecks {
+    /// A gauge of the share of checks passed, `null` when nothing was checked.
+    gauge: Json,
+    passed: usize,
+    total: usize,
+    /// `[{title, rows}]`: each group's problems (and informative rows).
+    groups: Vec<Json>,
+    /// Every check that passed, in group order.
+    passed_rows: Vec<Json>,
+}
+
+/// A certificate this close to expiry is flagged, as the `tls-expiring` rule
+/// does.
+const EXPIRY_WARNING_DAYS: f64 = 21.0;
+
+/// One row per check, with a shape and a title that says what was found.
+/// The gauge counts the checks passed: its arc is that share, and its colour
+/// is Lighthouse's band for the share, except that any failed check (red
+/// triangle) makes it red, so a site with a broken certificate never shows
+/// green however many headers it sends.
+fn security_checks(f: &SecurityFacts) -> SecurityChecks {
+    const CONNECTION: &str = "Secure connection";
+    const SETTINGS: &str = "Protective settings";
+    const COOKIES: &str = "Cookies";
+    let mut rows: Vec<(&str, Json)> = Vec::new();
+    let mut add = |group: &'static str, rating: &str, title: &str, aside: Option<String>, display: Option<String>| {
+        rows.push((group, json!({ "rating": rating, "title": title, "aside": aside, "display": display })));
+    };
+
+    match f.certificate_valid {
+        Some(true) => add(
+            CONNECTION,
+            "pass",
+            "The security certificate is valid",
+            None,
+            f.issuer.as_ref().map(|issuer| format!("Issued by {issuer}")),
+        ),
+        Some(false) => add(CONNECTION, "fail", "The security certificate is not valid", None, f.certificate_error.clone()),
+        None => {}
+    }
+    // Only a valid certificate has an expiry worth counting down: an expired
+    // or broken one has already failed the check above.
+    if let (Some(true), Some((days, words))) = (f.certificate_valid, &f.days_to_expiry) {
+        if *days < EXPIRY_WARNING_DAYS {
+            add(CONNECTION, "fail", "The security certificate expires soon", None, Some(format!("In {words}")));
+        } else {
+            add(CONNECTION, "pass", "The security certificate is not close to expiring", None, Some(format!("Expires in {words}")));
+        }
+    }
+    if let Some(protocol) = &f.protocol {
+        let words = protocol.replace("TLSv", "TLS ").replace("SSLv", "SSL ");
+        if matches!(protocol.as_str(), "TLSv1.1" | "TLSv1" | "SSLv3") {
+            add(CONNECTION, "fail", "The connection uses outdated encryption", None, Some(words));
+        } else {
+            add(CONNECTION, "pass", "The connection uses up-to-date encryption", None, Some(words));
+        }
+    }
+    match f.upgrades_to_https {
+        Some(true) => add(CONNECTION, "pass", "Visitors to http:// are moved to the secure site", None, None),
+        Some(false) => add(CONNECTION, "fail", "Visitors to http:// are not moved to the secure site", None, None),
+        None => {}
+    }
+    for (protects, name, set) in &f.headers {
+        if *set {
+            add(SETTINGS, "pass", protects, Some(name.clone()), None);
+        } else {
+            add(SETTINGS, "average", protects, Some(name.clone()), Some("Missing".into()));
+        }
+    }
+    match f.cookies_total {
+        Some(0) => add(COOKIES, "informative", "The home page sets no cookies", None, None),
+        Some(total) => {
+            let how_many = |n: i64| match (n == total, total) {
+                (true, 1) => "1 cookie".to_string(),
+                (true, _) => format!("All {total} cookies"),
+                (false, _) => format!("{n} of {total} cookies"),
+            };
+            for (count, problem, fine, flag) in [
+                (f.cookies_insecure, "Cookies can be sent unencrypted", "Cookies are only sent encrypted", "Secure"),
+                (f.cookies_no_httponly, "Cookies can be read by scripts", "Cookies are hidden from scripts", "HttpOnly"),
+                (f.cookies_no_samesite, "Cookies lack cross-site protection", "Cookies have cross-site protection", "SameSite"),
+            ] {
+                match count {
+                    Some(0) => add(COOKIES, "pass", fine, Some(format!("{flag} flag")), None),
+                    Some(n) => add(COOKIES, "average", problem, Some(format!("no {flag} flag")), Some(how_many(n))),
+                    None => {}
+                }
+            }
+        }
+        None => {}
+    }
+
+    let total = rows.iter().filter(|(_, r)| r["rating"] != "informative").count();
+    let passed = rows.iter().filter(|(_, r)| r["rating"] == "pass").count();
+    let gauge = if total == 0 {
+        Json::Null
+    } else {
+        let share = passed as f64 / total as f64;
+        let any_fail = rows.iter().any(|(_, r)| r["rating"] == "fail");
+        json!({
+            "label": "Security",
+            "fraction": true,
+            "passed": passed,
+            "total": total,
+            "score": passed,
+            "rating": if any_fail { "fail" } else { band(share * 100.0) },
+            // No arc at all for none passed: a zero-length arc draws a dot.
+            "dash": if passed == 0 {
+                Json::Null
+            } else {
+                json!(format!("{:.2} {GAUGE_RING:.2}", share * GAUGE_RING))
+            },
+            "site_median": Json::Null,
+        })
+    };
+    let groups = [CONNECTION, SETTINGS, COOKIES]
+        .into_iter()
+        .filter_map(|title| {
+            let problems: Vec<Json> = rows
+                .iter()
+                .filter(|(group, r)| *group == title && r["rating"] != "pass")
+                .map(|(_, r)| r.clone())
+                .collect();
+            (!problems.is_empty()).then(|| json!({ "title": title, "rows": problems }))
+        })
+        .collect();
+    let passed_rows = rows.iter().filter(|(_, r)| r["rating"] == "pass").map(|(_, r)| r.clone()).collect();
+    SecurityChecks { gauge, passed, total, groups, passed_rows }
+}
+
 /// `(p10, median)` scoring control points for one metric.
 type ControlPoints = (f64, f64);
 
@@ -1269,6 +1420,9 @@ fn build_model(conn: &Connection, run_id: i64) -> Result<Json, String> {
                 "label": label,
                 "median": median.round() as i64,
                 "rating": band(median),
+                // The typical score drawn as a small gauge, as Lighthouse
+                // draws every score.
+                "gauge": gauge(label, Some(median)),
                 "n": n,
                 "fail": fail, "average": average, "pass": pass,
                 "fail_pct": pct(fail), "average_pct": pct(average), "pass_pct": pct(pass),
@@ -1673,6 +1827,37 @@ fn build_model(conn: &Connection, run_id: i64) -> Result<Json, String> {
         Vec::new()
     };
 
+    // The same facts as checks, the way Lighthouse lists audits: a shape, a
+    // title that says what was found, and the detail beside it. Every check
+    // counts toward the Security gauge's "N of M checks passed"; an
+    // informative row (no cookies to check) does not.
+    let security = security_checks(&SecurityFacts {
+        certificate_valid: num("tls.valid").map(|v| v != 0.0),
+        certificate_error: fmt("tls.error"),
+        issuer: fmt("tls.issuer"),
+        days_to_expiry: num("tls.days_to_expiry").zip(fmt("tls.days_to_expiry")),
+        protocol: fmt("tls.protocol"),
+        upgrades_to_https: num("redirect.upgrades_to_https").map(|v| v != 0.0),
+        headers: if checked_headers {
+            headers
+                .iter()
+                .map(|h| {
+                    (
+                        h["label"].as_str().unwrap_or("").to_string(),
+                        h["name"].as_str().unwrap_or("").to_string(),
+                        h["set"] == true,
+                    )
+                })
+                .collect()
+        } else {
+            Vec::new()
+        },
+        cookies_total,
+        cookies_insecure: num("sec.cookies_insecure").map(|n| n as i64),
+        cookies_no_httponly: num("sec.cookies_no_httponly").map(|n| n as i64),
+        cookies_no_samesite: num("sec.cookies_no_samesite").map(|n| n as i64),
+    });
+
     // --- technology ---
     let wp_rocket = if num("wprocket.present") == Some(1.0) {
         Some(fmt("wprocket.version").unwrap_or_else(|| "installed".into()))
@@ -1805,6 +1990,13 @@ fn build_model(conn: &Connection, run_id: i64) -> Result<Json, String> {
             "headers_total": 6,
             "cookies_total": cookies_total,
             "cookies": cookies,
+            // The checks, Lighthouse style: problems by group, then what passed,
+            // and the gauge that counts them.
+            "gauge": security.gauge,
+            "passed": security.passed,
+            "total": security.total,
+            "groups": security.groups,
+            "passed_rows": security.passed_rows,
         },
         "about": {
             // "tested", "failed" (tried, and no page could be measured) or "none".
@@ -2113,6 +2305,153 @@ mod tests {
         assert_eq!(model["security"]["headers_total"], 6);
         assert_eq!(model["security"]["headers_set"], 1);
         assert_eq!(model["security"]["cookies"].as_array().unwrap().len(), 2, "only the counts recorded");
+    }
+
+    /// The six headers, all set but the ones named.
+    fn headers_missing(missing: &[&str]) -> Vec<(String, String, bool)> {
+        [
+            "Strict-Transport-Security",
+            "Content-Security-Policy",
+            "X-Frame-Options",
+            "X-Content-Type-Options",
+            "Referrer-Policy",
+            "Permissions-Policy",
+        ]
+        .iter()
+        .map(|name| (format!("Protects with {name}"), name.to_string(), !missing.contains(name)))
+        .collect()
+    }
+
+    fn titles_of(rows: &Json) -> Vec<String> {
+        rows.as_array().unwrap().iter().map(|r| r["title"].as_str().unwrap().to_string()).collect()
+    }
+
+    #[test]
+    fn security_checks_list_problems_by_group_and_count_what_passed() {
+        let s = security_checks(&SecurityFacts {
+            certificate_valid: Some(true),
+            issuer: Some("Let's Encrypt".into()),
+            days_to_expiry: Some((54.0, "54 days".into())),
+            protocol: Some("TLSv1.3".into()),
+            upgrades_to_https: Some(true),
+            headers: headers_missing(&["Permissions-Policy"]),
+            cookies_total: Some(2),
+            cookies_insecure: Some(0),
+            cookies_no_httponly: Some(0),
+            cookies_no_samesite: Some(1),
+            ..Default::default()
+        });
+        assert_eq!((s.passed, s.total), (11, 13));
+        assert_eq!(s.gauge["rating"], "average", "11 of 13 is Lighthouse's middle band");
+        assert_eq!(s.gauge["fraction"], true);
+        assert_eq!(s.gauge["dash"], format!("{:.2} {GAUGE_RING:.2}", 11.0 / 13.0 * GAUGE_RING));
+
+        // Only the problems sit in the groups, in group order.
+        let groups: Vec<&str> = s.groups.iter().map(|g| g["title"].as_str().unwrap()).collect();
+        assert_eq!(groups, ["Protective settings", "Cookies"]);
+        let header = &s.groups[0]["rows"][0];
+        assert_eq!((header["rating"].as_str(), header["display"].as_str()), (Some("average"), Some("Missing")));
+        assert_eq!(header["aside"], "Permissions-Policy", "the header's own name, for whoever sets it");
+        let cookie = &s.groups[1]["rows"][0];
+        assert_eq!(cookie["title"], "Cookies lack cross-site protection");
+        assert_eq!(cookie["display"], "1 of 2 cookies");
+        assert_eq!(cookie["aside"], "no SameSite flag");
+
+        // What passed follows, first the connection.
+        assert_eq!(s.passed_rows.len(), 11);
+        assert_eq!(s.passed_rows[0]["title"], "The security certificate is valid");
+        assert_eq!(s.passed_rows[0]["display"], "Issued by Let's Encrypt");
+        assert_eq!(s.passed_rows[1]["display"], "Expires in 54 days");
+        assert_eq!(s.passed_rows[2]["display"], "TLS 1.3");
+    }
+
+    #[test]
+    fn a_failed_security_check_turns_the_gauge_red_however_much_else_passes() {
+        let s = security_checks(&SecurityFacts {
+            certificate_valid: Some(false),
+            certificate_error: Some("certificate has expired".into()),
+            protocol: Some("TLSv1.2".into()),
+            upgrades_to_https: Some(true),
+            headers: headers_missing(&[]),
+            cookies_total: Some(1),
+            cookies_insecure: Some(0),
+            cookies_no_httponly: Some(0),
+            cookies_no_samesite: Some(0),
+            ..Default::default()
+        });
+        assert_eq!((s.passed, s.total), (11, 12), "over Lighthouse's 90% line");
+        assert_eq!(s.gauge["rating"], "fail");
+        assert_eq!(titles_of(&s.groups[0]["rows"]), ["The security certificate is not valid"]);
+        assert_eq!(s.groups[0]["rows"][0]["display"], "certificate has expired");
+
+        // Outdated encryption and an expiring certificate fail the same way.
+        let s = security_checks(&SecurityFacts {
+            certificate_valid: Some(true),
+            days_to_expiry: Some((9.0, "9 days".into())),
+            protocol: Some("TLSv1".into()),
+            ..Default::default()
+        });
+        assert_eq!(
+            titles_of(&s.groups[0]["rows"]),
+            ["The security certificate expires soon", "The connection uses outdated encryption"]
+        );
+        assert_eq!(s.groups[0]["rows"][0]["display"], "In 9 days");
+        assert_eq!(s.groups[0]["rows"][1]["display"], "TLS 1");
+
+        // An expired certificate is not valid, and is not also "expiring".
+        let s = security_checks(&SecurityFacts {
+            certificate_valid: Some(false),
+            certificate_error: Some("certificate has expired".into()),
+            days_to_expiry: Some((-3.0, "-3 days".into())),
+            ..Default::default()
+        });
+        assert_eq!(titles_of(&s.groups[0]["rows"]), ["The security certificate is not valid"]);
+    }
+
+    #[test]
+    fn security_with_nothing_to_count_draws_no_gauge_and_none_passed_draws_no_arc() {
+        let s = security_checks(&SecurityFacts::default());
+        assert!(s.gauge.is_null() && s.groups.is_empty() && s.passed_rows.is_empty());
+
+        // No cookies is worth saying, but it is not a check to pass or fail.
+        let s = security_checks(&SecurityFacts { cookies_total: Some(0), ..Default::default() });
+        assert!(s.gauge.is_null());
+        assert_eq!(s.groups[0]["rows"][0]["rating"], "informative");
+        assert_eq!(s.groups[0]["rows"][0]["title"], "The home page sets no cookies");
+
+        let s = security_checks(&SecurityFacts {
+            upgrades_to_https: Some(false),
+            headers: headers_missing(&["Content-Security-Policy"]),
+            cookies_total: Some(3),
+            cookies_insecure: Some(3),
+            ..Default::default()
+        });
+        assert_eq!((s.passed, s.total), (5, 8));
+        assert_eq!(s.groups[2]["rows"][0]["display"], "All 3 cookies");
+        let none = security_checks(&SecurityFacts { upgrades_to_https: Some(false), ..Default::default() });
+        assert_eq!((none.passed, none.total), (0, 1));
+        assert!(none.gauge["dash"].is_null(), "a zero-length arc would draw a dot");
+    }
+
+    #[test]
+    fn the_security_gauge_heads_a_report_with_or_without_lighthouse() {
+        let env = environment().unwrap();
+        let tmpl = env.get_template("report").unwrap();
+        let (conn, run) = stored_run();
+        let model = build_model(&conn, run).unwrap();
+        // HSTS set, five headers missing, and both cookies sent unencrypted.
+        assert_eq!((model["security"]["passed"].as_u64(), model["security"]["total"].as_u64()), (Some(1), Some(7)));
+        let html = tmpl.render(minijinja::Value::from_serialize(&model)).unwrap();
+        let summary = &html[html.find("class=\"gauges summary\"").expect("a gauge row with no Lighthouse")..];
+        let summary = &summary[..summary.find("</p>").unwrap()];
+        assert!(summary.contains(">1/7</text>") && summary.contains("Checks passed"), "{summary}");
+        assert!(!summary.contains("gauge-sep"), "no divider with nothing before it");
+        assert!(summary.contains("Lighthouse was not run for this audit"));
+        assert!(!summary.contains("scorescale"), "the score scale is Lighthouse's, so it goes with its gauges");
+        assert!(html.contains("1 of 7 checks passed"));
+        assert!(html.contains("Passed checks <span class=\"count\">(1)</span>"));
+        assert!(html.contains("Cookies can be sent unencrypted"));
+        assert!(!html.contains("recommended protections"), "the gauge's count replaced the old headline");
     }
 
     #[test]

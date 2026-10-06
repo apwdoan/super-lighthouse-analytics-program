@@ -638,6 +638,8 @@ async function viewAudit() {
     el("p", { class: "lead" }, "Paste site URLs, one per line. Normalisation and the run happen when you press Run."));
   const box = el("textarea", { placeholder: "example.com\nhttps://another-site.org\n…" });
   const lighthouse = el("input", { type: "checkbox" });
+  // Ticked by default: the report's gauges and speed figures come from it.
+  lighthouse.checked = s.lighthouse_enabled !== false;
   const probe = el("input", { type: "checkbox" });
 
   // Lighthouse coverage: a setting (config.toml), chosen here where its cost is visible.

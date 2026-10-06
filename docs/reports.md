@@ -134,12 +134,24 @@ do (findings across pages, security, software), and the words, which are
 written for the site's owner rather than its developer (see *Plain language*
 below).
 
+*Brought closer to Lighthouse 2026-10-06*, against a real Lighthouse 13
+report rendered beside it: Lighthouse's font stack (`system-ui` first, so
+Segoe UI on Windows and San Francisco on a Mac), scores and the score scale
+in monospace at Lighthouse's proportions (a third of the ring), gauge labels
+in medium weight, categories headed by a centred gauge with the name under
+it, "Passed checks (12)" lines where Lighthouse has its closed "Passed
+audits" clumps, a gauge wherever a score is shown on its own, and the test
+details as Lighthouse's runtime strip with an icon each.
+
 Page one is the verdict, not the data.
 
 1. **Gauges.** The home page's four Lighthouse categories, as Lighthouse draws
    them, with "Typical page: N" under each (the median of every page tested)
-   when several pages were tested, and a legend that names the bands: poor,
-   needs work, good.
+   when several pages were tested, and Lighthouse's score-scale legend with
+   the bands named: poor, needs work, good. After a divider, the **Security**
+   gauge, which counts checks rather than scoring them ("11/13"; see item 7).
+   An audit without Lighthouse still opens on a gauge: Security alone, with
+   a sentence saying why there are no Lighthouse scores.
 2. **Verdict.** "Google's Core Web Vitals for real visitors: Passed / Failed /
    Not enough data", a plain headline, and the three field metrics (main
    content, responsiveness, layout shift) in the PageSpeed Insights layout:
@@ -158,11 +170,12 @@ Page one is the verdict, not the data.
    each with its plain name, Lighthouse's short name, and one line on what it
    means; "Ways to make it faster", the failing and needs-work audits as one
    list with their savings; then the other three categories side by side,
-   each with a sentence on what it measures, its problems, and how many
-   checks passed.
+   each headed as Lighthouse heads a category (its gauge centred, the name
+   under it, a sentence on what it measures), then its problems and a
+   "Passed checks (N)" line.
 5. **Across the site.** The coverage sentence; per category, the typical
-   score and a stacked bar of how many pages are poor, need work, or are
-   good; the most common problems with their reach ("38 of 40 pages") and
+   score as a small gauge and a stacked bar of how many pages are poor, need
+   work, or are good; the most common problems with their reach ("38 of 40 pages") and
    typical saving; then every page with its four scores, main content time
    (LCP) and issue count. A page's issues are its own: a problem with the
    whole site is stored on the home page, and counting it there would make
@@ -181,10 +194,22 @@ Page one is the verdict, not the data.
    so forty product pages from one template do not become forty sections.
    When one page of each type was tested, every one gets a section: it
    speaks for its type. Capped at 25 sections, the remainder counted.
-7. **Security.** The secure connection (certificate, issuer, expiry, TLS
-   version, the http-to-https redirect), cookies, and the six headers the
-   HTTP collector expects as a Set / Missing checklist, each named by what it
-   protects with the header's own name beneath it.
+7. **Security.** Laid out as a Lighthouse category (`security_checks` in
+   report.rs). Up to 13 checks on the home page: the certificate (valid, not
+   close to expiring), the encryption, the move from http:// to https://, the
+   six headers the HTTP collector expects, and the Secure, HttpOnly and
+   SameSite flags when cookies are set. Each is an audit row: the shape, a
+   title saying what was found, the detail ("Missing", "1 of 2 cookies",
+   "TLS 1.3"), and a header's or flag's own name beneath, for whoever sets
+   it. The problems come first, by group (secure connection, protective
+   settings, cookies), then "Passed checks (N)" lists the rest. The gauge
+   counts them: its arc is the share passed and its colour Lighthouse's band
+   for that share (90% and up green, 50% and up orange), except that any
+   failed check (red triangle: an invalid or expiring certificate, outdated
+   encryption, no move to https) makes it red, so a broken certificate never
+   sits under a green gauge. "The home page sets no cookies" is
+   informative, not a check, and is not counted. With nothing checked there
+   is no gauge and no section.
 8. **Software and technology.** Platform, builder, CDN, server, caching and
    WP Rocket; the software found; known security flaws in a sentence; and the
    vulnerability database's date, with the NVD's required attribution. The
@@ -193,7 +218,7 @@ Page one is the verdict, not the data.
    were found, not that nothing was checked.
 9. **About this report.** How the audit tested, in plain bullets; the test
    details (date, pages tested, device, connection, tool, browser, tests per
-   page, reference); notes on the results; and a dozen other measurements in
+   page, reference) as Lighthouse's runtime strip, an icon each; notes on the results; and a dozen other measurements in
    plain words. Metric keys, sources, schema versions, batch ids, the
    benchmark index and the throttling profile are no longer printed: the
    full record stays in the app, and the report says it is available on
@@ -209,9 +234,12 @@ it does the most good: the performance gauge sits beside its metrics, the
 other categories sit three abreast, a page section puts its gauges beside a
 two-column metric list and flows its problems across two columns, a
 finding's scope and effort share one line with its pages listed inline, the
-connection and cookie tables sit beside the header checklist, and the other
-measurements run two to a row. Print margins are 9mm by 10mm (`@page`). If a
-change needs more room, take it from padding before touching a font size.
+security checks flow across two columns, and the other measurements run two
+to a row. Print margins are 9mm by 10mm (`@page`). If a change needs more
+room, take it from padding before touching a font size. Bringing the look
+closer to Lighthouse (the centred category gauges, the Security category,
+the gauge rows) cost about a third of a sheet on the test sites, which put
+some of them a sheet longer; the PDF fitting then fills that last sheet.
 
 **The audit lists come from a stored summary, not a re-parsed LHR.** When a
 page is measured, the median run's LHR is reduced to a few KB (failing and
@@ -285,7 +313,7 @@ critical/high findings.
 | Pass (90-100) | `#0c6` | `#080` |
 | Average (50-89) | `#fa3` | `#c33300` |
 | Fail (0-49) | `#f33` | `#c00` |
-| Informative | `#757575` outline | ink |
+| Informative | `#bdbdbd` outline | ink |
 
 Two rules carry over from the earlier palette, because they are about
 accessibility rather than taste:

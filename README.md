@@ -38,10 +38,12 @@ metrics with Lighthouse's short names beside them, Lighthouse's audits
 retitled as the problems they describe, and savings in seconds and KB.
 
 Page one is the verdict, not the data: the home page's four Lighthouse gauges
-(with the typical page's score under each when several pages were tested), a
+(with the typical page's score under each when several pages were tested)
+and a Security gauge counting the checks the home page passed, a
 plain-language Core Web Vitals verdict from real-visitor data, and **What to
 fix first**, every critical, high and medium finding in full with how to fix
-it and the pages it affects. Then:
+it and the pages it affects. An audit run without Lighthouse still opens on
+the Security gauge. Then:
 
 - **Home page in detail**: the speed measurements, the ways to make the page
   faster, and each other category's problems.
@@ -51,9 +53,12 @@ it and the pages it affects. Then:
 - **Pages worth a closer look**: a section for each page that stands out,
   with pages of one type that share the same problems shown once, so an
   every-page report stays readable.
-- **Security**, **Software and technology**, and **About this report**: how
-  the audit tested, the test details, notes on the results, and a short list
-  of other measurements.
+- **Security**, laid out as a Lighthouse category: its gauge, the problems
+  with the connection, protective settings and cookies, then the checks that
+  passed.
+- **Software and technology**, and **About this report**: how the audit
+  tested, the test details, notes on the results, and a short list of other
+  measurements.
 
 The design rules behind this layout live in [`docs/reports.md`](docs/reports.md).
 
@@ -102,9 +107,13 @@ a section), so a config file alone controls it:
 ## Lighthouse on every page
 
 With Lighthouse on, SLAP runs full, self-hosted Lighthouse (the bundled Node
-worker driving a pinned Chrome for Testing, median of 3 runs a page). Which
-pages it measures is a setting, chosen in **New audit** or **Settings →
-Lighthouse**, and saved as `[lighthouse] scope` in `config.toml`:
+worker driving a pinned Chrome for Testing, median of 3 runs a page). It is
+on by default: **New audit** starts with Lighthouse ticked, since the
+report's gauges and speed figures come from it. Untick it for a quick
+server-and-security pass, or set `[lighthouse] enabled = false` in
+`config.toml` to have it start unticked. Which pages it measures is a
+setting, chosen in **New audit** or **Settings → Lighthouse**, and saved as
+`[lighthouse] scope` in `config.toml`:
 
 - **One page per template** (`sampled`, the default): the most representative
   pages, up to `lighthouse_pages_per_site` (5) a site.

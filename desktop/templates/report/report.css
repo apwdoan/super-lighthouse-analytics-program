@@ -24,8 +24,10 @@
  */
 
 :root {
-  --font: Roboto, Helvetica, Arial, sans-serif;
-  --mono: "Roboto Mono", Menlo, "DejaVu Sans Mono", Consolas, "Lucida Console", monospace;
+  /* Lighthouse's own type: the system face for text, and a monospace face
+   * for scores and the score scale. */
+  --font: system-ui, Roboto, Helvetica, Arial, sans-serif;
+  --mono: monospace, "Roboto Mono", Menlo, "DejaVu Sans Mono", Consolas, "Lucida Console";
 
   --text: #212121;
   --text-2: #616161;
@@ -121,13 +123,19 @@ code { font-family: var(--mono); font-size: 0.92em; }
   gap: 4px 18px;
   padding: 6px 0 2px;
 }
+/* Lighthouse's gauge: a ring of the band's colour at a tenth strength, the
+ * arc over it with round ends, and the score in monospace at about a third
+ * of the ring's size (120 units across, so 42). */
 .gauge { width: 112px; text-align: center; break-inside: avoid; }
 .gauge svg { display: block; width: 88px; height: 88px; margin: 0 auto; }
 .gauge .base { stroke-width: 8; }
 .gauge .arc { fill: none; stroke-width: 8; stroke-linecap: round; }
-.gauge .num { font-family: var(--font); font-size: 30px; font-weight: 400; text-anchor: middle; dominant-baseline: central; }
-.gauge .label { font-size: 13px; line-height: 1.3; margin-top: 4px; color: var(--text); }
+.gauge .num { font-family: var(--mono); font-size: 42px; font-weight: 400; text-anchor: middle; dominant-baseline: central; }
+.gauge .num.frac { font-size: 30px; }
+.gauge .label { font-size: 13px; font-weight: 500; line-height: 1.3; margin-top: 6px; color: var(--text); }
 .gauge .sub { font-size: 10.5px; color: var(--text-3); line-height: 1.35; margin-top: 1px; }
+/* Security sits after Lighthouse's four, set apart as its own measure. */
+.gauge-sep { width: 1px; align-self: stretch; margin: 8px 2px 26px; background: var(--line-2); }
 .gauge.pass .base { fill: var(--pass-tint); stroke: var(--pass-tint); }
 .gauge.pass .arc { stroke: var(--pass); }
 .gauge.pass .num { fill: var(--pass-text); }
@@ -138,43 +146,55 @@ code { font-family: var(--mono); font-size: 0.92em; }
 .gauge.fail .arc { stroke: var(--fail); }
 .gauge.fail .num { fill: var(--fail-text); }
 .gauge.none .base { fill: var(--info-tint); stroke: var(--info-tint); }
-.gauge.none .num { fill: var(--text-3); font-size: 20px; }
+.gauge.none .num { fill: var(--text-3); font-size: 28px; }
 
+/* A category's own gauge, as Lighthouse heads each category with one. */
 .gauge.big { width: 160px; }
-.gauge.big svg { width: 120px; height: 120px; }
-.gauge.big .num { font-size: 38px; }
-.gauge.big .label { font-size: 20px; margin-top: 4px; }
+.gauge.big svg { width: 96px; height: 96px; }
+.gauge.big .label { font-size: 18px; margin-top: 8px; }
 
-.gauge.small { width: 72px; }
-.gauge.small svg { width: 52px; height: 52px; }
-.gauge.small .num { font-size: 34px; }
-.gauge.small .label { font-size: 11px; margin-top: 2px; }
+.gauge.mid { width: auto; }
+.gauge.mid svg { width: 72px; height: 72px; }
+.gauge.mid .label { font-size: 15px; margin-top: 6px; }
 
-/* Lighthouse's score-scale legend. */
+.gauge.small { width: 70px; }
+.gauge.small svg { width: 48px; height: 48px; }
+.gauge.small .label { font-size: 10.5px; margin-top: 3px; white-space: nowrap; }
+
+/* The smallest, in a table row, where the row names the category. */
+.gauge.tiny { width: auto; }
+.gauge.tiny svg { width: 32px; height: 32px; }
+.gauge.tiny .label { display: none; }
+
+/* Lighthouse's score-scale legend: the shapes and the ranges in monospace,
+ * with the band's name beside each. */
 .scorescale {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 28px;
+  margin: 6px 0 0;
   font-size: 11.5px;
   color: var(--text-2);
-  margin-right: 10px;
-  vertical-align: middle;
 }
-.scorescale span { display: inline-flex; align-items: center; gap: 5px; }
-.scale-caption { text-align: center; margin: 2px 0 0; }
+.scorescale .range { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.scorescale .n { font-family: var(--mono); }
+.scale-caption { text-align: center; margin: 3px 0 0; }
 
 /* ----------------------------------------------- rating shapes (Lighthouse) */
 
-.icon { display: inline-block; flex: none; width: 10px; height: 10px; }
+/* Lighthouse's sizes: the square a little smaller than the circle so the two
+ * read as the same weight. */
+.icon { display: inline-block; flex: none; width: 11px; height: 11px; }
 .icon.pass { border-radius: 50%; background: var(--pass); }
-.icon.average { background: var(--average); }
+.icon.average { width: 9.7px; height: 9.7px; margin-left: 0.65px; margin-right: 0.65px; background: var(--average); }
 .icon.fail {
   width: 0; height: 0;
   border-left: 5.5px solid transparent;
   border-right: 5.5px solid transparent;
-  border-bottom: 10px solid var(--fail);
+  border-bottom: 11px solid var(--fail);
 }
-.icon.informative { border-radius: 50%; border: 2px solid var(--info); background: transparent; }
+.icon.informative { border-radius: 50%; border: 2px solid #bdbdbd; background: transparent; }
 .icon.none { border-radius: 50%; background: var(--line-2); }
 
 /* ---------------------------------------------------------- sections */
@@ -241,61 +261,61 @@ section > p.secondary { margin-bottom: 4px; }
 
 /* ------------------------------------------------- Lighthouse categories */
 
+/* Lighthouse heads each category with its gauge, centred, the category's
+ * name under it, and a line on what it measures. */
 .lh-category { margin-top: 8px; break-inside: auto; }
 .lh-category-head { display: flex; flex-direction: column; align-items: center; padding: 2px 0; break-inside: avoid; break-after: avoid; }
-.lh-category-head .description { text-align: center; max-width: 34em; font-size: 12px; color: var(--text-2); margin-top: 2px; }
-.lh-category-head.inline { flex-direction: row; gap: 12px; align-items: center; padding: 4px 0 0; }
+.lh-category-head .description { text-align: center; max-width: 34em; font-size: 12px; line-height: 1.5; color: var(--text-2); margin: 3px 0 6px; }
+.lh-category-head + .audit, .lh-category-head + .clump-head { border-top: 1px solid var(--line-2); }
 /* The performance gauge beside its metrics, rather than above them. */
 .perf-top { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 18px; align-items: start; break-inside: avoid; }
 .metrics-head .plain { text-transform: none; letter-spacing: 0; }
-.lh-category-head.inline .gauge { margin: 0; }
-.lh-category-head.inline .title { font-size: 17px; }
-/* The title sits beside the small gauge here, so the gauge's own label
- * would print it twice. */
-.lh-category-head.inline .gauge .label { display: none; }
-.lh-category-head.inline .gauge { width: auto; }
-/* The three other categories side by side under the performance block,
- * each with a line on what it measures. */
-.cat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 22px; margin-top: 6px; }
+/* The three other categories side by side under the performance block. */
+.cat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 22px; margin-top: 10px; }
 .cat-grid .lh-category { margin-top: 4px; }
-.cat-blurb { font-size: 11.5px; color: var(--text-3); line-height: 1.4; padding: 2px 0 4px; border-bottom: 1px solid var(--line-2); }
+.cat-grid .lh-category-head .description { font-size: 11.5px; line-height: 1.4; }
 
 /* Lighthouse's metrics grid: two columns, a shape, the name, and the value
  * large beneath it in the rating's text colour. */
-.metrics-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid var(--line-2); padding: 2px 0 3px; font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
+.metrics-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid var(--line-2); padding: 2px 0 3px; font-size: 11.5px; font-weight: 500; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-2); }
 .metrics { display: grid; grid-template-columns: 1fr 1fr; column-gap: 28px; }
 .metric { padding: 4px 0 3px; border-bottom: 1px solid var(--line); break-inside: avoid; }
 .metric .title { display: flex; align-items: center; gap: 9px; font-size: 13px; }
-.metric .value { font-size: 22px; line-height: 1.2; margin: 0 0 0 19px; }
+.metric .value { font-size: 24px; line-height: 1.2; margin: 0 0 0 20px; }
 .metric.pass .value { color: var(--pass-text); }
 .metric.average .value { color: var(--average-text); }
 .metric.fail .value { color: var(--fail-text); }
 .metric .spread { font-size: 10.5px; color: var(--text-3); margin-left: 6px; }
 /* Lighthouse's short name beside the plain one, and a line on what it means. */
 .metric .abbr { font-size: 11px; color: var(--text-3); margin-left: -3px; }
-.metric .hint { font-size: 11px; color: var(--text-3); line-height: 1.35; margin: 0 0 1px 19px; }
+.metric .hint { font-size: 11px; color: var(--text-3); line-height: 1.35; margin: 0 0 1px 20px; }
 
-/* Audit groups and rows, as Lighthouse lists them. */
+/* Audit groups and rows, as Lighthouse lists them: an uppercase group name
+ * over a ruled list, each row a shape and a title, with what it costs in the
+ * band's colour. */
 .audit-group { margin-top: 8px; }
-.audit-group-head {
-  font-size: 11px;
+.audit-group-head, .clump-head {
+  font-size: 11.5px;
   font-weight: 500;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.8px;
   text-transform: uppercase;
   color: var(--text-2);
   padding: 2px 0 3px;
   border-bottom: 1px solid var(--line-2);
   break-after: avoid;
 }
-.audit-group-head .count { color: var(--text-3); }
+.audit-group-head .count, .clump-head .count { color: var(--text-3); }
+/* Lighthouse's "Passed audits" line, closed: the count, ruled off. */
+.clump-head { margin-top: 6px; break-inside: avoid; }
 .audit { display: flex; gap: 10px; align-items: flex-start; padding: 3px 0 3px; border-bottom: 1px solid var(--line); break-inside: avoid; }
-.audit .icon { margin-top: 5px; }
+.audit .icon { margin-top: 4.5px; }
 .audit .body { flex: 1; min-width: 0; }
 .audit .title { font-size: 13px; }
 .audit .display { font-size: 12px; margin-left: 6px; color: var(--text-2); }
 .audit.fail .display { color: var(--fail-text); }
 .audit.average .display { color: var(--average-text); }
 .audit .aside { font-size: 11.5px; color: var(--text-3); margin-left: 8px; }
+.audit .tech { font-family: var(--mono); font-size: 10.5px; line-height: 1.35; color: var(--text-3); }
 .audit-group.common { margin-top: 12px; }
 .audit .spread-pages { font-size: 11px; color: var(--text-2); white-space: nowrap; text-align: right; min-width: 72px; }
 .audit .spread-pages b { font-weight: 500; color: var(--text); }
@@ -367,10 +387,7 @@ section > p.secondary { margin-bottom: 4px; }
 .coverage b { font-weight: 500; color: var(--text); }
 .dist { display: grid; grid-template-columns: 130px 52px 1fr 150px; align-items: center; gap: 10px; padding: 2px 0; border-bottom: 1px solid var(--line); break-inside: avoid; }
 .dist .name { font-size: 13px; }
-.dist .median { font-size: 18px; text-align: right; font-variant-numeric: tabular-nums; }
-.dist .median.pass { color: var(--pass-text); }
-.dist .median.average { color: var(--average-text); }
-.dist .median.fail { color: var(--fail-text); }
+.dist .median { display: flex; justify-content: flex-end; }
 .stack { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--line); }
 .stack span { display: block; height: 100%; }
 .stack .fail { background: var(--fail); }
@@ -423,9 +440,10 @@ td.path { font-family: var(--mono); font-size: 11px; white-space: nowrap; max-wi
 .page-detail .keep { break-inside: avoid; }
 /* Gauges and metrics side by side; each metric on one line, value right. */
 .page-top { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: center; margin-top: 4px; }
-.page-detail .gauges { justify-content: flex-start; flex-wrap: nowrap; gap: 4px; padding: 0; }
+.page-detail .gauges { justify-content: flex-start; flex-wrap: nowrap; gap: 2px; padding: 0; }
 .page-detail .metrics { grid-template-columns: 1fr 1fr; column-gap: 16px; }
 .page-detail .metric { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 2px 0; }
+.page-detail .metric .title { white-space: nowrap; }
 .page-detail .metric .value { font-size: 17px; margin: 0; white-space: nowrap; }
 /* Failing audits flow across two columns, category after category. */
 .page-detail .cats { columns: 2; column-gap: 22px; }
@@ -436,12 +454,15 @@ td.path { font-family: var(--mono); font-size: 11px; white-space: nowrap; max-wi
 
 /* ------------------------------------------------------------- security */
 
-.sec-group { margin-bottom: 8px; break-inside: avoid; }
-.sec-group h3 { font-size: 13px; font-weight: 500; margin-bottom: 2px; }
-/* The header's own name under what it protects, for whoever sets it. */
-.sec-group .tech { font-size: 11px; color: var(--text-3); }
-.sec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 22px; }
-.status-cell { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; }
+/* Security as a Lighthouse category. The section's heading names it, so its
+ * gauge does not print the name a second time. */
+.security .lh-category-head .gauge .label { display: none; }
+/* Problems by group, then the checks that passed, across two columns. A
+ * header's or cookie flag's own name sits under the check (.audit .tech),
+ * for whoever sets it. */
+.sec-cats { columns: 2; column-gap: 22px; }
+.sec-cats .audit-group { margin-top: 6px; }
+.sec-cats .audit-group:first-child { margin-top: 0; }
 .techlist { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 
 /* ------------------------------------------------------ about this report */
@@ -458,10 +479,13 @@ td.path { font-family: var(--mono); font-size: 11px; white-space: nowrap; max-wi
 .methodology ul { margin: 0 0 6px; padding-left: 18px; }
 .methodology li { margin-bottom: 0; }
 
-/* The test details: date, pages, device, connection, tool. */
-.runtime { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; margin: 2px 0 4px; }
-.runtime div { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px solid var(--line-2); font-size: 11.5px; }
-.runtime div span:first-child { color: var(--text-3); min-width: 9.5em; }
+/* The test details, as Lighthouse's runtime-settings strip: an icon for
+ * each, then what it is. */
+.runtime { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 24px; margin: 3px 0 6px; }
+.runtime .env { display: flex; align-items: flex-start; gap: 8px; font-size: 11.5px; line-height: 1.45; break-inside: avoid; }
+.runtime .env-icon { flex: none; width: 14px; height: 14px; margin-top: 1.5px; fill: none; stroke: var(--text-3); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.runtime .k { color: var(--text-3); min-width: 8.5em; }
+.runtime .v { color: var(--text); }
 
 .footer-note { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--line-2); font-size: 10.5px; color: var(--text-3); text-align: center; }
 

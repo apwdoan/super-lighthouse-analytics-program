@@ -198,7 +198,10 @@ pub fn get_settings() -> Result<Json, String> {
         // suggestions, and their "How to fix" advice.
         "wp_rocket_suggestions": settings.wp_rocket_suggestions,
         "fix_advice": settings.fix_advice,
-        // What the composer needs to describe and estimate a Lighthouse batch.
+        // What the composer needs to describe and estimate a Lighthouse batch,
+        // and whether its Lighthouse box starts ticked (on unless the config
+        // says `[lighthouse] enabled = false`).
+        "lighthouse_enabled": settings.lighthouse.enabled,
         "lighthouse_scope": settings.lighthouse.scope().as_str(),
         "lighthouse_concurrency": settings.lighthouse.effective_concurrency(),
         "lighthouse_runs": 3,

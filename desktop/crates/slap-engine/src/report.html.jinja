@@ -2,14 +2,21 @@
     Lighthouse's visual language (see report.css) and in plain words: the
     reader owns the site, and may never have opened a developer tool. The
     model is built in report.rs. -#}
+{#- A Lighthouse gauge: the ring in the score's band, the arc for the score,
+    the number in the middle. A fraction gauge (Security) counts checks
+    passed instead, and prints them as "4/11". -#}
 {%- macro gauge(g, size="", sub=none) -%}
 <div class="gauge {{ g.rating }} {{ size }}">
-  <svg viewBox="0 0 120 120" role="img" aria-label="{{ g.label }}: {{ g.score if g.score is not none else 'not tested' }}">
+  <svg viewBox="0 0 120 120" role="img" aria-label="{{ g.label }}: {% if g.fraction %}{{ g.passed }} of {{ g.total }} checks passed{% else %}{{ g.score if g.score is not none else 'not tested' }}{% endif %}">
     <circle class="base" cx="60" cy="60" r="56"></circle>
-    {%- if g.score is not none %}
+    {%- if g.score is not none and g.dash %}
     <circle class="arc" cx="60" cy="60" r="56" stroke-dasharray="{{ g.dash }}" transform="rotate(-90 60 60)"></circle>
     {%- endif %}
+    {%- if g.fraction %}
+    <text class="num frac" x="60" y="61">{{ g.passed }}/{{ g.total }}</text>
+    {%- else %}
     <text class="num" x="60" y="61">{{ g.score if g.score is not none else '–' }}</text>
+    {%- endif %}
   </svg>
   <div class="label">{{ g.label }}</div>
   {%- if sub %}<div class="sub">{{ sub }}</div>{% endif %}
@@ -23,12 +30,34 @@
 </div>
 {%- endfor %}
 {%- endmacro -%}
-{%- macro passed(c) -%}
-<div class="clumps">
-  {%- if c.hidden %}<span>{{ c.hidden }} more not shown</span>{% endif -%}
-  {%- if c.audits %}<span>{{ c.passed }} other check{{ '' if c.passed == 1 else 's' }} passed</span>
-  {%- else %}<span>All {{ c.passed }} check{{ '' if c.passed == 1 else 's' }} passed</span>{% endif -%}
+{#- A check as an audit row: the shape, what was found and the detail in the
+    band's colour, with the technical name under it for whoever fixes it. -#}
+{%- macro check_rows(rows) -%}
+{%- for r in rows %}
+<div class="audit {{ r.rating }}">
+  <span class="icon {{ r.rating }}"></span>
+  <div class="body"><span class="title">{{ r.title }}</span>{% if r.display %}<span class="display">{{ r.display }}</span>{% endif %}{% if r.aside %}<div class="tech">{{ r.aside }}</div>{% endif %}</div>
 </div>
+{%- endfor %}
+{%- endmacro -%}
+{#- Lighthouse's "Passed audits (12)" clump, collapsed: the count, not the list. -#}
+{%- macro passed(c) -%}
+{%- if c.hidden %}<div class="clumps"><span>{{ c.hidden }} more not shown</span></div>{% endif -%}
+{%- if c.passed %}<div class="clump-head">Passed checks <span class="count">({{ c.passed }})</span></div>{% endif -%}
+{%- endmacro -%}
+{#- The test details, as Lighthouse's runtime-settings strip: an icon each. -#}
+{%- macro env_icon(label) -%}
+<svg class="env-icon" viewBox="0 0 16 16" aria-hidden="true">
+{%- if label == "Date tested" -%}<rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5 1.5v3M11 1.5v3"/>
+{%- elif label == "Pages tested" -%}<path d="M4 1.5h5l3 3V14.5H4z"/><path d="M9 1.5v3h3M6 8h4M6 10.5h4"/>
+{%- elif label == "Device" -%}<rect x="4.5" y="1.5" width="7" height="13" rx="1.5"/><path d="M7 12.5h2"/>
+{%- elif label == "Connection" -%}<path d="M2.5 13.5v-2M6 13.5v-5M9.5 13.5v-8M13 13.5v-11"/>
+{%- elif label == "Testing tool" -%}<path d="M2.5 11.5a5.5 5.5 0 0 1 11 0"/><path d="M8 11.5l3-4"/><circle cx="8" cy="11.5" r="0.8"/>
+{%- elif label == "Browser" -%}<circle cx="8" cy="8" r="6.5"/><path d="M1.5 8h13M8 1.5c2 2 2 11 0 13M8 1.5c-2 2-2 11 0 13"/>
+{%- elif label == "Tests per page" -%}<path d="M13 6.5A5 5 0 0 0 3.5 5M3 9.5a5 5 0 0 0 9.5 1.5"/><path d="M3.5 2v3h3M12.5 14v-3h-3"/>
+{%- else -%}<path d="M3 5.5h10M3 10.5h10M6.5 2l-1 12M10.5 2l-1 12"/>
+{%- endif -%}
+</svg>
 {%- endmacro -%}
 <!doctype html>
 <html lang="en">
@@ -54,15 +83,34 @@
   </div>
 
   {# ============================ score gauges ============================ #}
-  {% if lh.home %}
-  <div class="gauges">
-    {%- for g in lh.home.gauges %}
+  {% if lh.home or security.gauge %}
+  <div class="gauges summary">
+    {%- if lh.home %}{% for g in lh.home.gauges %}
       {{ gauge(g, "", ("Typical page: " ~ g.site_median) if g.site_median is not none else none) }}
-    {%- endfor %}
+    {%- endfor %}{% endif %}
+    {%- if security.gauge %}
+      {%- if lh.home %}<div class="gauge-sep" aria-hidden="true"></div>{% endif %}
+      {{ gauge(security.gauge, "", "Checks passed") }}
+    {%- endif %}
   </div>
+  {% if lh.home %}
+  <div class="scorescale">
+    <span class="range"><span class="icon fail"></span><span class="n">0–49</span> poor</span>
+    <span class="range"><span class="icon average"></span><span class="n">50–89</span> needs work</span>
+    <span class="range"><span class="icon pass"></span><span class="n">90–100</span> good</span>
+  </div>
+  {% endif %}
   <p class="caption scale-caption">
-    <span class="scorescale"><span><span class="icon fail"></span>0–49 poor</span><span><span class="icon average"></span>50–89 needs work</span><span><span class="icon pass"></span>90–100 good</span></span>
+    {%- if lh.home %}
     Home page scores out of 100, tested as {{ lh.setup }}{% if lh.home.runs and lh.home.runs > 1 %} (the middle of {{ lh.home.runs }} tests){% endif %}.{% if lh.multi %} "Typical page" is the middle score of all {{ lh.measured }} pages tested.{% endif %}
+    {%- elif about.lighthouse == 'tested' %}
+    Lighthouse could not test the home page, so its scores are not shown here.
+    {%- elif about.lighthouse == 'failed' %}
+    Lighthouse could not test the site's pages, so there are no speed, accessibility, best practice or SEO scores.
+    {%- else %}
+    Lighthouse was not run for this audit, so there are no speed, accessibility, best practice or SEO scores.
+    {%- endif %}
+    {%- if security.gauge %} Security counts the checks the home page passed.{% endif %}
   </p>
   {% endif %}
 
@@ -194,11 +242,10 @@
     <div class="cat-grid">
     {% for c in lh.home.categories %}{% if c.id != 'performance' %}
       <div class="lh-category">
-        <div class="lh-category-head inline">
-          {{ gauge(c.gauge, "small") }}
-          <div class="title">{{ c.label }}</div>
+        <div class="lh-category-head">
+          {{ gauge(c.gauge, "mid") }}
+          <div class="description">{{ c.blurb }}</div>
         </div>
-        <div class="cat-blurb">{{ c.blurb }}</div>
         {{ audit_rows(c.audits) }}
         {{ passed(c) }}
       </div>
@@ -221,7 +268,7 @@
     {% for d in lh.distribution %}
     <div class="dist">
       <div class="name">{{ d.label }}</div>
-      <div class="median {{ d.rating }}">{{ d.median }}</div>
+      <div class="median">{{ gauge(d.gauge, "tiny") }}</div>
       <div class="stack">
         {% if d.fail %}<span class="fail" style="width: {{ d.fail_pct }}%"></span>{% endif %}
         {% if d.average %}<span class="average" style="width: {{ d.average_pct }}%"></span>{% endif %}
@@ -334,56 +381,35 @@
   {% endif %}
 
   {# ============================= security ============================= #}
-  <section>
+  {# Laid out as a Lighthouse category: its gauge, then the problems by
+     group, then the checks that passed. #}
+  {% if security.gauge or security.groups %}
+  <section class="security">
     <div class="section-head"><h2>Security</h2>
-      {% if security.checked_headers %}<div class="caption">{{ security.headers_set }} of {{ security.headers_total }} recommended protections in place</div>{% endif %}</div>
-
-    <div class="sec-grid">
-      <div>
-        {% if security.connection %}
-        <div class="sec-group">
-          <h3>Secure connection</h3>
-          <table><tbody>
-            {% for r in security.connection %}
-            <tr><td style="width:46%;">{{ r.label }}</td>
-              <td>{% if r.rating %}<span class="status-cell"><span class="icon {{ r.rating }}"></span>{{ r.value }}</span>{% else %}{{ r.value }}{% endif %}</td></tr>
-            {% endfor %}
-          </tbody></table>
-        </div>
-        {% endif %}
-
-        {% if security.cookies_total is not none %}
-        <div class="sec-group">
-          <h3>Cookies</h3>
-          {% if security.cookies %}
-          <table><tbody>
-            {% for r in security.cookies %}
-            <tr><td style="width:78%;">{{ r.label }}</td><td class="num">{{ r.value }}</td></tr>
-            {% endfor %}
-          </tbody></table>
-          {% else %}
-          <p class="secondary">The home page sets no cookies.</p>
-          {% endif %}
-        </div>
-        {% endif %}
+      {% if security.gauge %}<div class="caption">{{ security.passed }} of {{ security.total }} checks passed</div>{% endif %}</div>
+    {% if security.gauge %}
+    <div class="lh-category-head">
+      {{ gauge(security.gauge, "big") }}
+      <div class="description">How safely the site reaches its visitors: the connection, the protective settings the home page sends to browsers, and its cookies.</div>
+    </div>
+    {% endif %}
+    <div class="sec-cats">
+      {% for grp in security.groups %}
+      <div class="audit-group">
+        <div class="audit-group-head">{{ grp.title }}</div>
+        {{ check_rows(grp.rows) }}
       </div>
-
-      {% if security.checked_headers %}
-      <div class="sec-group">
-        <h3>Protective settings (security headers)</h3>
-        <table><tbody>
-          {% for h in security.headers %}
-          <tr><td>{{ h.label }}<div class="tech">{{ h.name }}</div></td>
-            <td style="width:24%;"><span class="status-cell"><span class="icon {{ 'pass' if h.set else 'average' }}"></span>{{ 'Set' if h.set else 'Missing' }}</span></td></tr>
-          {% endfor %}
-        </tbody></table>
+      {% endfor %}
+      {% if security.passed_rows %}
+      <div class="audit-group">
+        <div class="audit-group-head">Passed checks <span class="count">({{ security.passed_rows | length }})</span></div>
+        {{ check_rows(security.passed_rows) }}
       </div>
       {% endif %}
     </div>
-    {% if security.checked_headers or security.cookies_total is not none %}
-    <p class="caption" style="margin:0;">Security settings and cookies were checked on the home page.</p>
-    {% endif %}
+    <p class="caption" style="margin:4px 0 0;">Security settings and cookies were checked on the home page.</p>
   </section>
+  {% endif %}
 
   {# ======================= software and technology ======================= #}
   {% if software or tech.cms or tech.cdn or tech.server or tech.page_builder or tech.cache_plugin or tech.wp_rocket %}
@@ -427,7 +453,7 @@
       </ul>
       <h3>Test details</h3>
       <div class="runtime">
-        {% for d in about.details %}<div><span>{{ d.label }}</span><span>{{ d.value }}</span></div>{% endfor %}
+        {% for d in about.details %}<div class="env">{{ env_icon(d.label) }}<span class="k">{{ d.label }}</span><span class="v">{{ d.value }}</span></div>{% endfor %}
       </div>
       {% if about.notes %}
       <h3>Notes on these results</h3>

@@ -73,8 +73,10 @@ impl Default for CollectorConfig {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct LighthouseConfig {
-    /// Off by default. Phase 1 batches take seconds per site; enabling
-    /// this takes them to roughly 90 seconds per site.
+    /// Whether New audit starts with Lighthouse ticked. On by default: the
+    /// report's gauges and speed figures come from Lighthouse, so an audit
+    /// without it is the exception. Each audit can still untick it, for a
+    /// quick server-and-security pass in seconds rather than minutes.
     pub enabled: bool,
     pub runs: u32,
     pub form_factors: Vec<String>,
@@ -116,7 +118,7 @@ impl LighthouseConfig {
 impl Default for LighthouseConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             runs: 3,
             form_factors: vec!["mobile".to_string()],
             categories: vec![
@@ -711,7 +713,7 @@ mod tests {
         assert_eq!(collector.crux_rate_per_second, 2.0);
         assert_eq!(collector.max_body_bytes, 4_000_000);
         let lighthouse = LighthouseConfig::default();
-        assert!(!lighthouse.enabled);
+        assert!(lighthouse.enabled, "New audit starts with Lighthouse ticked");
         assert_eq!(lighthouse.runs, 3);
         assert_eq!(
             lighthouse.concurrency, 3,
@@ -735,7 +737,7 @@ mod tests {
              http_concurrency = 5\n\
              crux_api_key = \"from-file-key\"\n\
              [lighthouse]\n\
-             enabled = true\n\
+             enabled = false\n\
              some_future_key = 1\n",
         );
         // Env wins over the file for the key.
@@ -754,8 +756,8 @@ mod tests {
             Some("from-env-key-123")
         );
         assert!(
-            settings.lighthouse.enabled,
-            "unknown lighthouse keys are ignored"
+            !settings.lighthouse.enabled,
+            "the file's choice is read, and unknown lighthouse keys are ignored"
         );
         assert_eq!(settings.config_path.as_deref(), Some(config.as_path()));
     }
@@ -779,11 +781,11 @@ mod tests {
 
         // Saved through the surgical writer, it reads back, and the user's
         // other lighthouse keys survive.
-        write(&config, "[lighthouse]\nenabled = true\n");
+        write(&config, "[lighthouse]\nenabled = false\n");
         save_lighthouse_scope(LighthouseScope::EveryPage, Some(&config)).unwrap();
         let settings = Settings::load(Some(&config)).unwrap();
         assert_eq!(settings.lighthouse.scope(), LighthouseScope::EveryPage);
-        assert!(settings.lighthouse.enabled);
+        assert!(!settings.lighthouse.enabled, "a key set away from its default survives");
 
         // The concurrency cap holds whatever the file says.
         write(&config, "[lighthouse]\nconcurrency = 16\n");
