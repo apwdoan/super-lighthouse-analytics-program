@@ -248,11 +248,12 @@ first.
 
 To try the current code without releasing it, run **Dev build** by hand
 from the Actions tab, on the branch to build. It builds every platform (or
-the ones you pick) through the same workflow a release uses, and gives one
-download, **SLAP-dev-*version*-*commit***, on the run's page for 14 days:
-a folder per platform with its installers and a portable binary, the app
-ready to run from a folder without installing it, plus a `README.txt`
-saying which file is which and a `SHA256SUMS.txt`.
+the ones you pick) through the same workflow a release uses and publishes
+them on the Releases page as a pre-release, **SLAP dev build *version*
+(*commit*)**: each platform's installers and a portable binary, the app
+ready to run from a folder without installing it, with a `SHA256SUMS.txt`.
+Every file name says it is a dev build (`SLAP_0.1.0-dev.abc1234_x64-setup.exe`),
+so none is mistaken for a release's once downloaded.
 
 | Platform | Portable binary |
 |---|---|
@@ -263,8 +264,13 @@ saying which file is which and a `SHA256SUMS.txt`.
 A portable binary is never the executable alone: Lighthouse needs the
 bundled Node and worker beside it, so each one carries them, laid out as an
 installed copy has them. It uses the same settings and database as an
-installed SLAP. If one platform fails, the others are still combined, and
-the download says which is missing.
+installed SLAP.
+
+There is one dev build at a time. Each is tagged `dev-` and its commit, is
+never marked Latest, and replaces the one before it, whose release and tag
+are deleted once the new one is up. A run that fails on any platform it
+was asked for publishes nothing, and the previous dev build stays. Local
+clones keep deleted tags until `git fetch --prune --prune-tags`.
 
 ## API keys
 

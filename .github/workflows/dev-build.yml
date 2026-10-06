@@ -1,21 +1,26 @@
 name: Dev build
 
-# One download with everything a build of the current code makes: every
-# platform's installers and its portable binary (the app ready to run from
-# a folder, nothing installed), side by side, with their checksums and a
-# README saying which file is which.
+# Publishes a build of the current code on the Releases page, as a
+# pre-release named "SLAP dev build": every platform's installers and its
+# portable binary (the app ready to run from a folder, nothing installed),
+# with their checksums.
+#
+# There is one dev build at a time. Each run publishes a new one, tagged
+# dev-<commit>, and then deletes the one before it, release and tag, so the
+# Releases page keeps one dev build beside the real releases. A dev build
+# is a pre-release, never "Latest", and its tag does not start with v, so
+# release.yml never sees it. Real releases still come from release.yml.
 #
 # Run it by hand from the Actions tab. The "Use workflow from" branch is the
 # code that is built, at the commit it pointed to when the run started. Not
 # on every push, for the reason desktop.yml is not: four platforms of real
-# runner minutes, two of them macOS. The download is on the run's summary
-# page for 14 days. Nothing is published and no tag is made; releases come
-# from release.yml.
+# runner minutes, two of them macOS. A run publishes only if every platform
+# it was asked for built; otherwise the previous dev build stays as it was.
 on:
   workflow_dispatch:
     inputs:
       platforms:
-        description: Which platforms to build
+        description: Which platforms to build (the dev build then has only those)
         type: choice
         default: all
         options:
@@ -29,9 +34,10 @@ on:
 permissions:
   contents: read
 
-# A newer dev build of the same branch replaces one still running.
+# One dev build at a time, from any branch: a newer run replaces one still
+# going, and two runs can never delete each other's release.
 concurrency:
-  group: dev-build-${{ github.ref }}
+  group: dev-build
   cancel-in-progress: true
 
 jobs:
@@ -45,18 +51,17 @@ jobs:
       # even if the branch moves while the run is going.
       ref: ${{ github.sha }}
       platforms: ${{ inputs.platforms }}
-      # Each platform's own artifact only carries its files to the combine
-      # job; the combined download is the one that is kept.
+      # Each platform's artifact only carries its files to the publish job.
       retention-days: 1
 
-  combine:
-    name: Combine into one download
+  publish:
+    name: Publish the dev build
+    # Runs only when every platform asked for built.
     needs: build
-    # A dev build is still worth having when one platform failed: what did
-    # build is combined, and the README and the summary say what is missing.
-    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    permissions:
+      contents: write  # to create the release and its tag, and delete the old ones
     steps:
       - name: Read the version
         uses: actions/checkout@v5
@@ -71,120 +76,120 @@ jobs:
           pattern: SLAP-desktop-*
           path: builds
 
-      - name: Lay out the download
-        id: layout
+      - name: Collect the files and write the notes
+        id: collect
         shell: bash
         env:
           SHA: ${{ github.sha }}
           BRANCH: ${{ github.ref_name }}
           PICKED: ${{ inputs.platforms }}
-          BUILD_RESULT: ${{ needs.build.result }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
           set -euo pipefail
           version=$(jq -r .version desktop/src-tauri/tauri.conf.json)
           short=${SHA::7}
-          name="SLAP-dev-${version}-${short}"
-          mkdir dev
+          tag="dev-${short}"
+          mkdir release
 
-          # One folder per platform, named as the build matrix names it.
-          shopt -s nullglob
-          for dir in builds/SLAP-desktop-*; do
-            label=${dir#builds/SLAP-desktop-}
-            mkdir -p "dev/$label"
-            find "$dir" -type f -exec cp {} "dev/$label/" \;
-          done
-          shopt -u nullglob
-          built=$(find dev -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
-          if [ -z "$built" ]; then
-            echo "::error::No platform produced a build. The build jobs' logs say why."
+          # Release files sit side by side, so each name must be unique, and
+          # each says it is a dev build: SLAP_0.1.0_x64-setup.exe becomes
+          # SLAP_0.1.0-dev.abc1234_x64-setup.exe, never to be mistaken for
+          # the 0.1.0 release's file once downloaded.
+          while IFS= read -r -d '' file; do
+            name=$(basename "$file")
+            name=${name/#"SLAP_${version}_"/"SLAP_${version}-dev.${short}_"}
+            if [ -e "release/$name" ]; then
+              echo "::error::Two builds produced $name."
+              exit 1
+            fi
+            cp "$file" "release/$name"
+          done < <(find builds -type f -print0)
+          if [ -z "$(ls -A release)" ]; then
+            echo "::error::No platform produced a build."
             exit 1
           fi
+          (cd release && sha256sum -- * > SHA256SUMS.txt)
+          ls -l release
 
-          # Which platforms were asked for, to name the ones that did not build.
-          case "$PICKED" in
-            windows) wanted="windows-x64" ;;
-            macos) wanted="macos-arm64 macos-x64" ;;
-            macos-arm64) wanted="macos-arm64" ;;
-            macos-x64) wanted="macos-x64" ;;
-            linux) wanted="linux-x64" ;;
-            *) wanted="windows-x64 macos-arm64 macos-x64 linux-x64" ;;
-          esac
-          missing=""
-          for label in $wanted; do
-            if [ ! -d "dev/$label" ]; then missing="$missing $label"; fi
-          done
-          missing=${missing# }
-
-          (cd dev && find . -type f -printf '%P\n' | sort | xargs -d '\n' sha256sum) > SHA256SUMS.txt
-          mv SHA256SUMS.txt dev/
-
+          # A table row for each file matching a pattern.
+          row() {
+            local file
+            for file in release/$1; do
+              # The backticks are Markdown's, for the file name, not a command.
+              # shellcheck disable=SC2016
+              if [ -e "$file" ]; then printf '| %s | %s | `%s` |\n' "$2" "$3" "${file#release/}"; fi
+            done
+          }
+          # The backticks below are Markdown's, for code, not commands.
+          # shellcheck disable=SC2016
           {
-            echo "SLAP dev build"
-            echo "Version ${version}, commit ${short} on ${BRANCH}, built $(date -u '+%Y-%m-%d %H:%M') UTC."
-            echo "Not a release: a build of the code as it was at that commit, for trying it out."
+            echo "A build of [\`${short}\`](${REPO_URL}/commit/${SHA}) on \`${BRANCH}\`, made $(date -u '+%Y-%m-%d %H:%M') UTC, for trying out the current code. **Not a release**: the current release is the one marked Latest. The next dev build replaces this one."
             echo
-            if [ -n "$missing" ]; then
-              echo "NOT INCLUDED: ${missing}. Those platforms did not build; the run's logs say why."
+            if [ "$PICKED" != "all" ]; then
+              echo "> This run built only: **${PICKED}**."
               echo
             fi
-            echo "Each folder is one platform. In each, the installers, and a portable"
-            echo "binary: the app ready to run from a folder, nothing installed. A portable"
-            echo "copy uses the same settings and database as an installed SLAP."
+            echo "## Downloads"
             echo
-            echo "windows-x64"
-            echo "  *-setup.exe         installer, Windows 10 or 11 (64-bit)"
-            echo "  *.msi               installer for managed installs"
-            echo "  *-portable.zip      unzip anywhere, then run SLAP\\slap-desktop.exe"
-            echo "                      (needs Microsoft Edge WebView2, part of Windows 11)"
+            echo "| For | Kind | File |"
+            echo "|---|---|---|"
+            row '*-setup.exe' 'Windows 10 or 11 (64-bit)' 'Installer'
+            row '*.msi' 'Windows' 'Installer for managed installs (MSI)'
+            row '*windows-x64-portable.zip' 'Windows' 'Portable: unzip, run `SLAP\slap-desktop.exe`'
+            row '*aarch64.dmg' 'Mac with Apple Silicon' 'Disk image: drag SLAP into Applications'
+            row '*macos-arm64.app.zip' 'Mac with Apple Silicon' 'Portable: unzip, open `SLAP.app`'
+            row '*x64.dmg' 'Mac with an Intel processor' 'Disk image: drag SLAP into Applications'
+            row '*macos-x64.app.zip' 'Mac with an Intel processor' 'Portable: unzip, open `SLAP.app`'
+            row '*.AppImage' 'Linux (64-bit)' 'AppImage: `chmod +x` it, then run it'
+            row '*.deb' 'Debian or Ubuntu (64-bit)' 'Package: `sudo apt install ./` followed by its name'
+            row '*linux-x64-portable.tar.gz' 'Linux (64-bit)' 'Portable: extract, run `SLAP/bin/slap-desktop`'
             echo
-            echo "macos-arm64 (Apple Silicon) and macos-x64 (Intel)"
-            echo "  *.dmg               open it and drag SLAP into Applications"
-            echo "  *.app.zip           unzip, then open SLAP.app"
+            echo "A portable copy runs from its folder with nothing installed, and uses the same settings and database as an installed SLAP. The Windows one needs Microsoft Edge WebView2 (part of Windows 11); the Linux one needs WebKitGTK 4.1 (\`libwebkit2gtk-4.1-0\`). \`SHA256SUMS.txt\` lists each file's checksum."
             echo
-            echo "linux-x64"
-            echo "  *.AppImage          chmod +x it, then run it"
-            echo "  *.deb               sudo apt install ./SLAP_*.deb"
-            echo "  *-portable.tar.gz   tar -xzf it, then run SLAP/bin/slap-desktop"
-            echo "                      (needs WebKitGTK 4.1: libwebkit2gtk-4.1-0)"
+            echo "These builds are not code-signed:"
             echo
-            echo "None of these are code-signed. Windows SmartScreen: More info, then"
-            echo "Run anyway. macOS: open it once, then System Settings > Privacy &"
-            echo "Security > Open Anyway; if it says SLAP is damaged, run"
-            echo "  xattr -dr com.apple.quarantine /path/to/SLAP.app"
-            echo
-            echo "SHA256SUMS.txt has every file's checksum. From this folder:"
-            echo "  sha256sum -c SHA256SUMS.txt"
-          } > dev/README.txt
+            echo "- **Windows**: if SmartScreen says \"Windows protected your PC\", choose **More info**, then **Run anyway**."
+            echo "- **Mac**: open SLAP once, then go to **System Settings → Privacy & Security** and choose **Open Anyway** (on macOS 14 and earlier, Control-click SLAP and choose **Open**). If macOS says SLAP is damaged, run \`xattr -dr com.apple.quarantine /Applications/SLAP.app\` once in Terminal."
+          } > notes.md
+          cat notes.md
 
           {
-            echo "## ${name}"
-            echo
-            echo "Commit \`${short}\` on \`${BRANCH}\`. Download **${name}** from the Artifacts section below."
-            echo
-            if [ -n "$missing" ]; then
-              echo "> **Not included:** ${missing}. Those platforms did not build."
-              echo
-            fi
-            echo "| File | Size |"
-            echo "|---|---|"
-            (cd dev && find . -type f -not -name README.txt -not -name SHA256SUMS.txt -printf '%P\t%s\n' | sort) |
-              while IFS=$'\t' read -r file size; do
-                # The backticks are Markdown's, for the file name, not a command.
-                # shellcheck disable=SC2016
-                printf '| `%s` | %s MB |\n' "$file" "$(awk -v b="$size" 'BEGIN { printf "%.1f", b / 1048576 }')"
-              done
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo "tag=$tag"
+            echo "title=SLAP dev build ${version} (${short})"
+          } >> "$GITHUB_OUTPUT"
 
-          echo "name=$name" >> "$GITHUB_OUTPUT"
-          echo "Combined: $(echo "$built" | tr '\n' ' ')(build result: $BUILD_RESULT)"
-          ls -lR dev
+      # The new dev build is published before the old one is deleted, so
+      # the Releases page is never without one. gh creates the release as a
+      # draft, uploads every file, and only then publishes it.
+      - name: Publish, then remove the previous dev build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TAG: ${{ steps.collect.outputs.tag }}
+          TITLE: ${{ steps.collect.outputs.title }}
+        run: |
+          set -euo pipefail
+          # The same commit built again: its dev build is replaced.
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release delete "$TAG" --cleanup-tag --yes
+          fi
+          gh release create "$TAG" release/* \
+            --target "$SHA" --title "$TITLE" --notes-file notes.md \
+            --prerelease --latest=false
 
-      - name: Upload the dev build
-        uses: actions/upload-artifact@v6
-        with:
-          name: ${{ steps.layout.outputs.name }}
-          path: dev/
-          if-no-files-found: error
-          retention-days: 14
-          # Installers and archives are compressed already.
-          compression-level: 0
+          # Every other dev build goes, release and tag. Only pre-releases
+          # tagged dev-, so a real release can never match.
+          gh api --paginate "repos/$GH_REPO/releases" \
+            --jq '.[] | select(.prerelease and (.tag_name | startswith("dev-"))) | .tag_name' |
+            while IFS= read -r old; do
+              if [ "$old" != "$TAG" ]; then
+                echo "Removing the previous dev build $old."
+                gh release delete "$old" --cleanup-tag --yes
+              fi
+            done
+
+          url=$(gh release view "$TAG" --json url --jq '.url')
+          echo "Published $TITLE: $url"
+          echo "Published [$TITLE]($url)." >> "$GITHUB_STEP_SUMMARY"
