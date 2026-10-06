@@ -74,7 +74,11 @@ body {
   background: var(--surface);
 }
 
-.page { max-width: 190mm; margin: 0 auto; padding: 0 0 28px; }
+.page { max-width: 190mm; margin: 0 auto; padding: 0 0 12px; }
+
+/* Print margins a little tighter than Chromium's default: the report is
+ * dense by design, and a narrower frame fits more of it on each sheet. */
+@page { margin: 9mm 10mm; }
 
 h1, h2, h3 { margin: 0; font-weight: 500; }
 h2 { font-size: 20px; line-height: 1.3; }
@@ -94,7 +98,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 0;
+  padding: 4px 0 6px;
   border-bottom: 1px solid var(--line-2);
   font-size: 12px;
   color: var(--text-2);
@@ -104,9 +108,9 @@ code { font-family: var(--mono); font-size: 0.92em; }
 .topbar .url { flex: 1; font-family: var(--mono); font-size: 11.5px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar .meta { text-align: right; white-space: nowrap; }
 
-.masthead { padding: 20px 0 6px; text-align: center; }
+.masthead { padding: 8px 0 0; text-align: center; }
 .masthead .site { font-size: 26px; font-weight: 400; letter-spacing: -0.01em; }
-.masthead .kicker { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+.masthead .kicker { font-size: 12px; color: var(--text-3); margin-top: 0; }
 
 /* ------------------------------------------------------------- gauges */
 
@@ -114,16 +118,16 @@ code { font-family: var(--mono); font-size: 0.92em; }
   display: flex;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 8px 22px;
-  padding: 14px 0 6px;
+  gap: 4px 18px;
+  padding: 6px 0 2px;
 }
 .gauge { width: 112px; text-align: center; break-inside: avoid; }
 .gauge svg { display: block; width: 88px; height: 88px; margin: 0 auto; }
 .gauge .base { stroke-width: 8; }
 .gauge .arc { fill: none; stroke-width: 8; stroke-linecap: round; }
 .gauge .num { font-family: var(--font); font-size: 30px; font-weight: 400; text-anchor: middle; dominant-baseline: central; }
-.gauge .label { font-size: 13px; line-height: 1.3; margin-top: 8px; color: var(--text); }
-.gauge .sub { font-size: 10.5px; color: var(--text-3); line-height: 1.35; margin-top: 3px; }
+.gauge .label { font-size: 13px; line-height: 1.3; margin-top: 4px; color: var(--text); }
+.gauge .sub { font-size: 10.5px; color: var(--text-3); line-height: 1.35; margin-top: 1px; }
 .gauge.pass .base { fill: var(--pass-tint); stroke: var(--pass-tint); }
 .gauge.pass .arc { stroke: var(--pass); }
 .gauge.pass .num { fill: var(--pass-text); }
@@ -139,24 +143,25 @@ code { font-family: var(--mono); font-size: 0.92em; }
 .gauge.big { width: 160px; }
 .gauge.big svg { width: 120px; height: 120px; }
 .gauge.big .num { font-size: 38px; }
-.gauge.big .label { font-size: 20px; margin-top: 10px; }
+.gauge.big .label { font-size: 20px; margin-top: 4px; }
 
 .gauge.small { width: 72px; }
 .gauge.small svg { width: 52px; height: 52px; }
 .gauge.small .num { font-size: 34px; }
-.gauge.small .label { font-size: 11px; margin-top: 4px; }
+.gauge.small .label { font-size: 11px; margin-top: 2px; }
 
 /* Lighthouse's score-scale legend. */
 .scorescale {
-  display: flex;
-  justify-content: center;
+  display: inline-flex;
   align-items: center;
-  gap: 18px;
+  gap: 12px;
   font-size: 11.5px;
   color: var(--text-2);
-  padding: 6px 0 4px;
+  margin-right: 10px;
+  vertical-align: middle;
 }
-.scorescale span { display: inline-flex; align-items: center; gap: 6px; }
+.scorescale span { display: inline-flex; align-items: center; gap: 5px; }
+.scale-caption { text-align: center; margin: 2px 0 0; }
 
 /* ----------------------------------------------- rating shapes (Lighthouse) */
 
@@ -174,16 +179,20 @@ code { font-family: var(--mono); font-size: 0.92em; }
 
 /* ---------------------------------------------------------- sections */
 
-section { margin-top: 30px; }
+section { margin-top: 18px; }
+section.first { margin-top: 8px; }
 .section-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  padding-bottom: 8px;
+  padding-bottom: 3px;
   border-bottom: 1px solid var(--line-2);
-  margin-bottom: 12px;
+  margin-bottom: 6px;
+  break-inside: avoid;
+  break-after: avoid;
 }
+section > p.secondary { margin-bottom: 4px; }
 .section-head h2 { font-size: 20px; }
 .section-head .caption { text-align: right; }
 .eyebrow {
@@ -192,7 +201,7 @@ section { margin-top: 30px; }
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-3);
-  margin-bottom: 2px;
+  margin-bottom: 0;
 }
 
 /* ------------------------------------------------------------- verdict */
@@ -200,15 +209,15 @@ section { margin-top: 30px; }
 .verdict {
   border: 1px solid var(--line-2);
   border-radius: 8px;
-  padding: 16px 18px;
-  margin-top: 16px;
+  padding: 9px 14px 10px;
+  margin-top: 0;
   break-inside: avoid;
 }
-.verdict .assessment { font-size: 13px; color: var(--text-2); margin-bottom: 6px; display: flex; align-items: center; gap: 7px; }
+.verdict .assessment { font-size: 13px; color: var(--text-2); margin-bottom: 2px; display: flex; align-items: center; gap: 7px; }
 .verdict .assessment b { font-weight: 500; }
 .verdict .assessment b.pass { color: var(--pass-text); }
 .verdict .assessment b.fail { color: var(--fail-text); }
-.verdict .headline { font-size: 19px; line-height: 1.35; margin-bottom: 6px; }
+.verdict .headline { font-size: 19px; line-height: 1.3; margin-bottom: 2px; }
 .verdict p { margin: 0; color: var(--text-2); }
 
 /* Field data, in the PageSpeed Insights layout: the metric, its p75, and
@@ -217,11 +226,11 @@ section { margin-top: 30px; }
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 14px;
-  margin-top: 14px;
+  margin-top: 8px;
 }
 .field-metric { break-inside: avoid; }
 .field-metric .name { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-2); }
-.field-metric .value { font-size: 24px; line-height: 1.2; margin: 4px 0 6px; }
+.field-metric .value { font-size: 24px; line-height: 1.2; margin: 1px 0 3px; }
 .field-metric.pass .value { color: var(--pass-text); }
 .field-metric.average .value { color: var(--average-text); }
 .field-metric.fail .value { color: var(--fail-text); }
@@ -235,14 +244,17 @@ section { margin-top: 30px; }
   position: absolute; top: 0; width: 0; height: 0; margin-left: -5px;
   border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--text);
 }
-.field-metric .note { font-size: 10.5px; color: var(--text-3); margin-top: 5px; }
+.field-metric .note { font-size: 10.5px; color: var(--text-3); margin-top: 3px; }
 
 /* ------------------------------------------------- Lighthouse categories */
 
-.lh-category { margin-top: 20px; break-inside: auto; }
-.lh-category-head { display: flex; flex-direction: column; align-items: center; padding: 8px 0 4px; break-inside: avoid; break-after: avoid; }
-.lh-category-head .description { text-align: center; max-width: 34em; font-size: 12px; color: var(--text-2); margin-top: 6px; }
-.lh-category-head.inline { flex-direction: row; gap: 14px; align-items: center; padding: 10px 0 4px; }
+.lh-category { margin-top: 8px; break-inside: auto; }
+.lh-category-head { display: flex; flex-direction: column; align-items: center; padding: 2px 0; break-inside: avoid; break-after: avoid; }
+.lh-category-head .description { text-align: center; max-width: 34em; font-size: 12px; color: var(--text-2); margin-top: 2px; }
+.lh-category-head.inline { flex-direction: row; gap: 12px; align-items: center; padding: 4px 0 0; }
+/* The performance gauge beside its metrics, rather than above them. */
+.perf-top { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 18px; align-items: start; break-inside: avoid; }
+.metrics-head .plain { text-transform: none; letter-spacing: 0; }
 .lh-category-head.inline .gauge { margin: 0; }
 .lh-category-head.inline .title { font-size: 17px; }
 /* The title sits beside the small gauge here, so the gauge's own label
@@ -252,11 +264,11 @@ section { margin-top: 30px; }
 
 /* Lighthouse's metrics grid: two columns, a shape, the name, and the value
  * large beneath it in the rating's text colour. */
-.metrics-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid var(--line-2); padding: 14px 0 6px; font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
+.metrics-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid var(--line-2); padding: 2px 0 3px; font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
 .metrics { display: grid; grid-template-columns: 1fr 1fr; column-gap: 28px; }
-.metric { padding: 9px 0 8px; border-bottom: 1px solid var(--line); break-inside: avoid; }
+.metric { padding: 4px 0 3px; border-bottom: 1px solid var(--line); break-inside: avoid; }
 .metric .title { display: flex; align-items: center; gap: 9px; font-size: 13px; }
-.metric .value { font-size: 22px; line-height: 1.25; margin: 2px 0 0 19px; }
+.metric .value { font-size: 22px; line-height: 1.2; margin: 0 0 0 19px; }
 .metric.pass .value { color: var(--pass-text); }
 .metric.average .value { color: var(--average-text); }
 .metric.fail .value { color: var(--fail-text); }
@@ -264,29 +276,31 @@ section { margin-top: 30px; }
 .metrics-note { font-size: 11px; color: var(--text-3); padding: 6px 0 0; }
 
 /* Audit groups and rows, as Lighthouse lists them. */
-.audit-group { margin-top: 14px; }
+.audit-group { margin-top: 8px; }
 .audit-group-head {
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-2);
-  padding: 6px 0;
+  padding: 2px 0 3px;
   border-bottom: 1px solid var(--line-2);
   break-after: avoid;
 }
 .audit-group-head .count { color: var(--text-3); }
-.audit { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0 7px; border-bottom: 1px solid var(--line); break-inside: avoid; }
-.audit .icon { margin-top: 4px; }
+.audit { display: flex; gap: 10px; align-items: flex-start; padding: 3px 0 3px; border-bottom: 1px solid var(--line); break-inside: avoid; }
+.audit .icon { margin-top: 5px; }
 .audit .body { flex: 1; min-width: 0; }
 .audit .title { font-size: 13px; }
 .audit .display { font-size: 12px; margin-left: 6px; color: var(--text-2); }
 .audit.fail .display { color: var(--fail-text); }
 .audit.average .display { color: var(--average-text); }
-.audit .description { font-size: 11.5px; color: var(--text-3); margin-top: 2px; line-height: 1.45; }
+.audit .description { font-size: 11.5px; color: var(--text-3); margin-top: 0; line-height: 1.4; }
+.audit .aside { font-size: 11.5px; color: var(--text-3); margin-left: 8px; }
+.audit-group.common { margin-top: 12px; }
 .audit .spread-pages { font-size: 11px; color: var(--text-2); white-space: nowrap; text-align: right; min-width: 72px; }
 .audit .spread-pages b { font-weight: 500; color: var(--text); }
-.clumps { font-size: 11.5px; color: var(--text-3); padding: 8px 0 2px; }
+.clumps { font-size: 11.5px; color: var(--text-3); padding: 3px 0 0; }
 .clumps span + span::before { content: "·"; margin: 0 8px; color: var(--line-2); }
 
 /* ------------------------------------------------------------- findings */
@@ -294,7 +308,7 @@ section { margin-top: 30px; }
 .finding {
   display: flex;
   gap: 12px;
-  padding: 12px 0 11px;
+  padding: 6px 0 6px;
   border-bottom: 1px solid var(--line);
   break-inside: avoid;
 }
@@ -303,9 +317,9 @@ section { margin-top: 30px; }
 .finding.serious .sev-bar { background: var(--sev-high); }
 .finding.warning .sev-bar { background: var(--sev-medium); }
 .finding .finding-main { flex: 1; min-width: 0; }
-.finding-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 3px; }
+.finding-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 0; }
 .finding-head h3 { flex: 1; font-size: 14px; font-weight: 500; }
-.finding p.detail { color: var(--text-2); margin-bottom: 6px; }
+.finding p.detail { color: var(--text-2); margin-bottom: 2px; }
 
 /* The severity WORD is mandatory. See rule 1 at the top of this file. */
 .badge {
@@ -332,25 +346,27 @@ section { margin-top: 30px; }
 .chip { font-size: 10.5px; padding: 1px 8px; border-radius: 10px; background: var(--tint); color: var(--text-2); }
 .chip strong { color: var(--text); font-weight: 500; }
 
-.fix { margin-top: 6px; font-size: 12px; background: var(--tint); border-radius: 6px; padding: 7px 10px; }
+.fix { margin-top: 3px; font-size: 12px; background: var(--tint); border-radius: 6px; padding: 4px 9px; }
 .fix .fix-label { font-size: 10px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin-right: 6px; }
-.fix .wp-rocket { margin-top: 5px; font-size: 11.5px; }
-.finding-meta { display: flex; gap: 14px; font-size: 11px; color: var(--text-3); margin-top: 6px; }
+.fix .wp-rocket { margin-top: 2px; font-size: 11.5px; }
 
-.scope { margin: 4px 0 2px; font-size: 11.5px; color: var(--text-2); }
+/* Scope, effort and measured impact share one line. */
+.scope { margin: 0 0 1px; font-size: 11.5px; color: var(--text-2); }
+.scope .meta { font-size: 11px; color: var(--text-3); margin-left: 14px; }
 .scope-label { font-size: 10px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin-right: 6px; }
-.scope-pages { margin: 4px 0 0; padding-left: 0; list-style: none; columns: 2; font-family: var(--mono); font-size: 10.5px; }
-.scope-pages li { break-inside: avoid; padding: 1px 0; }
+.scope-pages { font-family: var(--mono); font-size: 10.5px; }
+.scope-pages .secondary { font-family: var(--font); }
 
-.finding-compact { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); break-inside: avoid; }
+.finding-compact { display: flex; align-items: baseline; gap: 10px; padding: 2px 0; border-bottom: 1px solid var(--line); break-inside: avoid; }
+.minor-head { margin: 10px 0 2px; break-after: avoid; }
 .finding-compact .title { flex: 1; }
 .finding-compact .secondary { font-size: 11px; }
 
 /* ------------------------------------------------------- across pages */
 
-.coverage { font-size: 13px; color: var(--text-2); margin-bottom: 10px; }
+.coverage { font-size: 13px; color: var(--text-2); margin-bottom: 4px; }
 .coverage b { font-weight: 500; color: var(--text); }
-.dist { display: grid; grid-template-columns: 130px 52px 1fr 150px; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); break-inside: avoid; }
+.dist { display: grid; grid-template-columns: 130px 52px 1fr 150px; align-items: center; gap: 10px; padding: 2px 0; border-bottom: 1px solid var(--line); break-inside: avoid; }
 .dist .name { font-size: 13px; }
 .dist .median { font-size: 18px; text-align: right; font-variant-numeric: tabular-nums; }
 .dist .median.pass { color: var(--pass-text); }
@@ -363,7 +379,7 @@ section { margin-top: 30px; }
 .stack .pass { background: var(--pass); }
 .dist .counts { font-size: 11px; color: var(--text-2); display: flex; gap: 10px; justify-content: flex-end; font-variant-numeric: tabular-nums; }
 .dist .counts span { display: inline-flex; align-items: center; gap: 4px; }
-.dist-head { display: grid; grid-template-columns: 130px 52px 1fr 150px; gap: 10px; font-size: 10.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; padding-bottom: 4px; border-bottom: 1px solid var(--line-2); }
+.dist-head { display: grid; grid-template-columns: 130px 52px 1fr 150px; gap: 10px; font-size: 10.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; padding-bottom: 2px; border-bottom: 1px solid var(--line-2); }
 .dist-head .r { text-align: right; }
 
 /* ------------------------------------------------------------- tables */
@@ -377,9 +393,9 @@ th {
   text-transform: uppercase;
   color: var(--text-3);
   border-bottom: 1px solid var(--line-2);
-  padding: 0 8px 5px 0;
+  padding: 0 8px 3px 0;
 }
-td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+td { padding: 3px 8px 3px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 td.num, th.num { text-align: right; padding-left: 10px; font-variant-numeric: tabular-nums; }
 tr { break-inside: avoid; }
 
@@ -393,51 +409,67 @@ td.path { font-family: var(--mono); font-size: 11px; white-space: nowrap; max-wi
 .score.average { color: var(--average-text); }
 .score.fail { color: var(--fail-text); }
 .score.none { color: var(--text-3); }
-.inventory td { padding-top: 5px; padding-bottom: 5px; }
+.inventory td { padding-top: 1px; padding-bottom: 1px; }
 .inventory td.num { white-space: nowrap; }
 
 /* ---------------------------------------------------------- page detail */
 
-.page-detail { margin-top: 18px; padding-top: 12px; border-top: 2px solid var(--line-2); break-inside: auto; }
-.page-detail-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; break-after: avoid; }
+.page-detail { margin-top: 10px; padding-top: 6px; border-top: 2px solid var(--line-2); break-inside: auto; }
+.page-detail-head { display: flex; align-items: baseline; gap: 6px 8px; flex-wrap: wrap; break-after: avoid; }
 .page-detail-head .path { font-family: var(--mono); font-size: 14px; }
 .page-detail .keep { break-inside: avoid; }
-.page-detail .why { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 2px; }
-.page-detail .gauges { justify-content: flex-start; gap: 6px 14px; padding: 8px 0 2px; }
-.page-detail .metrics { grid-template-columns: repeat(3, 1fr); column-gap: 18px; }
-.page-detail .metric .value { font-size: 17px; }
+/* Gauges and metrics side by side; each metric on one line, value right. */
+.page-top { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: center; margin-top: 4px; }
+.page-detail .gauges { justify-content: flex-start; flex-wrap: nowrap; gap: 4px; padding: 0; }
+.page-detail .metrics { grid-template-columns: 1fr 1fr; column-gap: 16px; }
+.page-detail .metric { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 2px 0; }
+.page-detail .metric .value { font-size: 17px; margin: 0; white-space: nowrap; }
+/* Failing audits flow across two columns, category after category. */
+.page-detail .cats { columns: 2; column-gap: 22px; }
+.page-detail .cats .audit-group { margin-top: 6px; }
+.page-detail .cats .audit-group-head { break-inside: avoid; }
+/* "N more not shown" belongs under its own list, not atop the next column. */
+.page-detail .cats .clumps { break-before: avoid; break-inside: avoid; }
 
 /* ------------------------------------------------------------- security */
 
-.sec-group { margin-bottom: 16px; break-inside: avoid; }
-.sec-group h3 { font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+.sec-group { margin-bottom: 8px; break-inside: avoid; }
+.sec-group h3 { font-size: 13px; font-weight: 500; margin-bottom: 2px; }
+.sec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 22px; }
 .status-cell { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; }
-.techlist { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.techlist { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 
 /* ------------------------------------------------------------- appendix */
 
 .appendix table { font-size: 11px; }
-.appendix td.key { font-family: var(--mono); font-size: 10px; color: var(--text-2); }
-.appendix td.val { font-variant-numeric: tabular-nums; }
+.appendix-head { margin: 10px 0 4px; }
+/* Every measurement, two to a row: label over key, value over source. */
+.measurements { display: grid; grid-template-columns: 1fr 1fr; column-gap: 22px; font-size: 11px; }
+.m-row { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; border-bottom: 1px solid var(--line); break-inside: avoid; line-height: 1.35; }
+.m-label { min-width: 0; }
+.m-label .key { font-family: var(--mono); font-size: 10px; color: var(--text-2); overflow-wrap: anywhere; }
+.m-value { text-align: right; max-width: 55%; overflow-wrap: anywhere; }
+.m-value .val { font-variant-numeric: tabular-nums; }
+.m-value .src { color: var(--text-2); }
 
-.methodology { background: var(--tint); border-radius: 8px; padding: 14px 16px; font-size: 11.5px; color: var(--text-2); }
-.methodology h3 { font-size: 12px; font-weight: 500; margin-bottom: 6px; color: var(--text); }
-.methodology ul { margin: 0 0 10px; padding-left: 18px; }
-.methodology li { margin-bottom: 3px; }
+.methodology { background: var(--tint); border-radius: 8px; padding: 8px 14px 6px; font-size: 11.5px; color: var(--text-2); }
+.methodology h3 { font-size: 12px; font-weight: 500; margin-bottom: 2px; color: var(--text); }
+.methodology ul { margin: 0 0 6px; padding-left: 18px; }
+.methodology li { margin-bottom: 0; }
 
 /* Lighthouse's runtime-settings footer: what was emulated, by what. */
-.runtime { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; margin: 10px 0 0; }
-.runtime div { display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line-2); font-size: 11.5px; }
+.runtime { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; margin: 2px 0 4px; }
+.runtime div { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px solid var(--line-2); font-size: 11.5px; }
 .runtime div span:first-child { color: var(--text-3); min-width: 9.5em; }
 
-.footer-note { margin-top: 22px; padding-top: 10px; border-top: 1px solid var(--line-2); font-size: 10.5px; color: var(--text-3); text-align: center; }
+.footer-note { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--line-2); font-size: 10.5px; color: var(--text-3); text-align: center; }
 
 /* ---------------------------------------------------------------- print */
 
-.page-break { break-before: page; }
-
+/* No forced page breaks: sections run on, and headings keep with what
+ * follows them, so no sheet is left half empty. */
 @media print {
   body { background: #fff; }
   .page { max-width: none; padding: 0; }
-  h2, .section-head, .audit-group-head, .lh-category-head { break-after: avoid; }
+  h2, h3, .section-head, .audit-group-head, .lh-category-head, .page-detail-head { break-after: avoid; }
 }

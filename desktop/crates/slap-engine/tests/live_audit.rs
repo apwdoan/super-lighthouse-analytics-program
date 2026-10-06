@@ -155,6 +155,13 @@ async fn a_real_fetch_produces_a_run_the_ui_would_show() {
     assert!(events.iter().any(
         |e| matches!(e, Event::CollectorStarted { collector, .. } if collector == "discovery")
     ));
+    // Scanning progress: how many pages, then each page as it completes.
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::PagesDiscovered { pages: 1, .. })));
+    assert!(events.iter().any(
+        |e| matches!(e, Event::PageScanned { index: 1, total: 1, ok: true, .. })
+    ));
 
     // The Sites screen would now list exactly this one site.
     assert_eq!(storage::count_sites_with_a_completed_run(&conn).unwrap(), 1);

@@ -437,6 +437,10 @@ pub async fn estimate_batch(urls: &[String], cfg: &EngineConfig) -> BatchEstimat
 // The light pass
 // ---------------------------------------------------------------------------
 
+/// One page's scan: its discovery index, its URL, and the fetched document
+/// with its page-scoped observations, or why it would not load.
+type ScanResult = (usize, String, Result<(FetchedDocument, Vec<Observation>), String>);
+
 /// Discover a site's pages, run the page collectors on each, and the origin
 /// collectors once. Emits collector progress as it goes. Writes nothing.
 #[allow(clippy::too_many_arguments)]
@@ -527,16 +531,45 @@ async fn light_pass(
     )
     .await;
     finished("discovery", discovered.urls.len(), true);
+    let scan_total = discovered.urls.len();
+    emit(Event::PagesDiscovered {
+        batch_id: batch_id.into(),
+        url: normalized.clone(),
+        pages: scan_total,
+        found: discovered.found,
+        dropped: discovered.dropped,
+    });
 
     // --- page-scoped collectors, one home + each discovered page ---
+    // Each page reports when its scan starts and finishes, so the composer's
+    // progress bar can say which page it is on.
     started("http");
     let page_concurrency = cfg.discovery.pages_per_site.clamp(1, 5);
-    let fetched: Vec<(
-        usize,
-        String,
-        Result<(FetchedDocument, Vec<Observation>), String>,
-    )> = stream::iter(discovered.urls.iter().cloned().enumerate())
-        .map(|(i, url)| async move { (i, url.clone(), fetch_page(client, &url, cfg).await) })
+    let scanned = std::sync::atomic::AtomicUsize::new(0);
+    let fetched: Vec<ScanResult> = stream::iter(discovered.urls.iter().cloned().enumerate())
+        .map(|(i, url)| {
+            let (scanned, normalized) = (&scanned, &normalized);
+            async move {
+                emit(Event::PageScanStarted {
+                    batch_id: batch_id.into(),
+                    url: normalized.clone(),
+                    page_url: url.clone(),
+                    total: scan_total,
+                });
+                let result = fetch_page(client, &url, cfg).await;
+                let index = scanned.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                emit(Event::PageScanned {
+                    batch_id: batch_id.into(),
+                    url: normalized.clone(),
+                    page_url: url.clone(),
+                    index,
+                    total: scan_total,
+                    ok: result.is_ok(),
+                    error: result.as_ref().err().cloned(),
+                });
+                (i, url, result)
+            }
+        })
         .buffer_unordered(page_concurrency)
         .collect()
         .await;

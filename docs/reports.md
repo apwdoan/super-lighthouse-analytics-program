@@ -98,6 +98,19 @@ Page one is the verdict, not the data.
    runtime settings (device, network, CPU, browser, benchmark), coverage, and
    every measurement collected.
 
+**Density.** *Condensed 2026-10-05; a 6-page site went from 18 PDF pages to
+9, a 40-page one from 33 to 14.* No font size was changed to get there; only
+space and layout. Sections run on with no forced page breaks, and headings
+(section heads, group heads, page-section heads) are kept with what follows
+them, so no sheet is left half empty and no heading is stranded at the foot of
+a page. The space goes where it does the most good: the performance gauge sits
+beside its metrics, a page section puts its gauges beside a two-column metric
+list and flows its failing audits across two columns, a finding's scope,
+effort and measured impact share one line with its pages listed inline, the
+certificate and cookie tables sit side by side, and the appendix lists its
+measurements two to a row. Print margins are 9mm by 10mm (`@page`). If a
+change needs more room, take it from padding before touching a font size.
+
 **The audit lists come from a stored summary, not a re-parsed LHR.** When a
 page is measured, the median run's LHR is reduced to a few KB (failing and
 informative audits per Lighthouse group, counts, metric ratings, runtime

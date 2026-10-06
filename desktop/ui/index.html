@@ -200,18 +200,33 @@
   .dock.done .pulse { animation: none; background: var(--good); }
   .dock.stopped .pulse { animation: none; background: var(--warning); }
   @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
-  .dock .dock-body { padding: 10px 12px 12px; display: grid; gap: 9px; }
+  /* minmax(0, 1fr): a long unbroken page URL must ellipsise, not widen the
+   * grid and push the counts out of the panel. */
+  .dock .dock-body { padding: 10px 12px 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; }
   .dock.collapsed .dock-body { display: none; }
-  .dock .bar { height: 7px; border-radius: 4px; background: var(--line); overflow: hidden; }
-  .dock .bar > div { height: 100%; background: var(--accent); width: 0%; transition: width .3s; }
-  .dock .row { display: flex; justify-content: space-between; gap: 10px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-  .dock .row b { color: var(--ink); }
-  .dock .now { font: 12px/1.45 ui-monospace, Consolas, monospace; color: var(--ink-2); max-height: 64px; overflow: hidden; }
-  .dock .now div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .dock .log { font: 11.5px/1.45 ui-monospace, Consolas, monospace; color: var(--ink-3); max-height: 76px; overflow: hidden; border-top: 1px solid var(--line); padding-top: 7px; }
-  .dock .log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .dock .actions { display: flex; gap: 8px; justify-content: flex-end; }
   .dock button { padding: 6px 12px; font-size: 12.5px; }
+
+  /* ---- progress, shared by the dock and the panel under Run audit ---- */
+  .progress-card { margin-top: 16px; border: 1px solid var(--line-strong); border-radius: 10px; padding: 14px 16px; background: var(--surface-2); display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; font-size: 13.5px; }
+  .progress-card[hidden] { display: none; }
+  .progress-card .head { display: flex; align-items: center; gap: 9px; }
+  .progress-card .head b { flex: 1; font-size: 15px; }
+  .progress-card .pulse { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; flex: none; }
+  .progress-card.done .pulse { animation: none; background: var(--good); }
+  .progress-card.stopped .pulse { animation: none; background: var(--warning); }
+  .phase-row { display: flex; justify-content: space-between; gap: 10px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .phase-row > span:first-child { color: var(--ink); font-weight: 600; }
+  .phase-row b, .row b { color: var(--ink); }
+  .pbar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin: 6px 0 5px; }
+  .pbar > div { height: 100%; background: var(--accent); width: 0%; transition: width .3s; }
+  .progress-card.done .pbar > div { background: var(--good); }
+  .now { font: 12px/1.45 ui-monospace, Consolas, monospace; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rows { display: grid; gap: 4px; }
+  .row { display: flex; justify-content: space-between; gap: 10px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .log { font: 11.5px/1.45 ui-monospace, Consolas, monospace; color: var(--ink-3); overflow: hidden; border-top: 1px solid var(--line); padding-top: 7px; }
+  .log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .dock .phase .pbar { height: 7px; }
 </style>
 </head>
 <body>
@@ -666,13 +681,16 @@ async function viewAudit() {
 
   const unfinishedBox = el("div", {});
   const out = el("div", {});
+  // Live progress for the audit this screen started (or one already running):
+  // the dock draws into it while it is on screen.
+  const progressBox = el("div", { id: "audit-progress", class: "progress-card", hidden: "hidden" });
   const run = el("button", { class: "primary" }, "Run audit");
 
   async function start(urls) {
     out.replaceChildren();
     unfinishedBox.replaceChildren();
     run.disabled = true; run.textContent = "Running… (" + urls.length + ")";
-    dock.begin(`Auditing ${urls.length} site${urls.length === 1 ? "" : "s"}`);
+    dock.begin(`Auditing ${urls.length} site${urls.length === 1 ? "" : "s"}`, { lighthouse: lighthouse.checked });
     try {
       const summary = await invoke("start_audit", { urls, lighthouse: lighthouse.checked, probe: probe.checked, scope: scopeNow() });
       out.append(summaryNotice(summary));
@@ -754,7 +772,7 @@ async function viewAudit() {
       if (dock.active()) { msg.textContent = "An audit is already running. Resume once it has finished or been stopped."; return; }
       resume.disabled = discard.disabled = true;
       unfinishedBox.replaceChildren();
-      dock.begin(`Resuming ${list.length} run${list.length === 1 ? "" : "s"}`);
+      dock.begin(`Resuming ${list.length} run${list.length === 1 ? "" : "s"}`, { lighthouse: list.some(r => r.lh_scope), resume: true });
       try { out.replaceChildren(summaryNotice(await invoke("resume_audit", { runIds: ids }))); }
       catch (e) { dock.fail(errText(e)); out.replaceChildren(el("div", { class: "notice warn" }, errText(e))); }
       finally { loadUnfinished(); }
@@ -781,7 +799,11 @@ async function viewAudit() {
   refresh();
   loadUnfinished();
   mount(head, unfinishedBox, el("div", { class: "card pad" }, box, opts,
-    el("div", { class: "row-actions", style: "margin-top:14px" }, run, el("span", { class: "seg" }, "Runs locally. No account, nothing uploaded.")), out));
+    el("div", { class: "row-actions", style: "margin-top:14px" }, run, el("span", { class: "seg" }, "Runs locally. No account, nothing uploaded.")),
+    progressBox, out));
+  // Coming back to this screen mid-audit shows its progress here again.
+  if (dock.active()) { run.disabled = true; run.textContent = "Running…"; }
+  dock.render();
 }
 
 function summaryNotice(summary) {
@@ -794,17 +816,22 @@ function summaryNotice(summary) {
     el("div", { style: "margin-top:8px" }, el("button", { class: "ghost", onclick: () => go("sites") }, "View sites →")));
 }
 
-// -------- the activity dock --------
-// Listens to slap://progress for as long as the app is open, so it survives
-// navigation and shows a batch that is hours long: sites, pages in Chrome right
-// now, pages measured of pages planned, and an ETA that firms up as discovery
-// reports each site's page count.
+// -------- audit progress: the dock, and the panel under Run audit --------
+// One listener on slap://progress for as long as the app is open, one state,
+// two views of it: the panel under the Run button on New audit, and the dock
+// in the corner everywhere else (so a batch hours long can be watched from any
+// screen). Progress comes in two phases. Scanning fetches every discovered
+// page (seconds a page, a few at a time); Lighthouse then measures the pages
+// its coverage mode selects (about 30s a page, 3 at a time).
 const dock = (() => {
   const node = document.getElementById("dock");
   let st = null, defaults = { runs: 3, conc: 3, perRun: 30 }, timer = null;
-  const fresh = (title) => ({
+  const fresh = (title, opts = {}) => ({
     title, batch: null, state: "running", stopping: false, collapsed: false, error: null,
-    sitesTotal: 0, sitesDone: 0, sitesPlanned: 0, lhPlanned: 0, lhAlready: 0, lhDone: 0, lhFailed: 0,
+    lighthouse: !!opts.lighthouse, resume: !!opts.resume,
+    sitesTotal: 0, sitesDone: 0, sitesDiscovered: 0, sitesPlanned: 0,
+    scanTotal: 0, scanned: 0, scanFailed: 0, scanning: new Map(), lastScanned: null,
+    lhPlanned: 0, lhAlready: 0, lhDone: 0, lhFailed: 0,
     firstPageAt: null, inChrome: new Map(), log: [],
   });
   const path = (u) => { try { const x = new URL(u); return x.host + (x.pathname === "/" ? "" : x.pathname); } catch { return u; } };
@@ -812,7 +839,7 @@ const dock = (() => {
   // Neither may clobber a batch that is already reporting progress: its
   // events, not a second button press, own the panel until it finishes.
   const live = () => !!(st && st.state === "running" && st.batch);
-  function begin(title) { if (live()) return; st = fresh(title); render(); }
+  function begin(title, opts) { if (live()) return; st = fresh(title, opts); render(); }
   function fail(message) {
     if (live()) { note("✕ " + message); render(); return; }
     if (!st) st = fresh("Audit");
@@ -822,29 +849,39 @@ const dock = (() => {
   function onEvent(e) {
     if (!e || !e.type) return;
     if (e.type === "batch_started") {
-      if (!(st && st.state === "running" && !st.batch)) st = fresh("");
+      if (!(st && st.state === "running" && !st.batch)) st = fresh("", { resume: e.batch_id.startsWith("resume") });
       st.batch = e.batch_id; st.sitesTotal = e.total;
-      if (!st.title) st.title = (e.batch_id.startsWith("resume") ? "Resuming " : "Auditing ") + e.total + (e.total === 1 ? " site" : " sites");
+      if (e.batch_id.startsWith("resume")) st.resume = true;
+      if (!st.title) st.title = (st.resume ? "Resuming " : "Auditing ") + e.total + (e.total === 1 ? " site" : " sites");
     }
     if (!st) st = fresh("Audit in progress");
     switch (e.type) {
       case "site_started": note(`started ${path(e.url)}`); break;
+      case "pages_discovered":
+        st.sitesDiscovered++; st.scanTotal += e.pages;
+        note(`${path(e.url)}: ${e.pages} page${e.pages === 1 ? "" : "s"} to scan` + (e.dropped ? ` (${e.found} found, cap ${e.pages})` : ""));
+        break;
+      case "page_scan_started": st.scanning.set(e.page_url, Date.now()); break;
+      case "page_scanned":
+        st.scanning.delete(e.page_url); st.scanned++; st.lastScanned = e.page_url;
+        if (!e.ok) { st.scanFailed++; note(`✕ ${path(e.page_url)} did not load`); }
+        break;
       case "pages_planned":
         st.sitesPlanned++; st.lhPlanned += e.lighthouse_pages; st.lhAlready += e.lighthouse_done;
-        if (e.lighthouse_pages) note(`${path(e.url)}: ${e.pages} pages, ${e.lighthouse_pages - e.lighthouse_done} for Lighthouse`);
+        if (e.lighthouse_pages) { st.lighthouse = true; note(`${path(e.url)}: ${e.lighthouse_pages - e.lighthouse_done} page${e.lighthouse_pages - e.lighthouse_done === 1 ? "" : "s"} queued for Lighthouse`); }
         break;
       case "page_started":
         if (!st.firstPageAt) st.firstPageAt = Date.now();
         st.inChrome.set(e.page_url, Date.now()); break;
       case "page_finished":
         st.inChrome.delete(e.page_url); st.lhDone++;
-        if (!e.ok) { st.lhFailed++; note(`✕ ${path(e.page_url)} failed`); }
+        if (!e.ok) { st.lhFailed++; note(`✕ ${path(e.page_url)}: Lighthouse failed`); }
         else note(`${path(e.page_url)}: performance ${e.performance == null ? "—" : Math.round(e.performance)}`);
         break;
       case "site_finished": st.sitesDone++; note(`${e.ok ? "✓" : "✕"} ${path(e.url)}${e.ok ? "" : " failed"}`); break;
       case "log_message": note(e.text); break;
       case "batch_finished":
-        st.state = e.cancelled ? "stopped" : "done"; st.inChrome.clear();
+        st.state = e.cancelled ? "stopped" : "done"; st.inChrome.clear(); st.scanning.clear();
         note(e.cancelled ? "stopped: the rest can be resumed" : `finished: ${e.succeeded} ok, ${e.failed} failed`);
         break;
     }
@@ -862,34 +899,58 @@ const dock = (() => {
     if (st.lhDone >= 3 && elapsed >= 120) rate = st.lhDone / elapsed;
     return { remaining, secs: remaining / rate, approx: unplanned > 0 };
   }
-  function render() {
-    if (!st) { node.hidden = true; return; }
-    node.hidden = false;
-    node.className = "dock" + (st.state === "done" ? " done" : st.state === "stopped" ? " stopped" : "") + (st.collapsed ? " collapsed" : "");
-    const planned = st.lhPlanned - st.lhAlready;
-    const pct = planned > 0 ? Math.min(100, 100 * st.lhDone / planned) : (st.sitesTotal ? 100 * st.sitesDone / st.sitesTotal : 0);
-    const status = st.state === "done" ? "Finished" : st.state === "stopped" ? (st.error ? "Could not run" : "Stopped") : (st.stopping ? "Stopping…" : "");
-    const headEl = el("div", { class: "dock-head", onclick: () => { st.collapsed = !st.collapsed; render(); } },
-      el("span", { class: "pulse" }), el("b", {}, st.title || "Audit"),
-      el("span", { class: "muted" }, status || (planned > 0 ? Math.floor(pct) + "%" : "")));
-    const body = el("div", { class: "dock-body" });
-    if (st.error) body.append(el("div", {}, st.error));
-    body.append(el("div", { class: "bar" }, el("div", { style: `width:${pct.toFixed(1)}%` })));
-    body.append(el("div", { class: "row" }, el("span", {}, "Sites"), el("span", {}, el("b", {}, num(st.sitesDone)), ` of ${num(st.sitesTotal)} finished`)));
-    if (st.lhPlanned) {
-      body.append(el("div", { class: "row" }, el("span", {}, "Lighthouse pages"),
-        el("span", {}, el("b", {}, num(st.lhDone)), ` of ${num(planned)}${st.sitesPlanned < st.sitesTotal ? "+" : ""}`,
-          st.lhAlready ? ` (${num(st.lhAlready)} saved earlier)` : "", st.lhFailed ? `, ${st.lhFailed} failed` : "")));
+  // The two phases' numbers, shared by both views.
+  function phases() {
+    const more = (seen) => seen < st.sitesTotal ? "+" : "";
+    const scanPct = st.scanTotal ? Math.min(100, 100 * st.scanned / st.scanTotal) : 0;
+    const lhPlanned = st.lhPlanned - st.lhAlready;
+    const lhPct = lhPlanned > 0 ? Math.min(100, 100 * st.lhDone / lhPlanned) : 0;
+    // Scanning shows whenever a light pass runs (every fresh site has one); a
+    // resume of runs already scanned goes straight to Lighthouse.
+    const showScan = st.scanTotal > 0 || (!st.resume && st.state === "running");
+    const showLh = st.lighthouse || st.lhPlanned > 0;
+    const overall = showLh && lhPlanned > 0 ? lhPct : (st.scanTotal ? scanPct : (st.sitesTotal ? 100 * st.sitesDone / st.sitesTotal : 0));
+    return { more, scanPct, lhPlanned, lhPct, showScan, showLh, overall };
+  }
+  // One phase: a label and count, a bar, and the page(s) it is on now.
+  function phaseEl(label, count, pct, nowLabel, nowPages, idle) {
+    return el("div", { class: "phase" },
+      el("div", { class: "phase-row" }, el("span", {}, label), el("span", {}, count)),
+      el("div", { class: "pbar" }, el("div", { style: `width:${pct.toFixed(1)}%` })),
+      nowPages.length
+        ? el("div", { class: "now" }, el("span", { class: "muted" }, nowLabel + " "), ...nowPages.slice(0, 3).map((u, i) => el("span", {}, (i ? ", " : "") + path(u))),
+            nowPages.length > 3 ? el("span", { class: "muted" }, ` and ${nowPages.length - 3} more`) : null)
+        : (idle ? el("div", { class: "now muted" }, idle) : null));
+  }
+  function body(inline) {
+    const p = phases();
+    const parts = [];
+    if (st.error) parts.push(el("div", { class: "notice warn", style: "margin:0" }, st.error));
+    if (p.showScan) {
+      const count = st.scanTotal
+        ? el("span", {}, "Page ", el("b", {}, num(Math.min(st.scanned, st.scanTotal))), ` of ${num(st.scanTotal)}${p.more(st.sitesDiscovered)}`, st.scanFailed ? `, ${st.scanFailed} did not load` : "")
+        : el("span", { class: "muted" }, "finding pages…");
+      const idle = st.scanTotal && st.scanned >= st.scanTotal && st.sitesDiscovered >= st.sitesTotal
+        ? "All pages scanned"
+        : (st.scanTotal ? (st.lastScanned ? "Last scanned " + path(st.lastScanned) : "") : "Reading robots.txt and sitemaps…");
+      parts.push(phaseEl("Scanning pages", count, p.scanPct, "Now scanning", [...st.scanning.keys()], idle));
     }
-    if (st.state === "running" && (st.lhPlanned || st.sitesPlanned)) {
+    if (p.showLh) {
+      const count = p.lhPlanned > 0
+        ? el("span", {}, "Page ", el("b", {}, num(st.lhDone)), ` of ${num(p.lhPlanned)}${p.more(st.sitesPlanned)}`, st.lhAlready ? ` (${num(st.lhAlready)} saved earlier)` : "", st.lhFailed ? `, ${st.lhFailed} failed` : "")
+        : el("span", { class: "muted" }, "waiting for the scan");
+      parts.push(phaseEl("Lighthouse", count, p.lhPct, "In Chrome", [...st.inChrome.keys()], null));
+    }
+    const rows = el("div", { class: "rows" },
+      el("div", { class: "row" }, el("span", {}, "Sites"), el("span", {}, el("b", {}, num(st.sitesDone)), ` of ${num(st.sitesTotal || 0)} finished`)));
+    if (st.state === "running" && st.lhPlanned) {
       const t = eta();
       const left = duration(t.secs);
-      if (t.remaining > 0) body.append(el("div", { class: "row" }, el("span", {}, "Time left"),
+      if (t.remaining > 0) rows.append(el("div", { class: "row" }, el("span", {}, "Time left"),
         el("span", {}, el("b", {}, (t.approx && left !== "under a minute" ? "about " : "") + left))));
     }
-    if (st.inChrome.size) body.append(el("div", { class: "now" }, el("div", { class: "muted" }, "In Chrome now"),
-      ...[...st.inChrome.keys()].map(u => el("div", {}, path(u)))));
-    if (st.log.length) body.append(el("div", { class: "log" }, ...st.log.map(l => el("div", {}, l))));
+    parts.push(rows);
+    if (st.log.length) parts.push(el("div", { class: "log" }, ...st.log.slice(0, inline ? 4 : 6).map(l => el("div", {}, l))));
     const actions = el("div", { class: "actions" });
     if (st.state === "running") {
       const stop = el("button", { class: "ghost" }, st.stopping ? "Stopping after pages in Chrome…" : "Stop");
@@ -899,11 +960,37 @@ const dock = (() => {
         try { await invoke("stop_audit"); } catch {}
       });
       actions.append(stop);
-    } else {
+    } else if (!inline) {
       actions.append(el("button", { class: "ghost", onclick: (ev) => { ev.stopPropagation(); st = null; render(); } }, "Close"));
     }
-    body.append(actions);
-    node.replaceChildren(headEl, body);
+    if (actions.childNodes.length) parts.push(actions);
+    return parts;
+  }
+  function statusText(p) {
+    return st.state === "done" ? "Finished" : st.state === "stopped" ? (st.error ? "Could not run" : "Stopped")
+      : (st.stopping ? "Stopping…" : Math.floor(p.overall) + "%");
+  }
+  function render() {
+    const inline = document.getElementById("audit-progress");
+    if (inline) {
+      if (!st) { inline.hidden = true; }
+      else {
+        const p = phases();
+        inline.hidden = false;
+        inline.className = "progress-card" + (st.state === "done" ? " done" : st.state === "stopped" ? " stopped" : "");
+        inline.replaceChildren(
+          el("div", { class: "head" }, el("span", { class: "pulse" }), el("b", {}, st.title || "Audit"), el("span", { class: "muted" }, statusText(p))),
+          ...body(true));
+      }
+    }
+    // The panel under Run audit shows it already; the dock is for every other screen.
+    if (!st || inline) { node.hidden = true; return; }
+    const p = phases();
+    node.hidden = false;
+    node.className = "dock" + (st.state === "done" ? " done" : st.state === "stopped" ? " stopped" : "") + (st.collapsed ? " collapsed" : "");
+    const headEl = el("div", { class: "dock-head", onclick: () => { st.collapsed = !st.collapsed; render(); } },
+      el("span", { class: "pulse" }), el("b", {}, st.title || "Audit"), el("span", { class: "muted" }, statusText(p)));
+    node.replaceChildren(headEl, el("div", { class: "dock-body" }, ...body(false)));
   }
   async function init() {
     try {
@@ -912,9 +999,11 @@ const dock = (() => {
     } catch {}
     if (TAURI.event && TAURI.event.listen) await TAURI.event.listen("slap://progress", (e) => onEvent(e.payload));
     try { const a = await invoke("audit_status"); if (a.active && !st) begin("Audit in progress"); } catch {}
+    // Switching screens adds or removes the panel under Run audit; the dock follows.
+    window.addEventListener("hashchange", () => setTimeout(render, 60));
     timer = setInterval(() => { if (active() && !st.collapsed) render(); }, 15000);
   }
-  return { begin, fail, active, onEvent, init };
+  return { begin, fail, active, onEvent, init, render };
 })();
 
 async function viewDiagnostics() {

@@ -128,7 +128,16 @@ main thread: the window stopped repainting for the length of an audit, and the
 progress events could not be delivered. It is async now and awaits the audit
 thread. That made the activity dock possible: pages in Chrome, pages measured
 of planned, failures, an ETA (the configured pace until the batch has two
-minutes of its own throughput), and Stop. It listens to `slap://progress` for
+minutes of its own throughput), and Stop.
+
+Progress has two phases, and both show which page they are on. **Scanning**
+(the no-browser fetch of every discovered page, a few at a time) reports
+`pages_discovered` once discovery knows a site's page count, then
+`page_scan_started` and `page_scanned` for each page; **Lighthouse** reports
+`pages_planned`, then `page_started` and `page_finished`. New audit shows both
+as progress bars under the Run button, with the pages being scanned and the
+pages in Chrome right now; the dock shows the same state on every other
+screen, and steps aside while that panel is on screen. It listens to `slap://progress` for
 as long as the app is open, so it survives navigation.
 
 ## Tests

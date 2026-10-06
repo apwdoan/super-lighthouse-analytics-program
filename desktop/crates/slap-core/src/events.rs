@@ -49,6 +49,35 @@ pub enum Event {
         ok: bool,
         error: Option<String>,
     },
+    /// Discovery finished for a site: how many pages it will scan (after the
+    /// per-site cap), how many it found, and how many the cap left out. The
+    /// first moment the scanning progress bar has a denominator.
+    PagesDiscovered {
+        batch_id: String,
+        url: String,
+        pages: usize,
+        found: usize,
+        dropped: usize,
+    },
+    /// One page's no-browser scan (the fetch and the page collectors) began.
+    /// Pages are scanned a few at a time, so several can be in flight.
+    PageScanStarted {
+        batch_id: String,
+        url: String,
+        page_url: String,
+        total: usize,
+    },
+    /// One page's scan finished. `index` counts completions (1-based), so
+    /// "page 7 of 20" reads in order even though scans finish out of order.
+    PageScanned {
+        batch_id: String,
+        url: String,
+        page_url: String,
+        index: usize,
+        total: usize,
+        ok: bool,
+        error: Option<String>,
+    },
     /// A site's light pass is written and its Lighthouse queue is known.
     /// This is the first moment a batch knows how many browser audits it
     /// holds, so it is what a progress view's ETA is built from: discovery
@@ -116,6 +145,9 @@ impl Event {
             | Event::SiteStarted { batch_id, .. }
             | Event::CollectorStarted { batch_id, .. }
             | Event::CollectorFinished { batch_id, .. }
+            | Event::PagesDiscovered { batch_id, .. }
+            | Event::PageScanStarted { batch_id, .. }
+            | Event::PageScanned { batch_id, .. }
             | Event::PagesPlanned { batch_id, .. }
             | Event::PageStarted { batch_id, .. }
             | Event::PageFinished { batch_id, .. }
@@ -146,6 +178,37 @@ impl Event {
                 } else {
                     format!(
                         "    {collector}: failed ({})",
+                        error.as_deref().unwrap_or("unknown")
+                    )
+                }
+            }
+            Event::PagesDiscovered {
+                url,
+                pages,
+                found,
+                dropped,
+                ..
+            } => {
+                if *dropped > 0 {
+                    format!("    {url}: {pages} page(s) to scan ({found} found, {dropped} over the cap)")
+                } else {
+                    format!("    {url}: {pages} page(s) to scan")
+                }
+            }
+            Event::PageScanStarted { page_url, .. } => format!("    scan {page_url}"),
+            Event::PageScanned {
+                page_url,
+                index,
+                total,
+                ok,
+                error,
+                ..
+            } => {
+                if *ok {
+                    format!("    scan [{index}/{total}] {page_url}")
+                } else {
+                    format!(
+                        "    scan [{index}/{total}] {page_url}: failed ({})",
                         error.as_deref().unwrap_or("unknown")
                     )
                 }
@@ -386,6 +449,29 @@ mod tests {
         let json = serde_json::to_value(&finished).unwrap();
         assert_eq!(json["type"], "page_finished");
         assert_eq!(json["total"], 20);
+
+        let scanned = Event::PageScanned {
+            batch_id: "b".into(),
+            url: "https://example.com".into(),
+            page_url: "https://example.com/about".into(),
+            index: 7,
+            total: 20,
+            ok: true,
+            error: None,
+        };
+        assert_eq!(scanned.message(), "    scan [7/20] https://example.com/about");
+        assert_eq!(serde_json::to_value(&scanned).unwrap()["type"], "page_scanned");
+        let discovered = Event::PagesDiscovered {
+            batch_id: "b".into(),
+            url: "https://example.com".into(),
+            pages: 20,
+            found: 57,
+            dropped: 37,
+        };
+        assert_eq!(
+            discovered.message(),
+            "    https://example.com: 20 page(s) to scan (57 found, 37 over the cap)"
+        );
 
         let planned = Event::PagesPlanned {
             batch_id: "b".into(),
