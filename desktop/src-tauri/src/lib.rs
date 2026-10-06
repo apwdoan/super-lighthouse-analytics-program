@@ -91,6 +91,7 @@ pub fn run() {
             commands::clear_brand_logo,
             commands::set_nvd_key,
             commands::set_wp_rocket_suggestions,
+            commands::set_fix_advice,
             commands::vulndb_info,
             commands::regenerate_vulndb,
         ])

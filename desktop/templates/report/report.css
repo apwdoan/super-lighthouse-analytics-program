@@ -468,9 +468,13 @@ td.path { font-family: var(--mono); font-size: 11px; white-space: nowrap; max-wi
 /* ---------------------------------------------------------------- print */
 
 /* No forced page breaks: sections run on, and headings keep with what
- * follows them, so no sheet is left half empty. */
+ * follows them, so no sheet is left half empty. The break rules sit outside
+ * the print query on purpose: they only act where content is broken into
+ * pages or columns, and the PDF export's page fitting measures pagination
+ * by laying a copy out in sheet-sized columns on screen, which must break
+ * exactly as print does. */
+h2, h3, .section-head, .audit-group-head, .lh-category-head, .page-detail-head { break-after: avoid; }
 @media print {
   body { background: #fff; }
   .page { max-width: none; padding: 0; }
-  h2, h3, .section-head, .audit-group-head, .lh-category-head, .page-detail-head { break-after: avoid; }
 }

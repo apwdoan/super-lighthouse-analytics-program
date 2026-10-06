@@ -194,8 +194,10 @@ pub fn get_settings() -> Result<Json, String> {
         "brand_logo_set": brand_logo_set,
         "nvd_key_set": nvd_key_set,
         "nvd_key_from_env": nvd_env.is_some(),
-        // A report-content switch: whether findings carry WP Rocket suggestions.
+        // Report-content switches: whether findings carry WP Rocket
+        // suggestions, and their "How to fix" advice.
         "wp_rocket_suggestions": settings.wp_rocket_suggestions,
+        "fix_advice": settings.fix_advice,
         // What the composer needs to describe and estimate a Lighthouse batch.
         "lighthouse_scope": settings.lighthouse.scope().as_str(),
         "lighthouse_concurrency": settings.lighthouse.effective_concurrency(),
@@ -244,6 +246,16 @@ pub fn set_nvd_key(key: String) -> Result<Json, String> {
 #[tauri::command]
 pub fn set_wp_rocket_suggestions(enabled: bool) -> Result<Json, String> {
     slap_core::settings::save_wp_rocket_suggestions(enabled, None).map_err(|e| e.to_string())?;
+    Ok(json!({ "enabled": enabled }))
+}
+
+/// Toggle whether exported reports include each finding's "How to fix"
+/// advice. Stored top-level as `fix_advice`; on by default. Independent of the
+/// WP Rocket switch: with this off and that on, a finding keeps only its "In
+/// WP Rocket" line. Takes effect on the next report render, with no restart.
+#[tauri::command]
+pub fn set_fix_advice(enabled: bool) -> Result<Json, String> {
+    slap_core::settings::save_fix_advice(enabled, None).map_err(|e| e.to_string())?;
     Ok(json!({ "enabled": enabled }))
 }
 
@@ -621,9 +633,11 @@ pub async fn report_html(app: tauri::AppHandle, run_id: i64) -> Result<Option<St
 
 /// Render a run's client report to PDF at a location the user picks in the Save
 /// dialog, using the pinned Chromium the app manages for Lighthouse (fetched on
-/// first use if absent). Returns the chosen path, or `None` if the user
-/// cancelled. Async: the dialog is awaited (never blocking the main thread) and
-/// the Chromium print runs on a blocking task so it cannot stall the runtime.
+/// first use if absent). The print grows the report to fill its last sheet
+/// where it can, without adding one (`slap_engine::pdf`). Returns the chosen
+/// path, or `None` if the user cancelled. Async: the dialog is awaited (never
+/// blocking the main thread) and the Chromium print runs on a blocking task so
+/// it cannot stall the runtime.
 #[tauri::command]
 pub async fn report_pdf(app: tauri::AppHandle, run_id: i64) -> Result<Option<String>, String> {
     let name = {
@@ -640,37 +654,16 @@ pub async fn report_pdf(app: tauri::AppHandle, run_id: i64) -> Result<Option<Str
         slap_engine::report::render_html(&conn, run_id)?
     };
 
-    let tmp = std::env::temp_dir().join(format!("slap-report-{run_id}.html"));
-    std::fs::write(&tmp, &html).map_err(|e| e.to_string())?;
-
     let chrome = slap_engine::lighthouse::resolve_or_fetch_chrome()
         .await
         .map_err(|e| format!("could not obtain Chromium for the PDF: {e}"))?;
 
     // The Chromium print is a blocking subprocess; run it on a blocking task so
-    // it never stalls the async runtime. The temp HTML is cleaned up there too.
+    // it never stalls the async runtime. Its scratch files are cleaned up there.
     let out_arg = out.clone();
-    let status = tokio::task::spawn_blocking(move || {
-        let status = std::process::Command::new(&chrome)
-            .args([
-                "--headless=new",
-                "--no-sandbox",
-                "--disable-gpu",
-                "--no-pdf-header-footer",
-            ])
-            .arg(format!("--print-to-pdf={}", out_arg.display()))
-            .arg(format!("file://{}", tmp.display()))
-            .status();
-        let _ = std::fs::remove_file(&tmp);
-        status
-    })
-    .await
-    .map_err(|e| format!("the PDF task did not finish: {e}"))?
-    .map_err(|e| format!("could not run Chromium: {e}"))?;
-
-    if !status.success() {
-        return Err("Chromium did not produce the PDF".to_string());
-    }
+    tokio::task::spawn_blocking(move || slap_engine::pdf::print_pdf(&chrome, &html, &out_arg))
+        .await
+        .map_err(|e| format!("the PDF task did not finish: {e}"))??;
     Ok(Some(out.display().to_string()))
 }
 

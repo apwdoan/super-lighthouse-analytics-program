@@ -201,6 +201,11 @@ pub struct Settings {
     /// report that should not carry plugin-specific advice. Top-level, like
     /// `probe_enabled`, so a bare key is never trapped inside a strict section.
     pub wp_rocket_suggestions: bool,
+    /// Whether the client-facing report includes each finding's "How to
+    /// fix" advice (its remediation line). On by default; turned off for a
+    /// report that should state the problems and leave the fixes to be
+    /// quoted separately. Top-level, like `wp_rocket_suggestions`.
+    pub fix_advice: bool,
     /// Report branding. Deliberately a plain map so a settings page and a
     /// TOML file can both populate it without a schema change.
     pub branding: BTreeMap<String, toml::Value>,
@@ -225,6 +230,7 @@ impl Default for Settings {
             probe_enabled: false,
             probe_rate_per_second: 2.0,
             wp_rocket_suggestions: true,
+            fix_advice: true,
             branding: BTreeMap::new(),
             config_path: None,
         }
@@ -320,6 +326,10 @@ impl Settings {
             // config explicitly switches it off.
             if let Some(toml::Value::Boolean(enabled)) = raw.get("wp_rocket_suggestions") {
                 settings.wp_rocket_suggestions = *enabled;
+            }
+            // The same for "How to fix": absent means on.
+            if let Some(toml::Value::Boolean(enabled)) = raw.get("fix_advice") {
+                settings.fix_advice = *enabled;
             }
             match raw.get("probe_rate_per_second") {
                 Some(toml::Value::Float(rate)) => settings.probe_rate_per_second = *rate,
@@ -664,6 +674,13 @@ pub fn save_wp_rocket_suggestions(
     )
 }
 
+/// Persist whether reports carry each finding's "How to fix" advice. Written
+/// top-level and always written, for the same reasons as
+/// `save_wp_rocket_suggestions`.
+pub fn save_fix_advice(enabled: bool, path: Option<&Path>) -> Result<PathBuf, SettingsError> {
+    save_setting("fix_advice", Some(SettingValue::Bool(enabled)), None, path)
+}
+
 /// Persist the Lighthouse coverage mode (`[lighthouse] scope`). The
 /// `[lighthouse]` section is the lenient one (unknown keys are ignored), so an
 /// older app version reading the same config is unaffected by the key.
@@ -952,5 +969,23 @@ mod tests {
         // And back on again overrides the stored false.
         save_wp_rocket_suggestions(true, Some(&config)).unwrap();
         assert!(Settings::load(Some(&config)).unwrap().wp_rocket_suggestions);
+    }
+
+    #[test]
+    fn fix_advice_defaults_on_and_toggle_round_trips() {
+        assert!(Settings::default().fix_advice);
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.toml");
+        write(&config, "[collector]\nhttp_concurrency = 12\n");
+        assert!(Settings::load(Some(&config)).unwrap().fix_advice, "absent means on");
+        save_fix_advice(false, Some(&config)).unwrap();
+        let parsed: toml::Table = std::fs::read_to_string(&config).unwrap().parse().unwrap();
+        assert_eq!(parsed.get("fix_advice"), Some(&toml::Value::Boolean(false)));
+        assert!(parsed["collector"].get("fix_advice").is_none(), "never inside a strict section");
+        let settings = Settings::load(Some(&config)).unwrap();
+        assert!(!settings.fix_advice);
+        assert!(settings.wp_rocket_suggestions, "the two switches are independent");
+        save_fix_advice(true, Some(&config)).unwrap();
+        assert!(Settings::load(Some(&config)).unwrap().fix_advice);
     }
 }

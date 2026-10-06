@@ -22,13 +22,16 @@ build notes, and the rules the codebase holds itself to.
 Every audit ends in a client-facing report, rendered by the engine's `report`
 module from a single self-contained Jinja template
 ([`report.html.jinja`](desktop/crates/slap-engine/src/report.html.jinja)) and
-styled by [`report.css`](desktop/templates/report/report.css). It reads like
-the Lighthouse report a client already knows from PageSpeed Insights: score
-gauges in Lighthouse's three bands, the metrics grid with Lighthouse's rating
-shapes, audits grouped the way Lighthouse groups them, and its runtime-settings
-footer. The HTML is the deliverable: fully self-contained (inlined CSS, no
+styled by [`report.css`](desktop/templates/report/report.css). It looks like
+the Lighthouse report a client may know from PageSpeed Insights: score gauges
+in Lighthouse's three bands, metric rows with Lighthouse's rating shapes, and
+audit lists. The HTML is the deliverable: fully self-contained (inlined CSS, no
 external assets), so it survives being emailed. The PDF is a print-to-PDF
-rendering of that same document, so the two can never disagree.
+rendering of that same document, so the two can never disagree. The print
+does one thing the HTML cannot: when the report would end partway down its
+last sheet, it grows the whole report (text, gauges and spacing) by as much
+as fits without adding a sheet, up to 25%, so the space goes to legibility
+rather than blank paper.
 
 It is written for the site's owner, not its developer: plain names for the
 metrics with Lighthouse's short names beside them, Lighthouse's audits
@@ -72,6 +75,16 @@ brand a run:
     [branding]
     company_name = "Your Company"
     logo_data_uri = "data:image/png;base64,..."
+
+### How to fix
+
+Each finding in **What to fix first** carries a "How to fix" line saying
+what to change. It is on by default. Turn it off under **Settings → Report
+content** for reports that should state the problems and leave the fixes to
+be quoted separately; the app's own views keep the advice either way. It is
+saved as a top-level key in `config.toml`:
+
+    fix_advice = false
 
 ### WP Rocket suggestions
 

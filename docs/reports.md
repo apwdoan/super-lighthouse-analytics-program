@@ -11,7 +11,7 @@ build_model(conn, run_id)     pure transform → report model (unit tested, no H
 render_html()                minijinja + report.css → self-contained HTML (the artifact of record)
     │
     ▼
-report_pdf()                 headless Chromium print-to-PDF of that HTML (a rendering of that file)
+pdf::print_pdf()             headless Chromium print-to-PDF of that HTML, grown to fill its last sheet
 ```
 
 **HTML is the deliverable; the PDF is a rendering of it.** That ordering is
@@ -53,9 +53,65 @@ Cost of the choice: one pinned browser per machine, shared with Lighthouse.
 
 `report_pdf` asks for the destination **before** it renders anything:
 cancelling costs nothing, and the PDF path is heavy (a Chromium print, and
-possibly a first-run fetch). The print runs as a blocking subprocess on a
-blocking task so it cannot stall the async runtime, and the temp HTML it
-writes is cleaned up on the same task.
+possibly a first-run fetch). The print (`slap_engine::pdf::print_pdf`) runs
+as a blocking subprocess on a blocking task so it cannot stall the async
+runtime, in a scratch folder of its own: the page, the PDF, Chromium's
+console log, and a Chromium profile, so a print never meets another
+Chromium's profile lock. The log is a file, not a pipe, because a helper
+process Chromium leaves running can hold an inherited pipe open after the
+print is done. A print still running after two minutes is abandoned. The
+folder is removed on the same task; one that cannot be (Chromium can hold a
+profile file for a moment after it exits) is cleared by a later export once
+it is 15 minutes old.
+
+## Filling the last sheet
+
+*Added 2026-10-05.* A report rarely ends at the foot of its last sheet, and a
+last sheet a quarter full reads as wasted paper. So the PDF export grows the
+whole report (text, gauges and spacing alike, with CSS `zoom` on `.page`) by
+the largest amount, up to `MAX_FIT_ZOOM` (1.25), that keeps the number of
+sheets it has at full size. Nothing is added or removed, and the HTML export
+is untouched: only the printed copy carries the fitting.
+
+- **Pagination is measured, not estimated.** `report_fit.js`, injected into
+  the copy that is printed, lays a clone of `.page` out in columns exactly
+  one sheet's content box in size, and counts them. Blink breaks columns
+  with the same fragmentation engine it paginates print with, honouring the
+  same `break-inside` and `break-after` rules; that is why those rules live
+  outside `@media print` in report.css, and why the clone is given what the
+  print query does to `.page`. A binary search finds the largest zoom that
+  keeps the count, then steps 0.001 back from the edge.
+- **Repeated table headers are counted.** Print repeats a table's header row
+  at the top of every sheet the table continues onto (the "Every page" table
+  in a long audit); columns do not. Uncounted, those repeats made a long
+  table's report measure a sheet shorter than it printed. So wherever a
+  table continues into a new column, the clone gets a copy of the header row
+  there, starting that column, and the columns break as the sheets do.
+- **The sheet is stated.** The printed copy says `@page { size: 8.5in 11in }`:
+  US Letter, which a headless print defaults to anyway, so the sheet measured
+  is the sheet printed. `MARGINS_MM` in `pdf.rs` mirrors report.css's `@page`
+  margins, and a test holds the two together.
+- **The print is checked.** The fitting logs `SLAP-FIT {"pages":7,"zoom":1.08}`
+  on the console, which Chromium writes to its log with
+  `--enable-logging=stderr`. The exporter counts the pages of the PDF (its
+  `/Type /Page` objects); if the print came out longer than measured, or the
+  line cannot be read, it prints again unzoomed and keeps the shorter of the
+  two. A fitted PDF is never longer than an unfitted one, and the usual cost
+  is one print.
+- **How much it gains depends on the content.** The test sites grew by under
+  1% to 16%: most where the last sheet was mostly empty, least where it was
+  nearly full already. Blocks that must not split (a finding card, a page
+  section's gauges) move whole to the next sheet when they stop fitting, so
+  past some zoom one more step pushes a block over and the cascade adds a
+  sheet; the last sheet fills as far as that allows, not always to the foot.
+  Just short of that point a block can move without adding a sheet, so a
+  last sheet can fill up while the report grows by a percent or less: the
+  space moves to the foot of an earlier sheet, ahead of the block that moved.
+  A report longer than 40 sheets is printed as it is: its last sheet is a
+  small share of the whole, and every measurement lays the whole report out
+  again.
+
+The dev example prints the same way: `render_report <db> <run_id> out.pdf`.
 
 ## Two Chromium settings that are not optional
 
@@ -93,7 +149,11 @@ Page one is the verdict, not the data.
    what is wrong, the pages it affects ("The whole site" when its evidence is
    all origin-scoped), the effort in words (quick fix, some work, bigger job),
    how to fix it, and the WP Rocket setting where one applies. Low findings
-   are one line each under "Smaller improvements".
+   are one line each under "Smaller improvements". The "How to fix" line and
+   the "In WP Rocket" line each have their own switch under Settings → Report
+   content (`fix_advice` and `wp_rocket_suggestions` in config.toml, both on
+   by default); with both off, a finding has no fix box at all rather than an
+   empty one.
 4. **Home page in detail.** The performance gauge beside the five metrics,
    each with its plain name, Lighthouse's short name, and one line on what it
    means; "Ways to make it faster", the failing and needs-work audits as one

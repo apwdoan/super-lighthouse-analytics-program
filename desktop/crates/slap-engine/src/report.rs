@@ -1778,10 +1778,11 @@ fn build_model(conn: &Connection, run_id: i64) -> Result<Json, String> {
         "date": date,
         "run_id": run_id,
         "branding": branding,
-        // A report-content switch (Settings screen): whether findings carry
-        // the "In WP Rocket" remediation line. Detection in the technology
-        // section is unaffected by it.
+        // Report-content switches (Settings screen): whether findings carry
+        // the "In WP Rocket" remediation line, and their "How to fix" advice.
+        // Detection in the technology section is unaffected by either.
         "show_wp_rocket": settings.wp_rocket_suggestions,
+        "show_fix_advice": settings.fix_advice,
         "verdict": {
             "flag_class": flag_class, "flag_word": flag_word,
             "headline": headline, "explanation": explanation,
@@ -2174,6 +2175,7 @@ mod tests {
         let model = |show: bool, remediation: Json| -> Json {
             let mut model = real.clone();
             model["show_wp_rocket"] = json!(show);
+            model["show_fix_advice"] = json!(true);
             model["minor"] = json!([]);
             model["significant"] = json!([{
                 "status":"serious","severity_word":"High","title":"Slow images","detail":"d",
@@ -2199,5 +2201,15 @@ mod tests {
         assert!(!only_wpr_off.contains("class=\"fix\""), "no empty fix block");
         let only_wpr_on = render(model(true, Json::Null));
         assert!(only_wpr_on.contains("In WP Rocket"), "lone WP Rocket fix shows when on");
+
+        // "How to fix" switched off: the advice goes, the WP Rocket line
+        // follows its own switch, and with both off no empty block is left.
+        let mut no_advice = model(true, json!("Compress the hero image"));
+        no_advice["show_fix_advice"] = json!(false);
+        let html = render(no_advice.clone());
+        assert!(!html.contains("How to fix") && !html.contains("Compress the hero image"));
+        assert!(html.contains("Enable LazyLoad for images"), "WP Rocket line is independent");
+        no_advice["show_wp_rocket"] = json!(false);
+        assert!(!render(no_advice).contains("class=\"fix\""), "no empty fix block");
     }
 }
