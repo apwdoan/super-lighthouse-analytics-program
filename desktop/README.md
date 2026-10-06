@@ -20,6 +20,10 @@ in the project docs under `docs/`.
                           binary a thin main() over it; the IPC command
                           modules live here and stay unit-testable.
       ui/                 static frontend, no build step, no bundler.
+      ui/vendor/pdfjs/    Mozilla's PDF.js, copied prebuilt from
+                          pdfjs-dist (Apache-2.0): draws the PDF in the
+                          report preview, loaded only when that tab is
+                          opened. Its README says how to update it.
       worker/             the Lighthouse Node worker (worker.js), carried
                           over verbatim; now driven as a subprocess by
                           slap-engine's Lighthouse runner. `npm install`

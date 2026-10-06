@@ -26,7 +26,10 @@ styled by [`report.css`](desktop/templates/report/report.css). It looks like
 the Lighthouse report a client may know from PageSpeed Insights: score gauges
 in Lighthouse's three bands, metric rows with Lighthouse's rating shapes, and
 audit lists. The HTML is the deliverable: fully self-contained (inlined CSS, no
-external assets), so it survives being emailed. The PDF is a print-to-PDF
+external assets), so it survives being emailed. **Preview report** on a run
+shows both, the web page and the PDF, exactly as they would be exported, so
+a report can be checked before it is saved; exporting the PDF right after
+previewing it saves that same print instead of printing again. The PDF is a print-to-PDF
 rendering of that same document, so the two can never disagree. The print
 does one thing the HTML cannot: when the report would end partway down its
 last sheet, it grows the whole report (text, gauges and spacing) by as much

@@ -86,16 +86,24 @@ pub fn print_html(html: &str) -> String {
 /// can be. Blocking: it runs Chromium once, or twice when the fitted print
 /// has to be checked against an unzoomed one.
 pub fn print_pdf(chrome: &Path, html: &str, out: &Path) -> Result<Printed, String> {
+    let (bytes, printed) = print_pdf_bytes(chrome, html)?;
+    std::fs::write(out, bytes).map_err(|e| format!("could not write {}: {e}", out.display()))?;
+    Ok(printed)
+}
+
+/// [`print_pdf`], keeping the PDF in memory rather than writing it: what the
+/// app's preview shows, byte for byte the file an export would write.
+pub fn print_pdf_bytes(chrome: &Path, html: &str) -> Result<(Vec<u8>, Printed), String> {
     clear_stale_scratch();
     let dir = scratch_dir()?;
-    let result = print_in(&dir, chrome, html, out);
+    let result = print_in(&dir, chrome, html);
     // Best effort: Chromium can hold a profile file for a moment after exit.
     // A folder left behind is cleared by a later export.
     let _ = std::fs::remove_dir_all(&dir);
     result
 }
 
-fn print_in(dir: &Path, chrome: &Path, html: &str, out: &Path) -> Result<Printed, String> {
+fn print_in(dir: &Path, chrome: &Path, html: &str) -> Result<(Vec<u8>, Printed), String> {
     let page = dir.join("report.html");
     std::fs::write(&page, print_html(html))
         .map_err(|e| format!("could not write the report to print: {e}"))?;
@@ -113,7 +121,7 @@ fn print_in(dir: &Path, chrome: &Path, html: &str, out: &Path) -> Result<Printed
     let fitted_pages = pdf_page_count(&fitted).ok_or("Chromium produced a PDF with no pages")?;
     let fit = fit_report(&log);
 
-    let (bytes, printed) = match fit {
+    Ok(match fit {
         Some(fit) if fitted_pages <= fit.pages => (
             fitted,
             Printed { pages: fitted_pages, zoom: Some(fit.zoom) },
@@ -132,9 +140,7 @@ fn print_in(dir: &Path, chrome: &Path, html: &str, out: &Path) -> Result<Printed
                 (plain, Printed { pages: plain_pages, zoom: Some(1.0) })
             }
         }
-    };
-    std::fs::write(out, bytes).map_err(|e| format!("could not write {}: {e}", out.display()))?;
-    Ok(printed)
+    })
 }
 
 /// How long one print may take before it is abandoned. A print takes a second

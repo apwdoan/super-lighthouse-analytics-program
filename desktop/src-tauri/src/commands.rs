@@ -661,7 +661,8 @@ pub async fn report_html(app: tauri::AppHandle, run_id: i64) -> Result<Option<St
 /// where it can, without adding one (`slap_engine::pdf`). Returns the chosen
 /// path, or `None` if the user cancelled. Async: the dialog is awaited (never
 /// blocking the main thread) and the Chromium print runs on a blocking task so
-/// it cannot stall the runtime.
+/// it cannot stall the runtime. A PDF just shown in the preview is written as
+/// it is, without printing again, when the report has not changed since.
 #[tauri::command]
 pub async fn report_pdf(app: tauri::AppHandle, run_id: i64) -> Result<Option<String>, String> {
     let name = {
@@ -673,10 +674,69 @@ pub async fn report_pdf(app: tauri::AppHandle, run_id: i64) -> Result<Option<Str
     let Some(out) = ask_save_path(&app, &name, "PDF document", &["pdf"]).await else {
         return Ok(None);
     };
-    let html = {
+    let bytes = report_pdf_bytes(run_id).await?;
+    std::fs::write(&out, bytes).map_err(|e| format!("could not write {}: {e}", out.display()))?;
+    Ok(Some(out.display().to_string()))
+}
+
+/// The client report as HTML, for the in-app preview: the same render the
+/// HTML export writes, so what is previewed is what is sent.
+#[tauri::command]
+pub async fn report_preview_html(run_id: i64) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
         let conn = report_conn()?;
-        slap_engine::report::render_html(&conn, run_id)?
-    };
+        slap_engine::report::render_html(&conn, run_id)
+    })
+    .await
+    .map_err(|e| format!("the report did not finish rendering: {e}"))?
+}
+
+/// The client report as PDF, for the in-app preview: the bytes an export would
+/// write, sent as raw bytes (an `ArrayBuffer` in the page) rather than as
+/// JSON, which would be several times their size.
+#[tauri::command]
+pub async fn report_preview_pdf(run_id: i64) -> Result<tauri::ipc::Response, String> {
+    Ok(tauri::ipc::Response::new(report_pdf_bytes(run_id).await?))
+}
+
+/// The last PDF printed for the preview, and the report it was printed from.
+/// Previewing and then saving is the usual order, and a print is seconds of
+/// Chromium, so the save reuses it when the report renders the same: same
+/// run, same HTML, so the same branding and report settings too.
+struct PrintedReport {
+    run_id: i64,
+    html: String,
+    pdf: Vec<u8>,
+}
+
+static LAST_PRINT: Mutex<Option<PrintedReport>> = Mutex::new(None);
+
+/// The kept PDF, if it was printed from exactly this report.
+fn kept_print(run_id: i64, html: &str) -> Option<Vec<u8>> {
+    let kept = LAST_PRINT.lock().ok()?;
+    kept.as_ref()
+        .filter(|p| p.run_id == run_id && p.html == html)
+        .map(|p| p.pdf.clone())
+}
+
+fn keep_print(run_id: i64, html: String, pdf: Vec<u8>) {
+    if let Ok(mut kept) = LAST_PRINT.lock() {
+        *kept = Some(PrintedReport { run_id, html, pdf });
+    }
+}
+
+/// A run's report printed to PDF, or the kept print of it when the report has
+/// not changed since.
+async fn report_pdf_bytes(run_id: i64) -> Result<Vec<u8>, String> {
+    let html = tokio::task::spawn_blocking(move || {
+        let conn = report_conn()?;
+        slap_engine::report::render_html(&conn, run_id)
+    })
+    .await
+    .map_err(|e| format!("the report did not finish rendering: {e}"))??;
+    if let Some(pdf) = kept_print(run_id, &html) {
+        return Ok(pdf);
+    }
 
     let chrome = slap_engine::lighthouse::resolve_or_fetch_chrome()
         .await
@@ -684,11 +744,13 @@ pub async fn report_pdf(app: tauri::AppHandle, run_id: i64) -> Result<Option<Str
 
     // The Chromium print is a blocking subprocess; run it on a blocking task so
     // it never stalls the async runtime. Its scratch files are cleaned up there.
-    let out_arg = out.clone();
-    tokio::task::spawn_blocking(move || slap_engine::pdf::print_pdf(&chrome, &html, &out_arg))
-        .await
-        .map_err(|e| format!("the PDF task did not finish: {e}"))??;
-    Ok(Some(out.display().to_string()))
+    let printed_html = html.clone();
+    let (pdf, _) =
+        tokio::task::spawn_blocking(move || slap_engine::pdf::print_pdf_bytes(&chrome, &printed_html))
+            .await
+            .map_err(|e| format!("the PDF task did not finish: {e}"))??;
+    keep_print(run_id, html, pdf.clone());
+    Ok(pdf)
 }
 
 // ---------------------------------------------------------------------------
@@ -1055,6 +1117,17 @@ fn run_audit_blocking(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Saving right after previewing writes the previewed PDF, but only when
+    /// it was printed from the very report being saved: another run, or the
+    /// same run after a branding or settings change, prints afresh.
+    #[test]
+    fn a_previewed_pdf_is_reused_only_for_the_same_report() {
+        keep_print(7, "<html>report</html>".into(), b"%PDF-1.4 seven".to_vec());
+        assert_eq!(kept_print(7, "<html>report</html>").as_deref(), Some(&b"%PDF-1.4 seven"[..]));
+        assert_eq!(kept_print(8, "<html>report</html>"), None, "another run");
+        assert_eq!(kept_print(7, "<html>rebranded</html>"), None, "the report changed");
+    }
 
     #[test]
     fn the_wp_rocket_switch_hides_the_setting_from_the_apps_findings() {

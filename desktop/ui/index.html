@@ -6,7 +6,8 @@
 <title>SLAP</title>
 <!--
   One file, no bundler, no framework: the decision the web UI recorded and
-  this app kept. A hash router swaps views; every view is drawn from data
+  this app kept. The one exception is vendor/pdfjs, PDF.js copied prebuilt,
+  loaded only when a report preview's PDF tab is opened. A hash router swaps views; every view is drawn from data
   the Rust commands return. Opened outside the app shell (no Tauri IPC) it
   says so rather than erroring.
 
@@ -227,6 +228,30 @@
   .log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .actions { display: flex; gap: 8px; justify-content: flex-end; }
   .dock .phase .pbar { height: 7px; }
+  /* ---- the report preview: the report as delivered, over the whole window ---- */
+  .preview { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; background: var(--bg); }
+  .preview-bar { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .preview-bar .title { flex: 0 1 auto; min-width: 0; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .preview-bar .title .muted { font-size: 12.5px; margin-left: 8px; }
+  .preview-tabs { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; flex: none; }
+  .preview-tabs button { background: var(--surface); color: var(--ink-2); border: 0; padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .preview-tabs button + button { border-left: 1px solid var(--line-strong); }
+  .preview-tabs button[aria-selected="true"] { background: var(--accent); color: #fff; }
+  .preview-bar .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .preview-bar .actions button { padding: 7px 12px; font-size: 13px; }
+  .preview-bar select { padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 13px; }
+  .preview-status { font-size: 12px; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .preview-body { flex: 1; min-height: 0; position: relative; }
+  .preview-body > * { position: absolute; inset: 0; }
+  .preview-body > [hidden] { display: none; }
+  .preview-html { width: 100%; height: 100%; border: 0; background: #fff; }
+  .preview-pdf { overflow: auto; background: var(--surface-2); padding: 20px 16px 48px; outline: none; }
+  .pdf-page { margin: 0 auto 18px; background: #fff; box-shadow: 0 1px 3px rgba(11,11,11,.16), 0 4px 18px rgba(11,11,11,.08); }
+  .pdf-page canvas { display: block; width: 100%; height: 100%; }
+  .preview-wait { display: grid; place-content: center; gap: 6px; text-align: center; color: var(--ink-2); padding: 40px; background: var(--bg); }
+  .preview-wait b { color: var(--ink); font-size: 15px; }
+  .preview-wait .notice { max-width: 560px; text-align: left; }
+  .preview-pdf > .preview-wait { min-height: 100%; background: none; }
 </style>
 </head>
 <body>
@@ -481,6 +506,205 @@ function findingCard(f) {
   return card;
 }
 
+// -------- report preview --------
+// The client report as it is delivered, without saving it first: the web
+// page in a sandboxed frame (nothing in it can run), and the PDF printed
+// exactly as the export prints it, drawn page by page with PDF.js
+// (ui/vendor/pdfjs), because not every system WebView can show a PDF itself.
+// A PDF previewed and then exported is not printed twice: the shell keeps it.
+let pdfjsLoading = null;
+function loadPdfjs() {
+  if (!pdfjsLoading) {
+    pdfjsLoading = import("./vendor/pdfjs/pdf.min.mjs").then(lib => {
+      lib.GlobalWorkerOptions.workerSrc = new URL("vendor/pdfjs/pdf.worker.min.mjs", location.href).href;
+      return lib;
+    });
+    pdfjsLoading.catch(() => { pdfjsLoading = null; });
+  }
+  return pdfjsLoading;
+}
+
+function openReportPreview(runId, label) {
+  const errText = (e) => String(e && e.message ? e.message : e);
+  const opener = document.activeElement;
+  let closed = false, pdfTask = null, pdfDoc = null, pdfStarted = false, observer = null, sizer = null, relayout = 0;
+  const pages = [];
+
+  const status = el("span", { class: "muted preview-status", "aria-live": "polite" });
+  const tabHtml = el("button", { role: "tab", "aria-selected": "true" }, "Web page");
+  const tabPdf = el("button", { role: "tab", "aria-selected": "false" }, "PDF");
+  const zoom = el("select", { "aria-label": "PDF zoom", hidden: "" },
+    el("option", { value: "fit" }, "Fit to width"),
+    el("option", { value: "page" }, "Whole page"),
+    el("option", { value: "0.75" }, "75%"),
+    el("option", { value: "1" }, "100%"),
+    el("option", { value: "1.25" }, "125%"),
+    el("option", { value: "1.5" }, "150%"));
+  const exportBtn = (text, cmd) => {
+    const b = el("button", { class: "ghost" }, text);
+    b.addEventListener("click", async () => {
+      b.disabled = true; status.textContent = "Exporting…";
+      try {
+        const path = await invoke(cmd, { runId });
+        status.textContent = path ? "Saved to " + path : "Export cancelled";
+        status.title = path || "";
+      } catch (e) { status.textContent = errText(e); }
+      finally { b.disabled = false; }
+    });
+    return b;
+  };
+  const closeBtn = el("button", { class: "primary" }, "Close");
+  const bar = el("div", { class: "preview-bar" },
+    el("div", { class: "title" }, el("b", {}, "Report preview"), el("span", { class: "muted" }, label)),
+    el("div", { class: "preview-tabs", role: "tablist", "aria-label": "Report format" }, tabHtml, tabPdf),
+    el("div", { class: "actions" }, status, zoom,
+      exportBtn("Export HTML…", "report_html"), exportBtn("Export PDF…", "report_pdf"), closeBtn));
+
+  const wait = (title, text) => el("div", { class: "preview-wait" }, el("b", {}, title), text ? el("span", {}, text) : null);
+  const failed = (what, e, retry) => el("div", { class: "preview-wait" },
+    el("div", { class: "notice warn" }, el("b", {}, what), el("div", { style: "margin-top:6px" }, errText(e))),
+    retry ? el("div", { class: "row-actions", style: "justify-content:center" }, el("button", { class: "ghost", onclick: retry }, "Try again")) : null);
+
+  const frame = el("iframe", { class: "preview-html", sandbox: "", title: "The report as a web page", hidden: "" });
+  const htmlWait = wait("Rendering the report…");
+  const pdfPane = el("div", { class: "preview-pdf", tabindex: "0", hidden: "", "aria-label": "The report as a PDF" });
+  const body = el("div", { class: "preview-body" }, frame, htmlWait, pdfPane);
+  const overlay = el("div", { class: "preview", role: "dialog", "aria-modal": "true", "aria-label": "Report preview" }, bar, body);
+
+  function select(tab) {
+    const pdf = tab === "pdf";
+    tabHtml.setAttribute("aria-selected", String(!pdf));
+    tabPdf.setAttribute("aria-selected", String(pdf));
+    frame.hidden = pdf || !frame.srcdoc;
+    htmlWait.hidden = pdf || !!frame.srcdoc;
+    pdfPane.hidden = !pdf;
+    zoom.hidden = !(pdf && pdfDoc);
+    if (pdf) { showPdf(); pdfPane.focus({ preventScroll: true }); }
+  }
+  tabHtml.addEventListener("click", () => select("html"));
+  tabPdf.addEventListener("click", () => select("pdf"));
+
+  async function showHtml() {
+    try {
+      const html = await invoke("report_preview_html", { runId });
+      if (closed) return;
+      frame.srcdoc = html;
+      if (tabHtml.getAttribute("aria-selected") === "true") { frame.hidden = false; htmlWait.hidden = true; }
+    } catch (e) {
+      if (!closed) htmlWait.replaceChildren(...failed("The report could not be rendered.", e).childNodes);
+    }
+  }
+
+  // PDF pages: each page is a box sized from the PDF's own page size, and
+  // only the pages near the visible part are drawn. A whole report drawn at
+  // once is tens of megabytes of canvas.
+  const zoomWidth = (p) => {
+    const actual = p.w * 96 / 72;
+    if (zoom.value === "fit") return Math.max(200, Math.min(pdfPane.clientWidth - 32, actual * 1.25));
+    if (zoom.value === "page") return Math.max(200, Math.min(pdfPane.clientWidth - 32, (pdfPane.clientHeight - 40) * p.w / p.h));
+    return actual * Number(zoom.value);
+  };
+  function layout() {
+    for (const p of pages) {
+      const w = Math.round(zoomWidth(p));
+      p.el.style.width = w + "px";
+      p.el.style.height = Math.round(w * p.h / p.w) + "px";
+      if (p.near) draw(p); else blank(p);
+    }
+  }
+  async function draw(p) {
+    const width = p.el.clientWidth;
+    if (!pdfDoc || !width || p.drawnAt === width) return;
+    if (p.task) p.task.cancel();
+    const page = await pdfDoc.getPage(p.n);
+    if (closed || !p.near) return;
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    const viewport = page.getViewport({ scale: width * ratio / p.w });
+    const canvas = el("canvas", { width: Math.floor(viewport.width), height: Math.floor(viewport.height) });
+    const task = page.render({ canvas, viewport });
+    p.task = task;
+    try { await task.promise; } catch (e) { return; }
+    if (p.task !== task || closed) return;
+    p.task = null;
+    p.drawnAt = width;
+    p.el.replaceChildren(canvas);
+  }
+  function blank(p) {
+    if (p.task) { p.task.cancel(); p.task = null; }
+    const old = p.el.querySelector("canvas");
+    if (old) { old.width = 0; old.height = 0; }
+    p.el.replaceChildren();
+    p.drawnAt = 0;
+  }
+  async function showPdf() {
+    if (pdfStarted) return;
+    pdfStarted = true;
+    pdfPane.replaceChildren(wait("Printing the PDF…", "A few seconds, the same print as Export PDF. The first PDF may also download Chromium."));
+    try {
+      const [lib, data] = await Promise.all([loadPdfjs(), invoke("report_preview_pdf", { runId })]);
+      if (closed) return;
+      const bytes = data instanceof ArrayBuffer ? new Uint8Array(data)
+        : ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+        : new Uint8Array(data);
+      pdfTask = lib.getDocument({ data: bytes, isEvalSupported: false });
+      pdfDoc = await pdfTask.promise;
+      if (closed) return;
+      for (let n = 1; n <= pdfDoc.numPages; n++) {
+        const view = (await pdfDoc.getPage(n)).getViewport({ scale: 1 });
+        pages.push({ n, w: view.width, h: view.height, near: false, drawnAt: 0, task: null,
+          el: el("div", { class: "pdf-page", "aria-label": `Page ${n} of ${pdfDoc.numPages}` }) });
+      }
+      if (closed) return;
+      pdfPane.replaceChildren(...pages.map(p => p.el));
+      layout();
+      observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          const p = pages.find(x => x.el === entry.target);
+          if (!p) continue;
+          p.near = entry.isIntersecting;
+          if (p.near) draw(p); else blank(p);
+        }
+      }, { root: pdfPane, rootMargin: "1200px 0px" });
+      for (const p of pages) observer.observe(p.el);
+      sizer = new ResizeObserver(() => {
+        if (zoom.value !== "fit" && zoom.value !== "page") return;
+        clearTimeout(relayout);
+        relayout = setTimeout(layout, 120);
+      });
+      sizer.observe(pdfPane);
+      zoom.hidden = tabPdf.getAttribute("aria-selected") !== "true";
+      status.textContent = `${pdfDoc.numPages} page${pdfDoc.numPages === 1 ? "" : "s"}, US Letter`;
+    } catch (e) {
+      if (closed) return;
+      pdfStarted = false;
+      pdfPane.replaceChildren(failed("The PDF could not be printed.", e, () => showPdf()));
+    }
+  }
+  zoom.addEventListener("change", () => { pdfPane.scrollTop = 0; layout(); });
+
+  function close() {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("hashchange", close);
+    if (observer) observer.disconnect();
+    if (sizer) sizer.disconnect();
+    clearTimeout(relayout);
+    for (const p of pages) blank(p);
+    if (pdfTask) pdfTask.destroy();
+    overlay.remove();
+    if (opener && opener.isConnected) opener.focus();
+  }
+  function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(); } }
+  closeBtn.addEventListener("click", close);
+  document.addEventListener("keydown", onKey, true);
+  window.addEventListener("hashchange", close);
+
+  document.body.append(overlay);
+  closeBtn.focus();
+  showHtml();
+}
+
 async function viewRun(id) {
   loading();
   try {
@@ -513,7 +737,10 @@ async function viewRun(id) {
       });
       return b;
     };
+    const previewBtn = el("button", { class: "primary" }, "Preview report");
+    previewBtn.addEventListener("click", () => openReportPreview(Number(id), (run.hostname || "site") + ", run " + id));
     head.append(el("div", { class: "row-actions", style: "margin-top:8px" },
+      previewBtn,
       exportBtn("Export report (HTML)", "report_html", "HTML report"),
       exportBtn("Export report (PDF)", "report_pdf", "PDF report"),
       exportOut));

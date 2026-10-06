@@ -83,6 +83,8 @@ pub fn run() {
             commands::set_keep_lhr,
             commands::report_html,
             commands::report_pdf,
+            commands::report_preview_html,
+            commands::report_preview_pdf,
             commands::delete_site,
             commands::get_settings,
             commands::set_crux_key,

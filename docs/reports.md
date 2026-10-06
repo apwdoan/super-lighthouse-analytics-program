@@ -64,6 +64,32 @@ folder is removed on the same task; one that cannot be (Chromium can hold a
 profile file for a moment after it exits) is cleared by a later export once
 it is 15 minutes old.
 
+### Preview
+
+**Preview report** on a run shows both formats in the app before anything is
+saved, over the whole window, with the two exports beside them:
+
+- **Web page**: `report_preview_html` returns the same render the HTML
+  export writes, shown in an `<iframe srcdoc>` with an empty `sandbox`, so
+  nothing in the report can run or reach the app.
+- **PDF**: `report_preview_pdf` prints exactly as the PDF export does
+  (`pdf::print_pdf_bytes`, the same fitting) and sends the bytes as a raw
+  IPC response, an `ArrayBuffer` in the page rather than a JSON array of
+  numbers. The page draws it with PDF.js (`desktop/ui/vendor/pdfjs`),
+  because the system WebViews differ in whether they can show a PDF at all:
+  WebView2 can, WKWebView and WebKitGTK cannot be relied on to. Only the
+  pages near the visible part are drawn, and pages scrolled far away are
+  released, since a whole report drawn at once is tens of megabytes of
+  canvas.
+
+The print is seconds of Chromium, and previewing then exporting is the usual
+order, so the shell keeps the last preview's PDF with the HTML it was printed
+from. `report_pdf` writes it as it is when the report renders the same (same
+run, same HTML, so the same branding and report settings), and prints afresh
+otherwise. The PDF is printed only when its tab is opened, never in the
+background: a print during an audit would share the processor with
+Lighthouse.
+
 ## Filling the last sheet
 
 *Added 2026-10-05.* A report rarely ends at the foot of its last sheet, and a
