@@ -12,6 +12,11 @@
 # Placeholders like {http.ttfb} in title/detail/remediation are substituted
 # from the page's observations. Unknown keys render as "n/a".
 #
+# Title and detail are read by the client, so they are written in plain
+# language: say what is wrong and why it matters to a visitor, and put the
+# technical name in brackets where someone fixing it needs it, as in "(HSTS)".
+# Remediation is read by whoever makes the fix, so it may be technical.
+#
 # wp_rocket_setting is the remediation mapping that makes SLAP's reports
 # prescriptive rather than diagnostic.
 
@@ -25,12 +30,13 @@ rules:
 
   - id: cwv-fail
     severity: critical
-    title: "Real users are failing Core Web Vitals"
+    title: "Real visitors are failing Google's Core Web Vitals"
     detail: >-
-      Google's 28-day field data for this origin shows LCP {crux.lcp.p75},
-      INP {crux.inp.p75}, CLS {crux.cls.p75}. At least one is outside the
-      "good" threshold, which means real visitors on real connections are
-      experiencing this as slow, not just a lab test.
+      Google's data from real visits over the last 28 days shows the main
+      content appearing in {crux.lcp.p75}, a response to taps and clicks in
+      {crux.inp.p75}, and a layout shift score of {crux.cls.p75}. At least
+      one of these is outside Google's "good" range, so this is what real
+      visitors on real connections experience, not just a lab test.
     when:
       all:
         - {metric: crux.cwv_pass, is: false}
@@ -39,61 +45,65 @@ rules:
 
   - id: lcp-poor
     severity: high
-    title: "Largest Contentful Paint is poor for real users ({crux.lcp.p75})"
+    title: "The main content is slow to appear for real visitors ({crux.lcp.p75})"
     detail: >-
-      75% of visits render the main content in {crux.lcp.p75} or worse.
-      Google rates anything above 4000ms as poor; 2500ms is the target.
+      For 1 in 4 visits, the main content takes {crux.lcp.p75} or longer to
+      appear. Google rates anything over 4 seconds as poor; the target is
+      2.5 seconds or less.
     when:
       all:
         - {metric: crux.lcp.p75, gt: 4000}
     impact_ms_from: crux.lcp.p75
     effort: medium
     remediation: >-
-      Attack the largest above-the-fold element first: preload the hero
-      image, serve it as WebP/AVIF at the displayed size, and remove
-      render-blocking CSS and fonts ahead of it.
+      Speed up the largest element at the top of the page first: preload the
+      main (hero) image, serve it as WebP or AVIF at the size it is shown,
+      and remove the CSS and fonts that hold it back.
     wp_rocket_setting: "File Optimization > Optimize CSS delivery; Media > Excluded images (exclude the LCP image from LazyLoad)"
 
   - id: inp-poor
     severity: high
-    title: "Interaction responsiveness is poor ({crux.inp.p75})"
+    title: "The site is slow to respond to taps and clicks ({crux.inp.p75})"
     detail: >-
-      75% of interactions take {crux.inp.p75} or longer to produce a
-      visual response. Above 500ms is rated poor; 200ms is the target.
-      This is almost always third-party or theme JavaScript on the main thread.
+      For 1 in 4 interactions, the page takes {crux.inp.p75} or longer to
+      visibly respond. Google rates anything over half a second as poor; the
+      target is 0.2 seconds or less. This is almost always caused by the
+      theme's or third parties' scripts keeping the browser busy.
     when:
       all:
         - {metric: crux.inp.p75, gt: 500}
     impact_ms_from: crux.inp.p75
     effort: high
     remediation: >-
-      Audit third-party scripts (chat widgets, tag managers, heatmaps) and
-      defer or remove what is not essential. Break up long tasks in theme JS.
+      Review third-party scripts (chat widgets, tag managers, heatmaps) and
+      delay or remove the ones that are not essential. Break up long-running
+      tasks in the theme's JavaScript.
     wp_rocket_setting: "File Optimization > Delay JavaScript execution; Load JavaScript deferred"
 
   - id: cls-poor
     severity: high
-    title: "Layout shifts badly during load (CLS {crux.cls.p75})"
+    title: "Content jumps around while pages load (layout shift {crux.cls.p75})"
     detail: >-
-      Real users see content jump around while the page loads
-      (CLS {crux.cls.p75}; above 0.25 is rated poor, 0.1 is the target).
-      Usually images without width/height, ads, or late-loading webfonts.
+      Real visitors see the page move while it loads (a layout shift score of
+      {crux.cls.p75}; above 0.25 is poor, 0.1 or less is good). This is
+      usually caused by images without set dimensions, ads, or web fonts
+      that arrive late.
     when:
       all:
         - {metric: crux.cls.p75, gt: 0.25}
     effort: medium
     remediation: >-
-      Set explicit width and height on all images and iframes, reserve space
-      for ad and embed slots, and preload webfonts with font-display: swap.
+      Set a width and height on every image and iframe, reserve space for ad
+      and embed slots, and preload web fonts with font-display: swap.
 
   - id: no-field-data
     severity: info
-    title: "No real-user field data available for this origin"
+    title: "Google has no real-visitor data for this site yet"
     detail: >-
-      This origin does not have enough traffic to appear in the Chrome UX
-      Report, so every number in this report is a lab measurement. Lab data
-      is still diagnostic, but it cannot tell you what your actual visitors
-      experience.
+      The site does not get enough traffic to appear in Google's Chrome User
+      Experience Report, so every figure in this report comes from our own
+      tests. Those tests are a reliable guide, but they cannot show exactly
+      what your visitors experience.
     when:
       all:
         - {metric: crux.available, is: false}
@@ -105,13 +115,13 @@ rules:
 
   - id: wprocket-cache-cold
     severity: high
-    title: "WP Rocket is installed but this page was not served from its cache"
+    title: "WP Rocket is installed, but this page is not served from its cache"
     detail: >-
-      WP Rocket {wprocket.version} is active on this site, but this URL was
-      generated by PHP on request rather than served from the page cache.
-      You are paying for the plugin and not getting its single largest win.
-      Common causes: the page is excluded from caching, a logged-in or
-      cookie-based session bypasses the cache, or the cache was never warmed.
+      WP Rocket {wprocket.version} is active, but this page was built from
+      scratch when it was requested instead of being served from the cache,
+      so the plugin's biggest speed benefit is being missed. Common causes:
+      the page is excluded from caching, a login or cookie bypasses the
+      cache, or the cache has not been built yet.
     when:
       all:
         - {metric: wprocket.present, is: true}
@@ -119,23 +129,23 @@ rules:
     effort: low
     remediation: >-
       Check Advanced Rules > Never Cache URL(s) and Never Cache Cookies for
-      an entry matching this URL, then clear and preload the cache.
+      an entry matching this page, then clear and preload the cache.
     wp_rocket_setting: "Preload > Activate Preloading; Advanced Rules > Never Cache URL(s)"
 
   - id: multiple-cache-layers
     severity: medium
-    title: "More than one caching layer detected"
+    title: "More than one caching plugin is active"
     detail: >-
-      Detected: {tech.cache_plugin}. Stacked caching plugins routinely fight
-      each other, producing stale assets, broken minification, and cache
-      states that are impossible to reason about.
+      Detected: {tech.cache_plugin}. Caching plugins that overlap often
+      conflict, causing out-of-date pages, broken styling, and problems that
+      are hard to track down.
     when:
       all:
         - {metric: tech.cache_plugin, contains: ","}
     effort: low
     remediation: >-
-      Pick one caching plugin and fully uninstall the others, including
-      leftover advanced-cache.php drop-ins and wp-config.php constants.
+      Pick one caching plugin and fully remove the others, including leftover
+      advanced-cache.php drop-ins and wp-config.php constants.
 
   # ======================================================================
   # Delivery and caching
@@ -143,46 +153,48 @@ rules:
 
   - id: no-compression
     severity: high
-    title: "HTML is served uncompressed"
+    title: "Pages are sent without compression"
     detail: >-
-      The document came back with no Content-Encoding, at
-      {http.content_bytes}. Gzip or Brotli typically cuts HTML by
-      70-80%, and this is a server configuration change, not a code change.
+      The page's HTML ({http.content_bytes}) was sent uncompressed. Gzip or
+      Brotli compression typically makes it 70-80% smaller, and turning it on
+      is a server setting, not a change to the site.
     when:
       all:
         - {metric: http.compressed, is: false}
         - {metric: http.content_bytes, gt: 4096}
     effort: low
     remediation: >-
-      Enable Brotli (preferred) or gzip at the web server or CDN edge for
-      text/html, text/css, application/javascript, and application/json.
+      Turn on Brotli (preferred) or gzip at the web server or CDN for HTML,
+      CSS, JavaScript and JSON.
     wp_rocket_setting: "WP Rocket enables gzip via .htaccess on Apache; on nginx enable it in the server config"
 
   - id: slow-ttfb
     severity: high
-    title: "Server response is slow ({http.ttfb} to first byte)"
+    title: "The server is slow to respond ({http.ttfb})"
     detail: >-
-      The server took {http.ttfb} to begin responding. Everything else on
-      the page waits behind this. Above 800ms points at uncached PHP,
-      a slow database, or an overloaded shared host, not at front-end assets.
+      The server took {http.ttfb} to start sending the page, and everything
+      else waits for it. More than 0.8 seconds usually points to missing page
+      caching, a slow database or overloaded hosting, rather than to the
+      page's design.
     when:
       all:
         - {metric: http.ttfb, gt: 800}
     impact_ms_from: http.ttfb
     effort: medium
     remediation: >-
-      Confirm page caching is actually serving this URL, then look at
-      hosting tier, object caching (Redis/Memcached), and slow database
-      queries, often from plugins on a CMS.
+      Confirm page caching is actually serving this page, then look at the
+      hosting plan, object caching (Redis or Memcached) and slow database
+      queries, which on a CMS often come from plugins.
     wp_rocket_setting: "Preload > Activate Preloading; consider WP Rocket's Object Cache add-on"
 
   - id: short-cache-ttl
     severity: medium
-    title: "The HTML response sets a very short cache lifetime"
+    title: "Pages can only be cached for a very short time"
     detail: >-
-      Cache-Control is "{http.cache_control}", a max-age of
-      {http.cache_max_age}. Lifetimes this short prevent CDN edge
-      caching and browser reuse, so every visit pays full server cost.
+      The caching rule is "{http.cache_control}", which keeps a copy for only
+      {http.cache_max_age}. That is too short for browsers and content
+      delivery networks to reuse the page, so most visits pay the full cost
+      of building it.
     when:
       all:
         - {metric: http.cache_max_age, present: true}
@@ -192,11 +204,11 @@ rules:
 
   - id: no-cache-control
     severity: medium
-    title: "No Cache-Control header on the HTML response"
+    title: "Pages do not say how long they can be cached"
     detail: >-
-      The document came back with no Cache-Control header at all, which
-      leaves caching behaviour up to each browser's and each CDN's
-      heuristics rather than to you.
+      The page was sent without a caching rule (a Cache-Control header), so
+      each browser and content delivery network guesses how long to keep it
+      instead of following yours.
     when:
       all:
         - {metric: http.cache_control, missing: true}
@@ -206,10 +218,11 @@ rules:
 
   - id: no-etag-or-validator
     severity: low
-    title: "No ETag on the HTML response"
+    title: "Returning visitors download pages in full every time"
     detail: >-
-      Without an ETag or Last-Modified validator, repeat visitors cannot
-      revalidate cheaply and always re-download the full document.
+      Without an ETag or Last-Modified header, a returning visitor's browser
+      cannot cheaply check whether the page has changed, so it downloads the
+      whole page again.
     when:
       all:
         - {metric: http.has_etag, is: false}
@@ -218,11 +231,12 @@ rules:
 
   - id: no-http2
     severity: low
-    title: "Site is still served over HTTP/1.1"
+    title: "The site uses an older connection protocol ({http.version})"
     detail: >-
-      The server negotiated {http.version}. HTTP/2 and HTTP/3 multiplex
-      requests over one connection, which materially helps asset-heavy pages.
-      This is a hosting or CDN toggle, not a site change.
+      The server uses {http.version}. Newer versions (HTTP/2 and HTTP/3) load
+      many files over one connection at once, which noticeably helps pages
+      with lots of images and scripts. This is a hosting or CDN setting, not
+      a change to the site.
     when:
       all:
         - {metric: http.version, in: ["HTTP/1.0", "HTTP/1.1"]}
@@ -230,25 +244,26 @@ rules:
 
   - id: redirect-chain
     severity: medium
-    title: "Requests pass through {redirect.hops} redirects before landing"
+    title: "Visitors pass through {redirect.hops} redirects before the page loads"
     detail: >-
-      Chain: {redirect.chain}. Every hop is a full round trip added before
-      the page can even start loading.
+      The route is {redirect.chain}. Each redirect adds a full round trip
+      before the page can even start loading.
     when:
       all:
         - {metric: redirect.hops, gte: 2}
     effort: low
     remediation: >-
-      Collapse the chain to a single redirect: point the canonical host and
-      protocol straight at the final URL rather than chaining www and HTTPS
-      rules separately.
+      Collapse the chain to a single redirect: point the old address straight
+      at the final one, rather than chaining separate www and HTTPS
+      redirects.
 
   - id: heavy-html
     severity: low
-    title: "The HTML document itself is large ({http.content_bytes})"
+    title: "The page's HTML is large ({http.content_bytes})"
     detail: >-
-      A document this size usually signals inlined CSS/JS, a page builder
-      emitting heavy markup, or content that should be paginated.
+      HTML this size usually means styles or scripts are written into the
+      page itself, a page builder is producing bloated code, or the content
+      should be split across several pages.
     when:
       all:
         - {metric: http.content_bytes, gt: 300000}
@@ -261,43 +276,47 @@ rules:
 
   - id: https-unreachable
     severity: critical
-    title: "The site could not be reached over HTTPS"
+    title: "The site could not be reached over a secure connection (HTTPS)"
     detail: >-
-      A request to the https:// URL failed at the connection or TLS layer
-      ({https.error}), so this audit was carried out over plain http:// instead.
-      Anyone who types the domain or follows an https:// link hits a browser
-      security error before the page loads, and every measurement in this report
-      was taken over an unencrypted connection.
+      A secure https:// connection failed ({https.error}), so this audit was
+      carried out over plain http:// instead. Anyone who types the address or
+      follows an https:// link sees a browser security error before the page
+      loads, and every measurement in this report was taken over an
+      unencrypted connection.
     when:
       all:
         - {metric: https.unreachable, is: true}
     effort: low
     remediation: >-
-      Provision a valid TLS certificate for the domain and its www host, and
-      redirect http:// to https://. On most managed hosts this is a one-click
-      "issue SSL certificate" action; if a certificate is already installed but
-      the handshake still fails, the TLS terminator or virtual host is
+      Install a valid TLS certificate for the domain and its www address, and
+      redirect http:// to https://. Most managed hosts offer this as a
+      one-click "issue SSL certificate" option; if a certificate is already
+      installed but connections still fail, the server's HTTPS setup is
       misconfigured.
     evidence: [https.error, tls.error, tls.valid]
 
   - id: tls-invalid
     severity: critical
-    title: "The TLS certificate does not validate"
+    title: "The site's security certificate is not valid"
     detail: >-
-      The certificate chain failed verification: {tls.error}. Visitors get a
-      full-page browser interstitial before they ever see the site.
+      The certificate failed verification ({tls.error}). Visitors see a
+      full-page browser warning before they ever reach the site.
     when:
       all:
         - {metric: tls.valid, is: false}
     effort: low
+    remediation: >-
+      Install a valid certificate that covers this domain (most hosts issue
+      free ones), and make sure the server sends the full certificate chain.
     evidence: [tls.error, tls.issuer, tls.subject, tls.days_to_expiry]
 
   - id: tls-expiring
     severity: high
-    title: "TLS certificate expires in {tls.days_to_expiry}"
+    title: "The security certificate expires in {tls.days_to_expiry}"
     detail: >-
-      Issued by {tls.issuer}. Renew or confirm auto-renewal now; an expired
-      certificate takes the whole site offline for every visitor at once.
+      It was issued by {tls.issuer}. Renew it, or confirm that automatic
+      renewal is working, now: an expired certificate blocks every visitor
+      at once.
     when:
       all:
         - {metric: tls.valid, is: true}
@@ -306,10 +325,10 @@ rules:
 
   - id: tls-old-protocol
     severity: high
-    title: "Site negotiates an obsolete TLS version ({tls.protocol})"
+    title: "The site allows outdated encryption ({tls.protocol})"
     detail: >-
-      TLS 1.0 and 1.1 are deprecated and fail PCI DSS. Modern browsers warn
-      or refuse outright.
+      TLS 1.0 and 1.1 are retired, fail the payment-card security standard
+      (PCI DSS), and modern browsers warn about them or refuse them outright.
     when:
       all:
         - {metric: tls.protocol, in: ["TLSv1", "TLSv1.1", "SSLv3"]}
@@ -318,10 +337,10 @@ rules:
 
   - id: no-https-upgrade
     severity: high
-    title: "Plain HTTP requests are not redirected to HTTPS"
+    title: "Visitors are not moved from http:// to the secure site"
     detail: >-
-      A request over http:// stayed on http://. Any visitor typing the bare
-      domain, or following an old link, browses unencrypted.
+      A visit to http:// stayed on http://, so anyone who types the address
+      without https://, or follows an old link, browses without encryption.
     when:
       all:
         - {metric: redirect.upgrades_to_https, is: false}
@@ -334,11 +353,11 @@ rules:
 
   - id: no-hsts
     severity: medium
-    title: "No HTTP Strict Transport Security header"
+    title: "Browsers are not told to always use a secure connection (HSTS)"
     detail: >-
-      Without HSTS, the first request of every session can be downgraded to
-      plain HTTP before the redirect fires, which is the window an
-      on-path attacker needs.
+      Without this header, a visitor's first request can be intercepted over
+      an unencrypted connection before the site redirects them to https://,
+      which is the opening an attacker on the same network needs.
     when:
       all:
         - {metric: sec.hsts, missing: true}
@@ -347,10 +366,11 @@ rules:
 
   - id: weak-hsts
     severity: low
-    title: "HSTS max-age is short"
+    title: "The always-use-a-secure-connection rule (HSTS) expires too soon"
     detail: >-
-      max-age is {sec.hsts_max_age}. Six months (15768000) is the practical
-      minimum; one year is standard and is required for preload-list eligibility.
+      It lasts {sec.hsts_max_age}. Six months is the practical minimum; one
+      year is standard, and is required to join browsers' built-in HTTPS
+      list.
     when:
       all:
         - {metric: sec.hsts_max_age, present: true}
@@ -359,10 +379,11 @@ rules:
 
   - id: no-csp
     severity: medium
-    title: "No Content-Security-Policy header"
+    title: "No policy limiting which scripts can run (Content-Security-Policy)"
     detail: >-
-      CSP is the main defence against cross-site scripting and against
-      injected third-party scripts on a compromised site.
+      A Content Security Policy is the main defence against malicious scripts
+      being slipped into the site's pages, for example through a hacked
+      plugin or third-party service.
     when:
       all:
         - {metric: sec.csp, missing: true}
@@ -377,21 +398,24 @@ rules:
 
   - id: no-x-content-type-options
     severity: low
-    title: "Missing X-Content-Type-Options: nosniff"
+    title: "Browsers may guess file types (X-Content-Type-Options)"
     detail: >-
-      Without nosniff, browsers may MIME-sniff a response and execute an
-      upload as script. This is a one-line header with no compatibility risk.
+      Without this header, a browser may guess what kind of file it has been
+      sent, and could run an uploaded file as a script. It is a one-line
+      setting with no compatibility risk.
     when:
       all:
         - {metric: sec.x_content_type_options, missing: true}
     effort: low
+    remediation: "Send X-Content-Type-Options: nosniff"
 
   - id: no-frame-protection
     severity: low
-    title: "No clickjacking protection"
+    title: "Other sites can show this site inside their pages (clickjacking)"
     detail: >-
-      Neither X-Frame-Options nor a CSP frame-ancestors directive is set,
-      so the site can be framed by an attacker's page.
+      Neither X-Frame-Options nor a Content-Security-Policy frame-ancestors
+      rule is set, so an attacker's page can display this site in a frame
+      and trick visitors into clicking things they cannot see.
     when:
       all:
         - {metric: sec.x_frame_options, missing: true}
@@ -399,13 +423,16 @@ rules:
             - {metric: sec.csp, missing: true}
             - {metric: sec.csp, not_contains: "frame-ancestors"}
     effort: low
+    remediation: "Send X-Frame-Options: SAMEORIGIN, or a Content-Security-Policy with frame-ancestors 'self'."
 
   - id: no-referrer-policy
     severity: low
-    title: "No Referrer-Policy header"
+    title: "No rule for what other sites learn about each visit (Referrer-Policy)"
     detail: >-
-      Full URLs, including any tokens in query strings, leak to third-party
-      resources by default.
+      Without this header, how much of a page's address is passed to the
+      other services the page loads is left to each browser. Current browsers
+      pass only the domain, but older ones can pass the full address,
+      including anything private in it.
     when:
       all:
         - {metric: sec.referrer_policy, missing: true}
@@ -414,44 +441,50 @@ rules:
 
   - id: cookies-insecure
     severity: high
-    title: "{sec.cookies_insecure} cookie(s) set without the Secure flag"
+    title: "{sec.cookies_insecure} cookie(s) can be sent without encryption"
     detail: >-
-      Cookies without Secure are transmitted over plain HTTP, which exposes
-      session identifiers to anyone on the network path.
+      Cookies without the Secure flag can travel over plain http://, exposing
+      login sessions to anyone who can see the traffic, such as on public
+      Wi-Fi.
     when:
       all:
         - {metric: sec.cookies_insecure, gt: 0}
     effort: low
+    remediation: "Add the Secure attribute to every cookie the site sets."
 
   - id: cookies-no-httponly
     severity: medium
-    title: "{sec.cookies_no_httponly} cookie(s) readable by JavaScript"
+    title: "{sec.cookies_no_httponly} cookie(s) can be read by scripts"
     detail: >-
-      Cookies without HttpOnly can be read by any script on the page,
-      including a compromised third-party script, which turns an XSS into
-      full session theft.
+      Cookies without the HttpOnly flag can be read by any script on the
+      page, including a compromised third-party script, which can turn an
+      injected script into a stolen login session.
     when:
       all:
         - {metric: sec.cookies_no_httponly, gt: 0}
     effort: low
+    remediation: "Add the HttpOnly attribute to every cookie that scripts do not need to read, starting with session cookies."
 
   - id: cookies-no-samesite
     severity: low
-    title: "{sec.cookies_no_samesite} cookie(s) without SameSite"
+    title: "{sec.cookies_no_samesite} cookie(s) lack cross-site protection (SameSite)"
     detail: >-
-      SameSite is the primary defence against cross-site request forgery.
-      Browsers now default to Lax, but stating it explicitly is safer.
+      The SameSite setting is the main defence against another site making a
+      visitor's browser act on this one without their knowledge. Some
+      browsers assume a safe value when it is missing, but not all do, so
+      stating it explicitly is safer.
     when:
       all:
         - {metric: sec.cookies_no_samesite, gt: 0}
     effort: low
+    remediation: "Set SameSite=Lax (or Strict) on every cookie."
 
   - id: server-version-disclosure
     severity: low
-    title: "Server header discloses software and version ({http.server})"
+    title: "The server reveals its software and version ({http.server})"
     detail: >-
-      Advertising an exact version tells an attacker precisely which
-      published CVEs to try first.
+      Advertising the exact version tells an attacker which published
+      weaknesses to try first.
     when:
       all:
         - {metric: http.server, matches: "[0-9]+\\.[0-9]+"}
@@ -472,11 +505,11 @@ rules:
 
   - id: lh-render-blocking
     severity: high
-    title: "Render-blocking requests delay the page by {lh.opp.render_blocking}"
+    title: "Some files hold back the page from appearing, by {lh.opp.render_blocking}"
     detail: >-
-      CSS and JavaScript in the document head must download and execute
+      Stylesheets and scripts at the top of the page must download and run
       before anything appears on screen. Lighthouse estimates the page could
-      start rendering {lh.opp.render_blocking} sooner without them.
+      start appearing {lh.opp.render_blocking} sooner without them.
     when:
       all:
         - {metric: lh.opp.render_blocking, gt: 300}
@@ -491,9 +524,9 @@ rules:
     severity: high
     title: "Images could load {lh.opp.image_delivery} faster"
     detail: >-
-      Images are being served larger, in older formats, or less compressed
-      than they need to be. On a photo-heavy page this is usually the single
-      largest and cheapest win available.
+      Images are larger, in older formats, or less compressed than they need
+      to be. On a page with many photos this is usually the biggest and
+      cheapest improvement available.
     when:
       all:
         - {metric: lh.opp.image_delivery, gt: 500}
@@ -501,17 +534,18 @@ rules:
     effort: low
     remediation: >-
       Serve WebP or AVIF at the size the image is actually displayed, and
-      lazy-load anything below the fold. Keep the main hero image eager so
-      LCP does not get worse.
+      lazy-load anything below the fold. Keep the main hero image loading
+      straight away so the main content does not appear later.
     wp_rocket_setting: "Media > LazyLoad and Add missing image dimensions; pair with Imagify or ShortPixel for format conversion"
 
   - id: lh-document-latency
     severity: high
-    title: "The document request itself is slow"
+    title: "The page itself is slow to arrive"
     detail: >-
       Lighthouse estimates {lh.opp.document_latency} could be saved on the
-      initial HTML request alone: redirects, no compression, or an uncached
-      server response. Nothing else on the page can start until it completes.
+      first request for the page alone: redirects, missing compression, or a
+      server response that is not cached. Nothing else on the page can start
+      until it arrives.
     when:
       all:
         - {metric: lh.opp.document_latency, gt: 300}
@@ -521,10 +555,11 @@ rules:
 
   - id: lh-unused-css
     severity: medium
-    title: "Unused CSS is costing {lh.opp.unused_css}"
+    title: "Unused styles (CSS) slow the page by {lh.opp.unused_css}"
     detail: >-
-      Most of the stylesheet is never applied to this page. Page builders and
-      multipurpose themes ship every component's CSS on every page.
+      Most of the stylesheet is never used on this page. Page builders and
+      multipurpose themes often load the styles for every feature on every
+      page.
     when:
       all:
         - {metric: lh.opp.unused_css, gt: 300}
@@ -534,11 +569,11 @@ rules:
 
   - id: lh-unused-js
     severity: medium
-    title: "Unused JavaScript is costing {lh.opp.unused_js}"
+    title: "Unused scripts (JavaScript) slow the page by {lh.opp.unused_js}"
     detail: >-
-      Scripts are downloaded and parsed that this page never uses. Usually a
-      CMS loading plugin or theme assets site-wide rather than only where
-      needed.
+      The page downloads and processes scripts it never uses, usually because
+      a plugin or the theme loads them on every page instead of only where
+      they are needed.
     when:
       all:
         - {metric: lh.opp.unused_js, gt: 300}
@@ -548,10 +583,11 @@ rules:
 
   - id: lh-unminified-assets
     severity: medium
-    title: "CSS or JavaScript is not minified"
+    title: "Style and script files are bigger than they need to be"
     detail: >-
-      Comments and whitespace are being sent to every visitor. Minification
-      is automatic and carries essentially no risk of changing behaviour.
+      Comments and spacing that only developers need are sent to every
+      visitor. Removing them (minifying) is automatic and very unlikely to
+      change how the site works.
     when:
       any:
         - {metric: lh.opp.unminified_css, gt: 150}
@@ -562,10 +598,10 @@ rules:
 
   - id: lh-cache-lifetimes
     severity: medium
-    title: "Static assets use inefficient cache lifetimes"
+    title: "Images, styles and scripts are not cached for long"
     detail: >-
-      Images, CSS and JavaScript are being re-downloaded on repeat visits
-      because their cache lifetime is short or absent. Lighthouse estimates
+      Returning visitors download these files again because they are set to
+      expire quickly, or not set at all. Lighthouse estimates
       {lh.opp.cache} could be saved.
     when:
       all:
@@ -579,11 +615,11 @@ rules:
 
   - id: lh-lcp-discovery
     severity: medium
-    title: "The main image is discovered too late"
+    title: "The main image is found too late"
     detail: >-
-      The browser cannot find the largest above-the-fold image until late in
-      the load, costing {lh.opp.lcp_discovery}. Usually caused by lazy-loading
-      the hero image or loading it from CSS or JavaScript.
+      The browser cannot find the largest image at the top of the page until
+      late in loading, which costs {lh.opp.lcp_discovery}. This usually
+      happens when that image is lazy-loaded, or added by CSS or JavaScript.
     when:
       all:
         - {metric: lh.opp.lcp_discovery, gt: 200}
@@ -596,11 +632,11 @@ rules:
 
   - id: lh-third-parties
     severity: medium
-    title: "Third-party scripts are slowing the page by {lh.opp.third_parties}"
+    title: "Third-party scripts slow the page by {lh.opp.third_parties}"
     detail: >-
-      Chat widgets, tag managers, analytics, heatmaps and ad scripts run on
-      the same main thread as your site. Each one is someone else's code
-      deciding how fast your page feels.
+      Chat widgets, tag managers, analytics, heatmaps and ad scripts all run
+      alongside the site's own code. Each one is someone else's code deciding
+      how fast your page feels.
     when:
       all:
         - {metric: lh.opp.third_parties, gt: 400}
@@ -610,11 +646,11 @@ rules:
 
   - id: lh-legacy-javascript
     severity: low
-    title: "Legacy JavaScript is shipped to modern browsers"
+    title: "Scripts include extra code for outdated browsers"
     detail: >-
-      Polyfills and transpiled code for browsers nobody uses any more,
-      costing {lh.opp.legacy_javascript}. Comes from a theme, plugin, or
-      bundler configuration targeting very old browsers.
+      Code written for browsers almost nobody uses any more costs
+      {lh.opp.legacy_javascript}. It comes from a theme, a plugin, or a build
+      setting that targets very old browsers.
     when:
       all:
         - {metric: lh.opp.legacy_javascript, gt: 150}
@@ -623,11 +659,11 @@ rules:
 
   - id: lh-font-display
     severity: low
-    title: "Webfonts block text from appearing"
+    title: "Text is hidden while web fonts load"
     detail: >-
-      Text stays invisible while a custom font downloads, costing
-      {lh.opp.font_display}. A font-display value lets the browser show text
-      immediately in a fallback face.
+      Text stays invisible while a custom font downloads, which costs
+      {lh.opp.font_display}. One setting (font-display) lets the browser show
+      the text straight away in a fallback font.
     when:
       all:
         - {metric: lh.opp.font_display, gt: 100}
@@ -638,11 +674,11 @@ rules:
 
   - id: lh-huge-page-weight
     severity: medium
-    title: "The page weighs {lh.total_bytes}"
+    title: "The page is a very large download ({lh.total_bytes})"
     detail: >-
-      Total transfer size across every request. Anything past a couple of
-      megabytes is painful on mobile data and is usually dominated by images
-      or an unbounded number of third-party scripts.
+      This is the total of everything the page downloads. Anything past a
+      couple of megabytes is slow on mobile data, and is usually mostly
+      images or a large number of third-party scripts.
     when:
       all:
         - {metric: lh.total_bytes, gt: 3000000}
@@ -651,10 +687,10 @@ rules:
 
   - id: lh-heavy-main-thread
     severity: medium
-    title: "The main thread is busy for {lh.mainthread_work}"
+    title: "The browser is kept busy for {lh.mainthread_work}"
     detail: >-
-      While the main thread is working, the page cannot respond to taps or
-      clicks. This is what a visitor experiences as the page feeling stuck.
+      While the browser is busy processing the page, it cannot respond to
+      taps or clicks. Visitors experience this as the page feeling stuck.
     when:
       all:
         - {metric: lh.mainthread_work, gt: 4000}
@@ -668,10 +704,10 @@ rules:
     severity: medium
     title: "Accessibility score is {lh.score.accessibility} out of 100"
     detail: >-
-      Automated checks found issues that affect people using screen readers,
-      keyboard navigation, or high-contrast displays. Automated testing
-      catches perhaps a third of real accessibility problems, so treat this
-      as a floor rather than a verdict.
+      Automated checks found problems that affect people using screen
+      readers, keyboard navigation, or high-contrast settings. Automated
+      testing catches only some accessibility problems, so treat this as a
+      starting point rather than a full assessment.
     when:
       all:
         - {metric: lh.score.accessibility, lt: 90}
@@ -680,11 +716,12 @@ rules:
 
   - id: lh-seo-poor
     severity: medium
-    title: "SEO score is {lh.score.seo} out of 100"
+    title: "Search engine (SEO) score is {lh.score.seo} out of 100"
     detail: >-
-      Lighthouse's SEO checks cover the mechanical basics: meta description,
-      crawlability, link text, viewport. These are not rankings, but failing
-      them makes everything else harder.
+      These checks cover the basics search engines rely on: a page
+      description, pages they are allowed to read, descriptive link text, and
+      a mobile-friendly setup. They are not rankings, but failing them makes
+      ranking harder.
     when:
       all:
         - {metric: lh.score.seo, lt: 90}
@@ -695,8 +732,8 @@ rules:
     severity: low
     title: "Best Practices score is {lh.score.best_practices} out of 100"
     detail: >-
-      Covers console errors, deprecated APIs, insecure requests, and image
-      aspect ratios.
+      Covers errors in the browser, outdated browser features, insecure
+      requests, and stretched or squashed images.
     when:
       all:
         - {metric: lh.score.best_practices, lt: 90}
@@ -705,16 +742,18 @@ rules:
 
   # --- Measurement quality ----------------------------------------------
   # The roadmap's instruction: if the spread is wide, say so on the report
-  # rather than hiding it.
+  # rather than hiding it. The report lists these three as notes on the
+  # audit, not as problems with the site.
 
   - id: lh-unstable-measurement
     severity: info
-    title: "Lab measurements varied noticeably between runs"
+    title: "Results varied noticeably between tests"
     detail: >-
-      Across {lh.runs} runs the performance score moved by
-      {lh.score.performance.spread} points and LCP by {lh.lcp.spread}. The
-      figures below are the median, which is the honest number, but treat
-      small differences against a previous audit with caution.
+      Across {lh.runs} tests, the performance score moved by
+      {lh.score.performance.spread} points and the time for the main content
+      to appear by {lh.lcp.spread}. This report uses the middle result, which
+      is the fair figure, but treat small differences from an earlier audit
+      with caution.
     when:
       any:
         - {metric: lh.score.performance.spread, gt: 10}
@@ -724,12 +763,12 @@ rules:
 
   - id: lh-contended-measurement
     severity: info
-    title: "The measuring machine was slow or busy during this audit"
+    title: "The testing computer was slow or busy during this audit"
     detail: >-
-      Lighthouse's own CPU benchmark scored {lh.benchmark_index} on the
-      machine that took these measurements. A low or unstable score inflates
-      Total Blocking Time and Time to Interactive, so the lab numbers here
-      are likely pessimistic. Field data, where available, is unaffected.
+      Lighthouse's own speed check found the computer running these tests
+      slow or busy. That makes pages look less responsive than they are, so
+      the lab figures here are likely on the pessimistic side. Real-visitor
+      data, where shown, is unaffected.
     when:
       any:
         - {metric: lh.benchmark_index, lt: 1000}
@@ -745,14 +784,13 @@ rules:
   # hours apart are no longer comparable.
   - id: lh-benchmark-drift
     severity: info
-    title: "The measuring machine's speed changed during this audit"
+    title: "The testing computer's speed changed during this audit"
     detail: >-
-      Lighthouse's CPU benchmark ranged from {lh.run.benchmark_min} to
-      {lh.run.benchmark_max} across the {lh.run.pages_measured} pages measured
-      in this run, a drift of {lh.run.benchmark_drift}. Heat, power settings or
-      other work on the machine change how fast it runs, so lab figures for
-      pages measured at different times are not strictly comparable. Compare
-      pages by their findings rather than by small score differences.
+      Lighthouse's own speed check on the testing computer varied by
+      {lh.run.benchmark_drift} across the {lh.run.pages_measured} pages
+      tested. Heat, power settings and other work change how fast a computer
+      runs, so pages tested at different times are best compared by their
+      problems rather than by small score differences.
     when:
       all:
         - {metric: lh.run.benchmark_drift, gt: 0.2}
@@ -767,19 +805,18 @@ rules:
   # has opened in three years.
   #
   # Note the unit discipline: `mixed.insecure_count` is a COUNT, so the
-  # title interpolates it bare. Appending "resources" inside the title text
+  # title interpolates it bare. Appending "files" inside the title text
   # would be fine, but appending a unit the registry also renders gives you
   # "3 resourcesresources". A test scans this file for exactly that.
 
   - id: mixed-content
     severity: high
-    title: "{mixed.insecure_count} resource(s) loaded over plain HTTP"
+    title: "{mixed.insecure_count} file(s) load over an insecure connection"
     detail: >-
-      This page is served over HTTPS but pulls {mixed.insecure_count}
-      subresource(s) over http://. Browsers block active mixed content
-      outright, so a script or stylesheet loaded this way simply does not
-      run, and passive mixed content strips the padlock. The URLs are
-      {mixed.insecure_urls}.
+      This page is secure (https://) but loads {mixed.insecure_count} file(s)
+      over plain http://. Browsers block insecure scripts and stylesheets
+      outright, so they simply do not work, and insecure images may not load
+      at all. The files are {mixed.insecure_urls}.
     when:
       all:
         - {metric: mixed.insecure_count, gt: 0}
@@ -792,19 +829,18 @@ rules:
 
   - id: many-third-party-origins
     severity: low
-    title: "Page loads from {thirdparty.origin_count} third-party origins"
+    title: "The page loads files from {thirdparty.origin_count} other websites"
     detail: >-
-      Each additional origin costs a DNS lookup, a TCP connection and a TLS
-      handshake before its first byte arrives, and each one is code you do
-      not control running on your page. The origins are
-      {thirdparty.origins}.
+      Each extra website costs connection time before its first file
+      arrives, and each one is code you do not control running on your page.
+      They are {thirdparty.origins}.
     when:
       all:
         - {metric: thirdparty.origin_count, gt: 8}
     effort: medium
     remediation: >-
-      Audit what each origin is for. Self-host fonts and small scripts, and
-      remove tags for tools nobody reads any more.
+      Review what each one is for. Host fonts and small scripts yourself, and
+      remove tags for tools nobody uses any more.
     wp_rocket_setting: >-
       Under File Optimization, self-hosting Google Fonts removes one origin
       outright. WP Rocket's "Delay JavaScript execution" also defers
@@ -813,12 +849,12 @@ rules:
 
   - id: form-posts-over-http
     severity: critical
-    title: "A form on this page submits over plain HTTP"
+    title: "A form on this page sends what visitors type without encryption"
     detail: >-
-      The page is served over HTTPS but a form's action is an http:// URL,
-      so everything typed into it, including passwords and card details, is
-      sent across the network in the clear. Browsers show a full-page
-      warning on submission.
+      The page is secure, but a form sends its contents to an http://
+      address, so everything typed into it, including passwords and card
+      details, travels across the internet unencrypted. Browsers show a
+      full-page warning when it is submitted.
     when:
       all:
         - {metric: mixed.insecure_forms, gt: 0}
@@ -847,10 +883,10 @@ rules:
 
   - id: vuln-confirmed-critical
     severity: critical
-    title: "{vuln.confirmed_critical} critical vulnerability(s) in software running on this page: {vuln.confirmed_ids}"
+    title: "{vuln.confirmed_critical} critical security flaw(s) in software running on this page: {vuln.confirmed_ids}"
     detail: >-
-      A browser read these version numbers out of the running page, so they
-      are not guesses. Affected: {vuln.confirmed_detail}.
+      A browser read these version numbers from the running page, so they are
+      not guesses. Affected: {vuln.confirmed_detail}.
     when:
       all:
         - {metric: vuln.confirmed_critical, gt: 0}
@@ -862,10 +898,10 @@ rules:
 
   - id: vuln-confirmed-high
     severity: high
-    title: "{vuln.confirmed_high} high-severity vulnerability(s) in software running on this page: {vuln.confirmed_ids}"
+    title: "{vuln.confirmed_high} serious security flaw(s) in software running on this page: {vuln.confirmed_ids}"
     detail: >-
-      A browser read these version numbers out of the running page, so they
-      are not guesses. Affected: {vuln.confirmed_detail}.
+      A browser read these version numbers from the running page, so they are
+      not guesses. Affected: {vuln.confirmed_detail}.
     when:
       all:
         - {metric: vuln.confirmed_high, gt: 0}
@@ -876,10 +912,10 @@ rules:
 
   - id: vuln-confirmed-medium
     severity: medium
-    title: "{vuln.confirmed_medium} known vulnerability(s) in software running on this page: {vuln.confirmed_ids}"
+    title: "{vuln.confirmed_medium} known security flaw(s) in software running on this page: {vuln.confirmed_ids}"
     detail: >-
-      Lower severity, but the version numbers were read from the running
-      page rather than guessed. Affected: {vuln.confirmed_detail}.
+      These are less severe, but the version numbers were read from the
+      running page rather than guessed. Affected: {vuln.confirmed_detail}.
     when:
       all:
         - {metric: vuln.confirmed_medium, gt: 0}
@@ -890,14 +926,14 @@ rules:
 
   - id: vuln-possible
     severity: medium
-    title: "{vuln.possible_count} component(s) may be running a vulnerable version: {vuln.possible_ids}"
+    title: "{vuln.possible_count} component(s) may be running a version with known flaws: {vuln.possible_ids}"
     detail: >-
-      These versions were inferred from ?ver= query strings on asset URLs,
-      which is the only signal a site publishes and is not always the
-      component's real version: WordPress substitutes the core version for
-      assets that do not set their own, caching plugins rewrite it, and some
-      themes replace it with a hash. Confirm the installed versions before
-      acting. Possible matches: {vuln.possible_detail}.
+      These versions were worked out from version numbers in file addresses,
+      which is the only clue a site gives and is not always the real version:
+      WordPress shows its own version for files that do not set one, caching
+      plugins rewrite it, and some themes replace it with a code. Confirm the
+      installed versions before acting. Possible matches:
+      {vuln.possible_detail}.
     when:
       all:
         - {metric: vuln.possible_count, gt: 0}
@@ -913,12 +949,13 @@ rules:
 
   - id: vuln-not-checked
     severity: info
-    title: "Some components could not be checked for known vulnerabilities"
+    title: "Some software could not be checked for known security flaws"
     detail: >-
-      {vuln.unchecked_count} detected component(s) have no entry in this
-      audit's vulnerability database ({vuln.unchecked_detail}). That is not
-      a clean result for them; it means they were not checked. The database
-      covers the components with verified CPE mappings in the NIST NVD.
+      {vuln.unchecked_count} detected component(s) are not covered by this
+      audit's vulnerability database ({vuln.unchecked_detail}). That is not a
+      clean result for them; it means they were not checked. The database
+      covers the components the US National Vulnerability Database can
+      reliably identify.
     when:
       all:
         - {metric: vuln.unchecked_count, gt: 0}
@@ -931,13 +968,12 @@ rules:
 
   - id: exposed-secrets
     severity: critical
-    title: "{exposure.secrets_count} file(s) containing credentials are publicly readable"
+    title: "{exposure.secrets_count} file(s) containing passwords or keys can be downloaded by anyone"
     detail: >-
-      These paths returned content matching a configuration file or database
-      dump: {exposure.secrets_paths}. Anyone on the internet can download
-      them. This
-      is not a theoretical exposure; the files were confirmed by their
-      contents, not merely by a status code.
+      These addresses returned what looks like a configuration file or a
+      database backup: {exposure.secrets_paths}. Anyone on the internet can
+      download them. This is not a theoretical risk: the files were confirmed
+      by their contents, not merely by the server's response.
     when:
       all:
         - {metric: exposure.secrets_count, gt: 0}
@@ -950,11 +986,11 @@ rules:
 
   - id: exposed-vcs
     severity: critical
-    title: "Version-control metadata is publicly readable"
+    title: "The site's source code history can be downloaded by anyone"
     detail: >-
-      {exposure.vcs_paths} is reachable. A .git or .svn directory lets anyone
-      reconstruct your entire source tree, including any credentials that
-      were ever committed and later removed, because the history keeps them.
+      {exposure.vcs_paths} can be reached. A .git or .svn folder lets anyone
+      rebuild the site's entire source code, including any password that was
+      ever saved in it, even one removed later, because the history keeps it.
     when:
       all:
         - {metric: exposure.vcs_count, gt: 0}
@@ -967,11 +1003,12 @@ rules:
 
   - id: exposed-diagnostics
     severity: medium
-    title: "Diagnostic endpoints are publicly readable"
+    title: "Technical diagnostic pages can be viewed by anyone"
     detail: >-
-      {exposure.info_paths} is reachable. Server status pages, phpinfo() output
-      and debug logs disclose paths, module versions and sometimes request
-      contents, which is reconnaissance handed over for free.
+      {exposure.info_paths} can be reached. Server status pages, phpinfo()
+      output and debug logs reveal file paths, software versions and
+      sometimes visitors' requests, which hands an attacker their research
+      for free.
     when:
       all:
         - {metric: exposure.info_count, gt: 0}
@@ -981,13 +1018,12 @@ rules:
 
   - id: exposed-wp-surface
     severity: low
-    title: "WordPress exposes more attack surface than it needs to"
+    title: "WordPress exposes more than it needs to"
     detail: >-
-      {exposure.wp_surface_paths} is reachable. xmlrpc.php enables password
-      brute-force
-      amplification and pingback-based traffic reflection; the REST users
-      endpoint lists valid usernames, which halves the work of a
-      brute-force attempt.
+      {exposure.wp_surface_paths} can be reached. xmlrpc.php lets attackers
+      try many passwords at once and misuse the site to attack others; the
+      REST users list reveals valid usernames, which halves the work of
+      guessing a login.
     when:
       all:
         - {metric: exposure.wp_surface_count, gt: 0}
@@ -999,13 +1035,13 @@ rules:
 
   - id: probe-inconclusive
     severity: info
-    title: "This site returns success for paths that do not exist"
+    title: "The site returns a normal page for addresses that do not exist"
     detail: >-
-      A request for a randomly generated path returned
-      {exposure.control_status} instead of a 404, so the endpoint probe
-      cannot distinguish a real file from a catch-all response. Findings
-      were confirmed by content rather than status, which is reliable, but
-      absence of findings is weaker evidence here than usual.
+      A request for a made-up address returned a normal page instead of a
+      "not found" error, so the check for exposed files cannot tell a real
+      file from a catch-all page. Anything it found was confirmed
+      by its contents, which is reliable, but finding nothing is weaker
+      evidence here than usual.
     when:
       all:
         - {metric: exposure.soft_404, is: true}
@@ -1014,12 +1050,12 @@ rules:
 
   - id: probe-blocked-by-firewall
     severity: info
-    title: "A firewall answered the endpoint probe"
+    title: "A firewall stopped the check for exposed files"
     detail: >-
-      A web application firewall responded instead of the origin server, so
-      the probe was stopped rather than continued: every path would have
-      returned the same block page and reporting those as findings would be
-      wrong. The origin may still be exposing these files to anything that
+      A web application firewall answered instead of the site's server, so
+      the check was stopped rather than continued: every address would have
+      returned the same block page, and reporting those as problems would be
+      wrong. The server itself may still expose these files to anything that
       reaches it directly.
     when:
       all:
@@ -1036,13 +1072,13 @@ rules:
 
   - id: crux-history-regression
     severity: high
-    title: "Real-user performance has regressed since {crux.history.first_period}"
+    title: "Real visitors' experience has got worse since {crux.history.first_period}"
     detail: >-
-      {crux.history.regressed_metrics} was within Google's "good" threshold at
-      the start of the {crux.history.weeks}-week window and is outside it now.
+      {crux.history.regressed_metrics} was within Google's "good" range at the
+      start of the {crux.history.weeks}-week period and is outside it now.
       This is measured on your actual visitors, not in a lab, so it reflects
-      what people experienced. Each data point is a 28-day average, so the
-      change began earlier than the chart appears to show.
+      what people experienced. Each data point averages 28 days, so the
+      change began earlier than it appears to.
     when:
       all:
         - {metric: crux.history.regressed, is: true}
@@ -1056,12 +1092,12 @@ rules:
 
   - id: crux-history-improvement
     severity: info
-    title: "Real-user performance has improved since {crux.history.first_period}"
+    title: "Real visitors' experience has improved since {crux.history.first_period}"
     detail: >-
-      {crux.history.improved_metrics} was outside Google's "good" threshold at
-      the start of the {crux.history.weeks}-week window and is within it now.
-      Measured on your actual visitors rather than in a lab, so this is
-      evidence the work landed, not a projection.
+      {crux.history.improved_metrics} was outside Google's "good" range at the
+      start of the {crux.history.weeks}-week period and is within it now.
+      This is measured on your actual visitors rather than in a lab, so it is
+      evidence the work paid off, not a projection.
     when:
       all:
         - {metric: crux.history.improved, is: true}

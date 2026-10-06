@@ -1,9 +1,10 @@
 {#- Client report. Rendered by slap-engine::report from a stored run, in
-    Lighthouse's visual language (see report.css). The model is built in
-    report.rs. -#}
+    Lighthouse's visual language (see report.css) and in plain words: the
+    reader owns the site, and may never have opened a developer tool. The
+    model is built in report.rs. -#}
 {%- macro gauge(g, size="", sub=none) -%}
 <div class="gauge {{ g.rating }} {{ size }}">
-  <svg viewBox="0 0 120 120" role="img" aria-label="{{ g.label }}: {{ g.score if g.score is not none else 'not measured' }}">
+  <svg viewBox="0 0 120 120" role="img" aria-label="{{ g.label }}: {{ g.score if g.score is not none else 'not tested' }}">
     <circle class="base" cx="60" cy="60" r="56"></circle>
     {%- if g.score is not none %}
     <circle class="arc" cx="60" cy="60" r="56" stroke-dasharray="{{ g.dash }}" transform="rotate(-90 60 60)"></circle>
@@ -14,28 +15,19 @@
   {%- if sub %}<div class="sub">{{ sub }}</div>{% endif %}
 </div>
 {%- endmacro -%}
-{%- macro audit_rows(groups, show_description=true) -%}
-{%- for grp in groups %}
-<div class="audit-group">
-  <div class="audit-group-head">{{ grp.title }} <span class="count">({{ grp.audits | length }})</span></div>
-  {%- for a in grp.audits %}
-  <div class="audit {{ a.rating }}">
-    <span class="icon {{ a.rating }}"></span>
-    <div class="body">
-      <span class="title">{{ a.title }}</span>{% if a.display %}<span class="display">{{ a.display }}</span>{% endif %}
-      {%- if show_description and a.description %}<div class="description">{{ a.description }}</div>{% endif %}
-    </div>
-  </div>
-  {%- endfor %}
+{%- macro audit_rows(audits) -%}
+{%- for a in audits %}
+<div class="audit {{ a.rating }}">
+  <span class="icon {{ a.rating }}"></span>
+  <div class="body"><span class="title">{{ a.title }}</span>{% if a.saving %}<span class="display">{{ a.saving }}</span>{% endif %}</div>
 </div>
 {%- endfor %}
 {%- endmacro -%}
-{%- macro clumps(c) -%}
+{%- macro passed(c) -%}
 <div class="clumps">
   {%- if c.hidden %}<span>{{ c.hidden }} more not shown</span>{% endif -%}
-  <span>Passed audits ({{ c.passed }})</span>
-  {%- if c.manual %}<span>Additional items to manually check ({{ c.manual }})</span>{% endif -%}
-  {%- if c.not_applicable %}<span>Not applicable ({{ c.not_applicable }})</span>{% endif -%}
+  {%- if c.audits %}<span>{{ c.passed }} other check{{ '' if c.passed == 1 else 's' }} passed</span>
+  {%- else %}<span>All {{ c.passed }} check{{ '' if c.passed == 1 else 's' }} passed</span>{% endif -%}
 </div>
 {%- endmacro -%}
 <!doctype html>
@@ -53,24 +45,24 @@
     {% if branding.company_name %}<div class="brand">{{ branding.company_name }}</div>
     {% elif not branding.logo_data_uri %}<div class="brand">Site performance and security audit</div>{% endif %}
     <div class="url">{{ hostname }}</div>
-    <div class="meta">{{ generated_at }} &middot; Audit reference {{ run_id }}</div>
+    <div class="meta">{{ date }}</div>
   </header>
 
   <div class="masthead">
     <div class="site">{{ hostname }}</div>
-    {% if lh and lh.coverage %}<div class="kicker">{{ lh.coverage }}</div>{% endif %}
+    {% if lh.coverage %}<div class="kicker">{{ lh.coverage }}</div>{% endif %}
   </div>
 
   {# ============================ score gauges ============================ #}
-  {% if lh and lh.home %}
+  {% if lh.home %}
   <div class="gauges">
     {%- for g in lh.home.gauges %}
-      {{ gauge(g, "", ("Site median " ~ g.site_median) if g.site_median is not none else none) }}
+      {{ gauge(g, "", ("Typical page: " ~ g.site_median) if g.site_median is not none else none) }}
     {%- endfor %}
   </div>
   <p class="caption scale-caption">
-    <span class="scorescale"><span><span class="icon fail"></span>0–49</span><span><span class="icon average"></span>50–89</span><span><span class="icon pass"></span>90–100</span></span>
-    Lighthouse scores for the home page{% if lh.home.runs %}, the median of {{ lh.home.runs }} runs{% endif %}{% if lh.runtime %} ({{ lh.runtime.device }}, {{ lh.runtime.network | replace(' (simulated)', '') }}){% endif %}.{% if lh.multi %} Site medians cover all {{ lh.measured }} measured pages.{% endif %}
+    <span class="scorescale"><span><span class="icon fail"></span>0–49 poor</span><span><span class="icon average"></span>50–89 needs work</span><span><span class="icon pass"></span>90–100 good</span></span>
+    Home page scores out of 100, tested as {{ lh.setup }}{% if lh.home.runs and lh.home.runs > 1 %} (the middle of {{ lh.home.runs }} tests){% endif %}.{% if lh.multi %} "Typical page" is the middle score of all {{ lh.measured }} pages tested.{% endif %}
   </p>
   {% endif %}
 
@@ -79,11 +71,12 @@
     <div class="verdict">
       <div class="assessment">
         <span class="icon {{ 'pass' if verdict.flag_class == 'good' else ('fail' if verdict.flag_class == 'poor' else 'none') }}"></span>
-        Core Web Vitals assessment:
+        Google's Core Web Vitals for real visitors:
         <b class="{{ 'pass' if verdict.flag_class == 'good' else ('fail' if verdict.flag_class == 'poor' else '') }}">{{ verdict.flag_word }}</b>
       </div>
       <div class="headline">{{ verdict.headline }}</div>
       <p>{{ verdict.explanation }}</p>
+      {% for n in verdict.news %}<p class="news"><span class="icon pass"></span>{{ n }}</p>{% endfor %}
 
       {% if verdict.has_field %}
       <div class="field">
@@ -99,7 +92,7 @@
         </div>
         {% endfor %}
       </div>
-      <p class="caption" style="margin:6px 0 0;">Field data from Google's Chrome UX Report: the 75th percentile of real visits over the last 28 days, for the whole origin.</p>
+      <p class="caption" style="margin:6px 0 0;">From Google's record of real visits to the whole site over the last 28 days. Each figure is what 3 out of 4 visits matched or beat.</p>
       {% endif %}
     </div>
   </section>
@@ -107,21 +100,17 @@
   {# ============================ what to fix ============================ #}
   <section>
     <div class="section-head">
-      <div><div class="eyebrow">Section 1</div><h2>What to fix first</h2></div>
+      <h2>What to fix first</h2>
       <div class="caption">
-        {{ total_findings }} issue{{ '' if total_findings == 1 else 's' }} &middot;
-        {{ severity_counts.critical }} critical &middot;
-        {{ severity_counts.high }} high &middot;
-        {{ severity_counts.medium }} medium
+        {{ total_findings }} issue{{ '' if total_findings == 1 else 's' }}
+        {%- for k in ['critical', 'high', 'medium', 'low'] %}{% if severity_counts[k] %} &middot; {{ severity_counts[k] }} {{ k }}{% endif %}{% endfor %}
       </div>
     </div>
 
-    {% if is_multipage %}
-    <p class="secondary" style="margin-top:0;">Each issue is listed once, with the pages it affects. An issue on every page is one thing to fix, not many.</p>
-    {% endif %}
-
     {% if not significant and not minor %}
-    <p class="secondary">Nothing significant was found. Every measurement taken is listed in the appendix.</p>
+    <p class="secondary">No problems were found that need fixing.</p>
+    {% elif is_multipage %}
+    <p class="secondary" style="margin-top:0;">Most important first. Each issue is listed once, with the pages it affects.</p>
     {% endif %}
 
     {% for f in significant %}
@@ -134,18 +123,17 @@
         </div>
         <p class="detail">{{ f.detail }}</p>
 
-        {% if f.scope_text or f.effort_label or f.impact_text %}
+        {% if f.scope_text or f.effort_label %}
         <div class="scope">
           {%- if f.scope_text %}<span class="scope-label">Affects</span><strong>{{ f.scope_text }}</strong>
           {%- if not f.is_sitewide and f.page_count > 1 %}<span class="scope-pages">: {{ f.pages | join(", ") }}{% if f.page_count > 8 %}, <span class="secondary">and {{ f.page_count - 8 }} more</span>{% endif %}</span>{% endif %}{% endif %}
           {%- if f.effort_label %}<span class="meta">{{ f.effort_label }}</span>{% endif %}
-          {%- if f.impact_text %}<span class="meta">Measured at {{ f.impact_text }}</span>{% endif %}
         </div>
         {% endif %}
 
         {% if f.remediation or (f.wp_rocket_setting and show_wp_rocket) %}
         <div class="fix">
-          {% if f.remediation %}<span class="fix-label">Fix</span>{{ f.remediation }}{% endif %}
+          {% if f.remediation %}<span class="fix-label">How to fix</span>{{ f.remediation }}{% endif %}
           {% if f.wp_rocket_setting and show_wp_rocket %}<div class="wp-rocket"><span class="fix-label">In WP Rocket</span>{{ f.wp_rocket_setting }}</div>{% endif %}
         </div>
         {% endif %}
@@ -154,7 +142,7 @@
     {% endfor %}
 
     {% if minor %}
-    <h3 class="minor-head">Also worth addressing</h3>
+    <h3 class="minor-head">Smaller improvements</h3>
     {% for f in minor %}
     <div class="finding-compact">
       <span class="badge"><span class="dot {{ f.status }}"></span>{{ f.severity_word }}</span>
@@ -165,64 +153,71 @@
     {% endif %}
   </section>
 
-  {# ====================== Lighthouse: the home page ====================== #}
-  {% if lh and lh.home %}
+  {# ======================== the home page in detail ======================== #}
+  {% if lh.home %}
   <section>
-    <div class="section-head">
-      <div><div class="eyebrow">Section 2</div><h2>Lighthouse: the home page</h2></div>
-      <div class="caption">{{ lh.home.path }}</div>
-    </div>
+    <div class="section-head"><h2>Home page in detail</h2></div>
 
     {% set perf = lh.home.categories[0] if lh.home.categories and lh.home.categories[0].id == 'performance' else none %}
     <div class="lh-category">
       <div class="perf-top">
         <div class="lh-category-head">
           {{ gauge(lh.home.gauges[0], "big") }}
-          <div class="description">Values are estimated and may vary. The performance score is calculated directly from these metrics{% if lh.home.runs %}, each the median of {{ lh.home.runs }} runs{% endif %}.</div>
+          <div class="description">How quickly the page loads and becomes usable. The figures are estimates and vary a little between tests.</div>
         </div>
         <div>
-          <div class="metrics-head"><span>Metrics</span>{% if lh.home.perf_spread %}<span class="muted plain">Score moved {{ lh.home.perf_spread | int }} point{{ '' if lh.home.perf_spread | int == 1 else 's' }} across runs</span>{% endif %}</div>
+          <div class="metrics-head"><span>Speed measurements</span>{% if lh.home.perf_spread %}<span class="muted plain">Score varied by {{ lh.home.perf_spread | int }} point{{ '' if lh.home.perf_spread | int == 1 else 's' }} between tests</span>{% endif %}</div>
           <div class="metrics">
             {% for m in lh.home.metrics %}
             <div class="metric {{ m.rating }}">
-              <div class="title"><span class="icon {{ m.rating }}"></span>{{ m.title }}</div>
-              <div class="value">{{ m.display }}{% if m.spread %}<span class="spread">{{ m.spread }} across runs</span>{% endif %}</div>
+              <div class="title"><span class="icon {{ m.rating }}"></span>{{ m.name }}<span class="abbr">{{ m.abbr }}</span></div>
+              <div class="value">{{ m.display }}{% if m.spread %}<span class="spread">{{ m.spread }} between tests</span>{% endif %}</div>
+              <div class="hint">{{ m.hint }}</div>
             </div>
             {% endfor %}
           </div>
         </div>
       </div>
       {% if perf %}
-        {{ audit_rows(perf.groups) }}
-        {{ clumps(perf) }}
+        {% if perf.audits %}
+        <div class="audit-group">
+          <div class="audit-group-head">Ways to make it faster <span class="count">({{ perf.audits | length }})</span></div>
+          {{ audit_rows(perf.audits) }}
+        </div>
+        {% endif %}
+        {{ passed(perf) }}
       {% elif not lh.home.has_summary %}
-      <p class="caption" style="margin-top:4px;">The audit list for this page was not kept, so only its scores and metrics are shown.</p>
+      <p class="caption" style="margin-top:4px;">The detailed results for this page were not kept, so only its scores are shown.</p>
       {% endif %}
     </div>
 
+    <div class="cat-grid">
     {% for c in lh.home.categories %}{% if c.id != 'performance' %}
-    <div class="lh-category">
-      <div class="lh-category-head inline">
-        {{ gauge(c.gauge, "small") }}
-        <div class="title">{{ c.label }}</div>
+      <div class="lh-category">
+        <div class="lh-category-head inline">
+          {{ gauge(c.gauge, "small") }}
+          <div class="title">{{ c.label }}</div>
+        </div>
+        <div class="cat-blurb">{{ c.blurb }}</div>
+        {{ audit_rows(c.audits) }}
+        {{ passed(c) }}
       </div>
-      {% if c.groups %}{{ audit_rows(c.groups) }}{% else %}<p class="secondary" style="margin:2px 0 0;">Every automated {{ c.label | lower }} check passed.</p>{% endif %}
-      {{ clumps(c) }}
-    </div>
     {% endif %}{% endfor %}
+    </div>
   </section>
   {% endif %}
 
-  {# ========================= across every page ========================= #}
-  {% if lh and lh.multi %}
+  {# =========================== across the site =========================== #}
+  {% if is_multipage %}
   <section>
     <div class="section-head">
-      <div><div class="eyebrow">Section 3</div><h2>Lighthouse across {{ lh.measured }} pages</h2></div>
-      <div class="caption">{{ lh.scope_label or '' }}</div>
+      <h2>Across the site</h2>
+      <div class="caption">{% if lh.measured %}{{ lh.measured }} of {{ pages | length }} pages tested{% else %}{{ pages | length }} pages{% endif %}</div>
     </div>
-    <p class="coverage">{{ lh.coverage }}{% if lh.cap_note %} {{ lh.cap_note }}{% endif %}</p>
+    {% if lh.coverage %}<p class="coverage">{{ lh.coverage }}{% if lh.limit_note %} {{ lh.limit_note }}{% endif %}</p>{% endif %}
 
-    <div class="dist-head"><span>Category</span><span class="r">Median</span><span>Pages by score</span><span class="r">Pages</span></div>
+    {% if lh.multi %}
+    <div class="dist-head"><span>Score</span><span class="r">Typical</span><span>How the pages scored</span><span class="r">Pages</span></div>
     {% for d in lh.distribution %}
     <div class="dist">
       <div class="name">{{ d.label }}</div>
@@ -242,239 +237,217 @@
 
     {% if lh.common %}
     <div class="audit-group common">
-      <div class="audit-group-head">Most common Lighthouse issues <span class="count">(by pages affected, of {{ lh.summarised }})</span></div>
+      <div class="audit-group-head">Most common problems <span class="count">(by pages affected, of {{ lh.summarised }})</span></div>
       {% for a in lh.common %}
       <div class="audit {{ a.rating }}">
         <span class="icon {{ a.rating }}"></span>
         <div class="body">
-          <span class="title">{{ a.title }}</span><span class="aside">{{ a.category }}{% if a.saving %} &middot; typical saving {{ a.saving }}{% endif %}</span>
+          <span class="title">{{ a.title }}</span><span class="aside">{{ a.category }}{% if a.saving %} &middot; {{ a.saving }}{% endif %}</span>
         </div>
         <div class="spread-pages"><b>{{ a.pages }}</b> of {{ a.of }} pages</div>
       </div>
       {% endfor %}
-      {% if lh.common_more %}<div class="clumps"><span>{{ lh.common_more }} less common issues not shown; each page's own list is in its section below.</span></div>{% endif %}
+      {% if lh.common_more %}<div class="clumps"><span>{{ lh.common_more }} less common problem{{ '' if lh.common_more == 1 else 's' }} not shown</span></div>{% endif %}
     </div>
     {% endif %}
-    {% if lh.drift %}
-    <p class="caption" style="margin-top:6px;">The measuring machine's CPU benchmark ranged {{ lh.benchmark_range }} across this run ({{ lh.drift }} drift). Pages measured hours apart are compared most safely by their issues, not by small score differences.</p>
     {% endif %}
-  </section>
-  {% endif %}
 
-  {# ========================== page inventory ========================== #}
-  {% if is_multipage %}
-  <section>
-    <div class="section-head"><div><div class="eyebrow">Section 4</div><h2>Pages audited</h2></div>
-      <div class="caption">{{ pages | length }} pages</div></div>
+    {% set scored = lh.attempted %}
+    <h3 class="minor-head">Every page</h3>
     <table class="inventory">
       <thead><tr>
-        <th>Page</th><th>Template</th>
-        <th class="num" title="Performance">Perf</th><th class="num" title="Accessibility">A11y</th>
-        <th class="num" title="Best Practices">BP</th><th class="num">SEO</th>
-        <th class="num">LCP</th><th class="num">TBT</th><th class="num">CLS</th>
+        <th>Page</th><th>Type</th>
+        {% if scored %}
+        <th class="num">Performance</th><th class="num">Accessibility</th>
+        <th class="num">Best Practices</th><th class="num">SEO</th>
+        <th class="num">Main content</th>
+        {% endif %}
         <th class="num">Issues</th>
       </tr></thead>
       <tbody>
         {% for p in pages %}
         <tr>
           <td class="path">{{ p.path }}</td>
-          <td>{{ p.template }}</td>
-          {% if p.measured %}
+          <td class="kind">{{ p.kind }}</td>
+          {% if not scored %}
+          {% elif p.measured %}
             {% for sc in p.scores %}
             <td class="num"><span class="score {{ sc.rating }}"><span class="icon {{ sc.rating }}"></span>{{ sc.text if sc.text is not none else '–' }}</span></td>
             {% endfor %}
-            {% for m in [p.lcp, p.tbt, p.cls] %}
-            <td class="num">{% if m %}<span class="score {{ m.rating }}">{{ m.text }}</span>{% else %}–{% endif %}</td>
-            {% endfor %}
+            <td class="num">{% if p.lcp %}<span class="score {{ p.lcp.rating }}">{{ p.lcp.text }}</span>{% else %}–{% endif %}</td>
           {% elif p.lh_failed %}
-            <td class="num" colspan="7"><span class="secondary">Lighthouse could not measure this page</span></td>
+            <td class="num" colspan="5"><span class="secondary">Could not be tested</span></td>
           {% else %}
-            <td class="num" colspan="7"><span class="secondary">Not measured</span></td>
+            <td class="num" colspan="5"><span class="secondary">Not tested</span></td>
           {% endif %}
-          <td class="num">{{ p.findings }}{% if p.urgent %} <span class="secondary">({{ p.urgent }} urgent)</span>{% endif %}</td>
+          <td class="num">{{ p.issues }}{% if p.urgent %} <span class="secondary">({{ p.urgent }} urgent)</span>{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+    <p class="caption" style="margin-top:4px;">{% if scored %}Main content is when the largest text or image appears (LCP). {% endif %}Issues counts the problems from What to fix first found on that page, apart from those that affect the whole site; urgent ones are critical or high.</p>
   </section>
   {% endif %}
 
-  {# ===================== Lighthouse, page by page ===================== #}
-  {% if lh and lh.pages %}
+  {# ======================= pages worth a closer look ======================= #}
+  {% if lh.pages %}
   <section>
-    <div class="section-head"><div><div class="eyebrow">Section 5</div><h2>Pages worth a closer look</h2></div>
-      <div class="caption">{{ lh.pages | length }} page{{ '' if lh.pages | length == 1 else 's' }}</div></div>
-    {% if lh.pages_all %}
-    <p class="secondary" style="margin-top:0;">With {{ lh.measured }} pages measured, each one besides the home page has its own section: its scores, its metrics, and its failing Lighthouse audits.</p>
-    {% else %}
-    <p class="secondary" style="margin-top:0;">The pages below stand out from the rest of the site, or carry issues few other pages have. Every page's scores are in the table above; each section here lists that page's failing Lighthouse audits.{% if lh.more_pages %} {{ lh.more_pages }} further page{{ '' if lh.more_pages == 1 else 's' }} also qualified and {{ 'is' if lh.more_pages == 1 else 'are' }} not shown.{% endif %}</p>
-    {% endif %}
+    <div class="section-head"><h2>Pages worth a closer look</h2>
+      <div class="caption">{{ lh.pages_covered }} page{{ '' if lh.pages_covered == 1 else 's' }}</div></div>
+    <p class="secondary" style="margin-top:0;">
+      {%- if lh.every_page %}These pages score well below the rest of the site, or have problems most other pages do not. Pages of the same type with the same problems are shown once.
+      {%- else %}One page of each type was tested, and each speaks for the pages like it. Here are their scores and what is holding them back.{% endif %}
+      {%- if lh.more_pages %} {{ lh.more_pages }} more page{{ '' if lh.more_pages == 1 else 's' }} also stood out but {{ 'is' if lh.more_pages == 1 else 'are' }} not shown.{% endif %}</p>
 
     {% for pg in lh.pages %}
     <div class="page-detail">
-      <div class="page-detail-head"><span class="path">{{ pg.path }}</span><span class="chip">{{ pg.template }}</span>{% for r in pg.reasons %}<span class="chip">{{ r }}</span>{% endfor %}</div>
+      <div class="page-detail-head"><span class="path">{{ pg.path }}</span><span class="chip">{{ pg.kind }}</span>{% for r in pg.reasons %}<span class="chip">{{ r }}</span>{% endfor %}</div>
+      {% if pg.own %}<div class="own">Problems most other pages do not have: {{ pg.own | join("; ") }}.</div>{% endif %}
+      {% if pg.alike_count %}<div class="alike">The same problems on {{ pg.alike_count }} other page{{ '' if pg.alike_count == 1 else 's' }}: <span class="paths">{{ pg.alike | join(", ") }}</span>{% if pg.alike_more %}, and {{ pg.alike_more }} more{% endif %}</div>{% endif %}
       <div class="keep page-top">
         <div class="gauges">{% for g in pg.gauges %}{{ gauge(g, "small") }}{% endfor %}</div>
         <div class="metrics">
           {% for m in pg.metrics %}
           <div class="metric {{ m.rating }}">
-            <div class="title"><span class="icon {{ m.rating }}"></span>{{ m.title }}</div>
+            <div class="title"><span class="icon {{ m.rating }}"></span>{{ m.name }}</div>
             <div class="value">{{ m.display }}</div>
           </div>
           {% endfor %}
         </div>
       </div>
-      {# Two columns of failing audits: the categories flow across both. #}
+      {# Two columns of problems: the categories flow across both. #}
       <div class="cats">
       {% for c in pg.categories %}
-        {% if c.groups %}
+        {% if c.audits %}
         <div class="audit-group">
           <div class="audit-group-head">{{ c.label }} <span class="count">&middot; {{ c.gauge.score }}</span></div>
-          {% for grp in c.groups %}{% for a in grp.audits %}
-          <div class="audit {{ a.rating }}">
-            <span class="icon {{ a.rating }}"></span>
-            <div class="body"><span class="title">{{ a.title }}</span>{% if a.display %}<span class="display">{{ a.display }}</span>{% endif %}</div>
-          </div>
-          {% endfor %}{% endfor %}
-          {% if c.hidden %}<div class="clumps"><span>{{ c.hidden }} more not shown</span></div>{% endif %}
+          {{ audit_rows(c.audits) }}
+          {% if c.hidden %}<div class="clumps"><span>and {{ c.hidden }} more</span></div>{% endif %}
         </div>
         {% endif %}
       {% endfor %}
       </div>
-      {% if not pg.has_summary %}<p class="caption" style="margin-top:4px;">The audit list for this page was not kept, so only its scores and metrics are shown.</p>{% endif %}
+      {% if not pg.has_summary %}<p class="caption" style="margin-top:4px;">The detailed results for this page were not kept, so only its scores are shown.</p>{% endif %}
     </div>
     {% endfor %}
   </section>
   {% endif %}
 
-  {# ============================= software ============================= #}
-  {% if software %}
+  {# ============================= security ============================= #}
   <section>
-    <div class="section-head"><div><div class="eyebrow">Section 6</div><h2>Software detected</h2></div>
-      <div class="caption">{{ software.count }} component{{ '' if software.count == 1 else 's' }}</div></div>
-    {% if software.detected %}<p>{{ software.detected }}</p>{% endif %}
-    <div class="techlist">
-      <span class="chip">Components <strong>{{ software.count }}</strong></span>
-      <span class="chip">Observed versions <strong>{{ software.observed }}</strong></span>
-      <span class="chip">Inferred versions <strong>{{ software.inferred }}</strong></span>
-      {% if software.confirmed is not none %}<span class="chip">Confirmed vulnerabilities <strong>{{ software.confirmed }}</strong></span>{% endif %}
-      {% if software.possible is not none %}<span class="chip">Possible <strong>{{ software.possible }}</strong></span>{% endif %}
-      {% if software.unchecked is not none %}<span class="chip">Not in database <strong>{{ software.unchecked }}</strong></span>{% endif %}
+    <div class="section-head"><h2>Security</h2>
+      {% if security.checked_headers %}<div class="caption">{{ security.headers_set }} of {{ security.headers_total }} recommended protections in place</div>{% endif %}</div>
+
+    <div class="sec-grid">
+      <div>
+        {% if security.connection %}
+        <div class="sec-group">
+          <h3>Secure connection</h3>
+          <table><tbody>
+            {% for r in security.connection %}
+            <tr><td style="width:46%;">{{ r.label }}</td>
+              <td>{% if r.rating %}<span class="status-cell"><span class="icon {{ r.rating }}"></span>{{ r.value }}</span>{% else %}{{ r.value }}{% endif %}</td></tr>
+            {% endfor %}
+          </tbody></table>
+        </div>
+        {% endif %}
+
+        {% if security.cookies_total is not none %}
+        <div class="sec-group">
+          <h3>Cookies</h3>
+          {% if security.cookies %}
+          <table><tbody>
+            {% for r in security.cookies %}
+            <tr><td style="width:78%;">{{ r.label }}</td><td class="num">{{ r.value }}</td></tr>
+            {% endfor %}
+          </tbody></table>
+          {% else %}
+          <p class="secondary">The home page sets no cookies.</p>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+
+      {% if security.checked_headers %}
+      <div class="sec-group">
+        <h3>Protective settings (security headers)</h3>
+        <table><tbody>
+          {% for h in security.headers %}
+          <tr><td>{{ h.label }}<div class="tech">{{ h.name }}</div></td>
+            <td style="width:24%;"><span class="status-cell"><span class="icon {{ 'pass' if h.set else 'average' }}"></span>{{ 'Set' if h.set else 'Missing' }}</span></td></tr>
+          {% endfor %}
+        </tbody></table>
+      </div>
+      {% endif %}
     </div>
-    {% if software.db_generated %}
-    <p class="caption">Checked against {{ software.db_sources | default('the vulnerability database') }}, generated {{ software.db_generated }}{% if software.db_age is not none %} ({{ software.db_age }} days old){% endif %}. Confirmed means a browser read the version; possible means it was inferred from a ?ver= string and should be verified.</p>
+    {% if security.checked_headers or security.cookies_total is not none %}
+    <p class="caption" style="margin:0;">Security settings and cookies were checked on the home page.</p>
+    {% endif %}
+  </section>
+
+  {# ======================= software and technology ======================= #}
+  {% if software or tech.cms or tech.cdn or tech.server or tech.page_builder or tech.cache_plugin or tech.wp_rocket %}
+  <section>
+    <div class="section-head"><h2>Software and technology</h2>
+      {% if software %}<div class="caption">{{ software.count }} component{{ '' if software.count == 1 else 's' }} found</div>{% endif %}</div>
+    <div class="techlist">
+      {% if tech.cms %}<span class="chip">Platform <strong>{{ tech.cms }}</strong></span>{% endif %}
+      {% if tech.page_builder %}<span class="chip">Page builder <strong>{{ tech.page_builder }}</strong></span>{% endif %}
+      {% if tech.cdn %}<span class="chip">Content delivery network <strong>{{ tech.cdn }}</strong></span>{% endif %}
+      {% if tech.server %}<span class="chip">Web server <strong>{{ tech.server }}</strong></span>{% endif %}
+      {% if tech.cache_plugin %}<span class="chip">Caching <strong>{{ tech.cache_plugin }}</strong></span>{% endif %}
+      {% if tech.wp_rocket %}<span class="chip">WP Rocket <strong>{{ tech.wp_rocket }}</strong></span>{% endif %}
+    </div>
+    {% if software %}
+    {% if software.detected %}<p>Found on the site: {{ software.detected }}.</p>{% endif %}
+    <p>{{ software.flaws }}</p>
+    {% if software.db_note %}<p class="caption">{{ software.db_note }}</p>{% endif %}
     {% endif %}
   </section>
   {% endif %}
 
-  {# ============================= security ============================= #}
-  <section>
-    <div class="section-head"><div><div class="eyebrow">Section 7</div><h2>Security</h2></div>
-      <div class="caption">{{ security.headers_present }} of {{ security.headers_expected }} recommended headers set</div></div>
-
-    <div class="sec-grid">
-    {% if security.tls %}
-    <div class="sec-group">
-      <h3>Certificate and encryption</h3>
-      <table><tbody>
-        {% for r in security.tls %}
-        <tr><td style="width:40%;">{{ r.label }}</td><td>{{ r.value }}</td>
-          <td style="width:22%;">{% if r.status_word %}<span class="status-cell"><span class="icon {{ 'pass' if r.status == 'good' else 'fail' }}"></span>{{ r.status_word }}</span>{% endif %}</td></tr>
-        {% endfor %}
-      </tbody></table>
-    </div>
-    {% endif %}
-
-    {% if security.cookies %}
-    <div class="sec-group">
-      <h3>Cookies</h3>
-      <table><tbody>
-        {% for r in security.cookies %}
-        <tr><td style="width:40%;">{{ r.label }}</td><td>{{ r.value }}</td></tr>
-        {% endfor %}
-      </tbody></table>
-    </div>
-    {% endif %}
-    </div>
-
-    <div class="sec-group">
-      <h3>Response headers</h3>
-      {% if security.headers %}
-      <table><thead><tr><th style="width:34%;">Header</th><th>Value</th><th style="width:16%;">Status</th></tr></thead><tbody>
-        {% for r in security.headers %}
-        <tr><td>{{ r.label }}</td><td class="secondary">{{ r.value }}</td>
-          <td><span class="status-cell"><span class="icon pass"></span>{{ r.status_word }}</span></td></tr>
-        {% endfor %}
-      </tbody></table>
-      {% else %}
-      <p class="secondary">None of the recommended security headers were set. See the findings above.</p>
-      {% endif %}
-    </div>
-
-  </section>
-
-  {# ============================= appendix ============================= #}
+  {# ========================== about this report ========================== #}
   <section class="appendix">
-    <div class="section-head"><div><div class="eyebrow">Section 8</div><h2>Appendix</h2></div>
-      <div class="caption">{{ appendix | length }} measurements</div></div>
+    <div class="section-head"><h2>About this report</h2></div>
 
     <div class="methodology">
-      <h3>How this was measured</h3>
+      <h3>How we tested</h3>
       <ul>
-        <li>Every figure was collected in a single automated pass and stored unmodified. Nothing here is an estimate.</li>
-        <li>Field data (Core Web Vitals) is Google's Chrome UX Report: the 75th percentile of real visits over a rolling 28-day window.</li>
-        <li>Everything else is measured directly against the live site: response headers, the TLS handshake, the redirect chain, and the HTML document.</li>
-        {% if provenance.lighthouse_version %}<li>Lab figures come from Google Lighthouse on a throttled mobile profile. Each page's scores and metrics are the median of several runs; its audit list comes from the run with the median performance score.</li>{% endif %}
-        {% if lh and lh.coverage %}<li>{{ lh.coverage }}{% if lh.cap_note %} {{ lh.cap_note }}{% endif %}</li>{% endif %}
-        <li>Re-running produces a separate record; previous results are never overwritten, so before-and-after comparison is exact.</li>
+        {% if about.lighthouse == 'tested' %}
+        <li>Each page tested was loaded {% if about.runs == 1 %}once {% elif about.runs %}{{ about.runs }} times {% endif %}with Google Lighthouse, the testing tool behind Google's PageSpeed Insights, set up to behave like {{ about.device }} on {{ about.network }}.{% if about.runs and about.runs > 1 %} Scores use the middle result, so one unusually fast or slow test does not skew them.{% endif %} On a modern computer with fast broadband, pages will usually feel quicker than these figures suggest.</li>
+        {% elif about.lighthouse == 'failed' %}
+        <li>Browser tests with Google Lighthouse were tried but could not be completed, so this report covers the server, security and delivery checks only.</li>
+        {% else %}
+        <li>This audit did not include browser tests, so it covers the server, security and delivery checks only.</li>
+        {% endif %}
+        {% if verdict.has_field %}<li>Real-visitor figures come from Google's Chrome User Experience Report: real visits to the whole site over the last 28 days.</li>{% endif %}
+        <li>We also checked the site directly: its security certificate, security settings, redirects, and how its pages are delivered.</li>
+        {% if lh.coverage %}<li>{{ lh.coverage }}{% if lh.limit_note %} {{ lh.limit_note }}{% endif %}</li>{% endif %}
+        <li>Each audit is kept as a separate record, so a later audit can be compared exactly with this one.</li>
       </ul>
-      <h3>Run provenance</h3>
-      <ul>
-        <li>Audit reference {{ provenance.run_id }} (batch {{ provenance.batch_id }})</li>
-        <li>SLAP {{ provenance.slap_version }}, observation schema v{{ provenance.schema_version }}</li>
-        {% if provenance.lighthouse_version %}<li>Lighthouse {{ provenance.lighthouse_version }} on Chrome {{ provenance.chrome_version }}, throttling {{ provenance.throttling_profile }}</li>
-        {% else %}<li>No lab audit was run; the figures here are network measurements only</li>{% endif %}
-      </ul>
-      {% if lh and lh.runtime %}
-      <h3>Runtime settings</h3>
+      <h3>Test details</h3>
       <div class="runtime">
-        <div><span>Emulated device</span><span>{{ lh.runtime.device }}{% if lh.runtime.viewport %} ({{ lh.runtime.viewport }}){% endif %}</span></div>
-        <div><span>Network throttling</span><span>{{ lh.runtime.network }}</span></div>
-        <div><span>CPU throttling</span><span>{{ lh.runtime.cpu }}</span></div>
-        <div><span>Browser</span><span>{% if provenance.chrome_version %}Chrome {{ provenance.chrome_version }}{% else %}{{ lh.runtime.browser }}{% endif %}, headless</span></div>
-        <div><span>Lighthouse</span><span>{{ provenance.lighthouse_version or lh.runtime.lighthouse_version }}</span></div>
-        {% if lh.runtime.benchmark_index %}<div><span>CPU benchmark</span><span>{{ lh.runtime.benchmark_index | int }}{% if lh.benchmark_range %} (run range {{ lh.benchmark_range }}){% endif %}</span></div>{% endif %}
-        <div><span>Session</span><span>Initial page load, single page</span></div>
-        {% if lh.scope_label %}<div><span>Coverage</span><span>{{ lh.scope_label }}</span></div>{% endif %}
+        {% for d in about.details %}<div><span>{{ d.label }}</span><span>{{ d.value }}</span></div>{% endfor %}
       </div>
+      {% if about.notes %}
+      <h3>Notes on these results</h3>
+      <ul>
+        {% for n in about.notes %}<li><b>{{ n.title }}{% if n.scope %} ({{ n.scope }}){% endif %}.</b> {{ n.detail }}</li>{% endfor %}
+      </ul>
       {% endif %}
     </div>
 
-    {% if tech.cms or tech.cdn or tech.wp_rocket or tech.server %}
-    <h3 class="appendix-head">Detected technology</h3>
-    <div class="techlist">
-      {% if tech.cms %}<span class="chip">Platform <strong>{{ tech.cms }}</strong></span>{% endif %}
-      {% if tech.page_builder %}<span class="chip">Builder <strong>{{ tech.page_builder }}</strong></span>{% endif %}
-      {% if tech.cdn %}<span class="chip">CDN <strong>{{ tech.cdn }}</strong></span>{% endif %}
-      {% if tech.server %}<span class="chip">Server <strong>{{ tech.server }}</strong></span>{% endif %}
-      {% if tech.cache_plugin %}<span class="chip">Caching <strong>{{ tech.cache_plugin }}</strong></span>{% endif %}
-      {% if tech.wp_rocket %}<span class="chip">WP Rocket <strong>{{ tech.wp_rocket }}</strong></span>{% endif %}
-    </div>
-    {% endif %}
-
-    <h3 class="appendix-head">All measurements</h3>
-    {# Two columns of measurements; each shows its label and key on the left,
-       its value and source on the right. #}
+    {% if about.other %}
+    <h3 class="appendix-head">Other measurements</h3>
     <div class="measurements">
-      {% for row in appendix %}
-      <div class="m-row">
-        <div class="m-label">{{ row.label }}<div class="key">{{ row.metric_key }}</div></div>
-        <div class="m-value"><span class="val">{{ row.value }}</span><div class="src">{{ row.source }}</div></div>
-      </div>
+      {% for r in about.other %}
+      <div class="m-row"><div class="m-label">{{ r.label }}</div><div class="m-value">{{ r.value }}</div></div>
       {% endfor %}
     </div>
+    <p class="caption" style="margin-top:4px;">The full technical record of this audit, with every measurement taken, is available on request.</p>
+    {% endif %}
 
-    <div class="footer-note">Generated by SLAP {{ provenance.slap_version }} on {{ generated_at }}. Audit reference {{ run_id }}.{% if provenance.lighthouse_version %} Lab data by Lighthouse {{ provenance.lighthouse_version }}.{% endif %}</div>
+    <div class="footer-note">Produced with SLAP {{ provenance.slap_version }} on {{ date }}. Audit reference {{ run_id }}.</div>
   </section>
 
 </div>

@@ -196,8 +196,10 @@ It fires on this project's own CI sandbox, which is the correct answer.
 ## Provenance
 
 Every run records `lh_version`, `chrome_version`, and `throttling_profile`
-(`mobile/simulate/lh13-default`), and the report prints all three plus the
-run count and benchmark index in its appendix.
+(`mobile/simulate/lh13-default`). The report's About this report section
+prints the Lighthouse version, the Chrome version, the emulated device and
+connection, and the number of tests per page; the throttling profile and
+benchmark index stay in the app, where the full record is.
 
 One subtlety: Chrome's user-agent string reports a **reduced** version
 (`141.0.0.0`), so the LHR-derived value loses the build number. The worker's
@@ -236,7 +238,7 @@ Every failure degrades rather than aborts, and says so:
 
 - **Worker not installed / Node missing / probe fails** → the batch logs a
   warning, drops the Lighthouse stage, and runs Phase 1 only. The report's
-  appendix says no lab audit was run.
+  About this report section says the audit did not include browser tests.
 - **A single run fails or times out** → recorded in the run's errors; the
   median is taken over the runs that succeeded. Timeout kills the process so
   a wedged Chrome does not become a contention source for the rest of the

@@ -387,19 +387,27 @@ async fn every_page_stop_and_resume() {
     );
 
     // And the report renders every one of these runs, in Lighthouse's
-    // language, saying what was measured.
+    // visual language and in plain words, saying what was tested.
     let html = slap_engine::report::render_html(&conn, new_run).unwrap();
-    assert!(html.contains("All 8 discovered pages were measured with Lighthouse."));
-    assert!(html.contains("Lighthouse across 8 pages"));
+    assert!(html.contains("All 8 pages found on the site were tested."));
+    assert!(html.contains("Across the site"));
     assert!(html.contains("class=\"gauge average"), "the home page's 63 is an average gauge");
-    assert!(html.contains("Improve image delivery"), "audits come from the stored summaries");
-    assert!(html.contains("Most common Lighthouse issues"));
-    // Product pages score 41 against a site median of 63: outliers, so they
-    // have sections of their own; the inventory still lists every page.
-    assert!(html.contains("Performance 41 against a site median of 63"));
+    assert!(
+        html.contains("Images are bigger than they need to be"),
+        "audits come from the stored summaries, retitled as the problem they describe"
+    );
+    assert!(html.contains("Most common problems"));
+    // Product pages score 41 against a typical 63: outliers, so they have a
+    // section; the page table still lists every page.
+    assert!(html.contains("Performance 41 (typical page: 63)"));
     assert!(html.contains("/product/a") && html.contains("/blog/three"));
-    // The drift finding describes the run, so it is site-wide.
-    assert!(html.contains("The measuring machine&#x27;s speed changed") || html.contains("The measuring machine's speed changed"));
+    // The drift finding describes the test machine, not the site: a note on
+    // the results rather than something to fix.
+    assert!(html.contains("Notes on these results"));
+    assert!(
+        html.contains("The testing computer&#x27;s speed changed")
+            || html.contains("The testing computer's speed changed")
+    );
     let sampled = slap_engine::report::render_html(&conn, run_id).unwrap();
-    assert!(sampled.contains("3 of 8 pages were measured with Lighthouse: one per template"));
+    assert!(sampled.contains("3 of 8 pages were tested: one of each type of page"));
 }

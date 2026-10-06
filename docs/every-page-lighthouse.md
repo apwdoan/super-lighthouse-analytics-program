@@ -16,9 +16,9 @@ falls back to `sampled` rather than refusing to load. New audit and
 Settings → Lighthouse both set it.
 
 The mode is recorded on the run (`run.lh_scope`, added by migration) and
-printed by the report: "All 20 discovered pages were measured" and "5 of 20,
-one per template" are different claims, and the reader must not have to
-infer which one they are reading.
+printed by the report: "All 20 pages found on the site were tested" and "5 of
+20 pages were tested: one of each type of page" are different claims, and the
+reader must not have to infer which one they are reading.
 
 ## Cost
 
@@ -99,8 +99,10 @@ can look fine while pages measured hours apart are not comparable. On
 finalisation the home page gets run-level, origin-scoped observations
 (`lh.run.pages_*`, `lh.run.benchmark_min/max/drift`), and a new rule,
 `lh-benchmark-drift`, fires above 20% drift. Its evidence is all
-origin-scoped, so the report scopes it "Site-wide", which is also now true of
-the TLS findings that used to read "/ (home)".
+origin-scoped, so it describes the run rather than one page, as the TLS
+findings that used to read "/ (home)" now describe the whole site. It is an
+info rule about the test machine, not the site, so the report lists it under
+"Notes on these results" rather than with the things to fix.
 
 The shell holds a keep-awake assertion for the length of a batch
 (`SetThreadExecutionState` on Windows, `caffeinate -i -w` on macOS,

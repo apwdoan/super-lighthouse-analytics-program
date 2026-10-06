@@ -28,6 +28,16 @@ load-bearing, not stylistic:
 The HTML is fully self-contained: CSS inlined, no `<link>`, no external
 fonts, logos as data URIs. It survives being emailed.
 
+**Everything the template prints is escaped as HTML text.** A Server
+header, a redirect chain, a component name or a TLS error is the audited
+site's own text, and the report must print it, not obey it: before this was
+set, a Server header containing `<title>` swallowed everything after it and
+cut a 7-page PDF to 3. The template is escaped by its own formatter
+(`html_text_formatter`), which is minijinja's HTML escaping without `&#x2f;`
+for `/`, so paths and URLs stay readable in the source; the stylesheet is
+included unescaped. A test renders markup in a finding title and checks it
+arrives as text.
+
 ## The browser, and why not the alternatives
 
 **The pinned Chrome for Testing** the app already downloads for Lighthouse —
@@ -59,56 +69,88 @@ same defence — do not remove it.
 
 ## Structure
 
-*Restyled 2026-10-05 in Lighthouse's visual language.* A client has seen the
-Lighthouse report in PageSpeed Insights or DevTools, so the report borrows its
-grammar wholesale rather than inventing a second one: gauges, metric rows,
-audit lists, runtime settings. What stays SLAP's own is the order (verdict
-first) and everything Lighthouse does not do (findings across pages, security,
-software).
+*Restyled 2026-10-05 in Lighthouse's visual language, then reworded for the
+client the same day.* A client may have seen the Lighthouse report in
+PageSpeed Insights, so the report borrows its look rather than inventing a
+second one: gauges, metric rows, audit lists, the three rating shapes. What
+stays SLAP's own is the order (verdict first), everything Lighthouse does not
+do (findings across pages, security, software), and the words, which are
+written for the site's owner rather than its developer (see *Plain language*
+below).
 
 Page one is the verdict, not the data.
 
 1. **Gauges.** The home page's four Lighthouse categories, as Lighthouse draws
-   them, with the site median under each when several pages were measured,
-   and Lighthouse's score-scale legend.
-2. **Verdict.** "Core Web Vitals assessment: Passed / Failed / No real-user
-   data", a plain-language headline, and the three field metrics in the
-   PageSpeed Insights layout: the p75, and a marker on the good /
-   needs-improvement / poor scale.
+   them, with "Typical page: N" under each (the median of every page tested)
+   when several pages were tested, and a legend that names the bands: poor,
+   needs work, good.
+2. **Verdict.** "Google's Core Web Vitals for real visitors: Passed / Failed /
+   Not enough data", a plain headline, and the three field metrics (main
+   content, responsiveness, layout shift) in the PageSpeed Insights layout:
+   the p75, and a marker on the good / needs-work / poor scale. A field-data
+   improvement shows here as good news.
 3. **What to fix first.** Every critical, high and medium finding in full:
-   what is wrong, the pages it affects (or "Site-wide" when its evidence is
-   all origin-scoped), the specific fix, and the WP Rocket setting where one
-   applies. Everything else collapses to a one-line list.
-4. **Lighthouse: the home page.** The full Lighthouse view: the performance
-   gauge, the metrics grid, Insights and Diagnostics, then each other
-   category's failing audits by Lighthouse group, with the passed, manual and
-   not-applicable counts.
-5. **Lighthouse across N pages.** Per category, the median and a stacked bar
-   of how many pages fail, are average, or pass; then the Lighthouse audits
-   that fail on the most pages, with their reach ("38 of 40 pages") and
-   typical saving.
-6. **Pages audited.** Every page with all four scores, LCP, TBT and CLS.
-7. **Pages worth a closer look.** A compact Lighthouse section (gauges,
-   metrics, failing audits capped per category) for each page that is an
-   outlier (15+ points under the site's median performance, or failing a
-   category the site passes) or carries a finding fewer than half the pages
-   have. Capped at 25 with the remainder counted; with six or fewer pages
-   measured, every page gets one.
-8. **Software, Security, Appendix.** Methodology, run provenance, Lighthouse's
-   runtime settings (device, network, CPU, browser, benchmark), coverage, and
-   every measurement collected.
+   what is wrong, the pages it affects ("The whole site" when its evidence is
+   all origin-scoped), the effort in words (quick fix, some work, bigger job),
+   how to fix it, and the WP Rocket setting where one applies. Low findings
+   are one line each under "Smaller improvements".
+4. **Home page in detail.** The performance gauge beside the five metrics,
+   each with its plain name, Lighthouse's short name, and one line on what it
+   means; "Ways to make it faster", the failing and needs-work audits as one
+   list with their savings; then the other three categories side by side,
+   each with a sentence on what it measures, its problems, and how many
+   checks passed.
+5. **Across the site.** The coverage sentence; per category, the typical
+   score and a stacked bar of how many pages are poor, need work, or are
+   good; the most common problems with their reach ("38 of 40 pages") and
+   typical saving; then every page with its four scores, main content time
+   (LCP) and issue count. A page's issues are its own: a problem with the
+   whole site is stored on the home page, and counting it there would make
+   the home page look worse than any other. When Lighthouse tried and failed
+   on every page, the score columns stay and say so, rather than vanishing
+   as if it had not run.
+6. **Pages worth a closer look.** A compact section (gauges, metrics,
+   problems capped per category) for pages that stand out. When every page
+   was tested, that is a page 15+ points under the typical performance score,
+   failing a category the site passes, or with problems most pages do not
+   have, which the section names. "Most" means fewer than half the pages the
+   problem could be on: a Lighthouse finding can only be on a page
+   Lighthouse tested, so in a sampled run it is judged against the tested
+   pages, not the whole site. Pages of one type with the same problems are
+   one section that lists the others ("The same problems on 9 other pages"),
+   so forty product pages from one template do not become forty sections.
+   When one page of each type was tested, every one gets a section: it
+   speaks for its type. Capped at 25 sections, the remainder counted.
+7. **Security.** The secure connection (certificate, issuer, expiry, TLS
+   version, the http-to-https redirect), cookies, and the six headers the
+   HTTP collector expects as a Set / Missing checklist, each named by what it
+   protects with the header's own name beneath it.
+8. **Software and technology.** Platform, builder, CDN, server, caching and
+   WP Rocket; the software found; known security flaws in a sentence; and the
+   vulnerability database's date, with the NVD's required attribution. The
+   check ran when the database's date is recorded; the flaw counts are only
+   stored when they are not zero, so their absence after a check means none
+   were found, not that nothing was checked.
+9. **About this report.** How the audit tested, in plain bullets; the test
+   details (date, pages tested, device, connection, tool, browser, tests per
+   page, reference); notes on the results; and a dozen other measurements in
+   plain words. Metric keys, sources, schema versions, batch ids, the
+   benchmark index and the throttling profile are no longer printed: the
+   full record stays in the app, and the report says it is available on
+   request.
 
 **Density.** *Condensed 2026-10-05; a 6-page site went from 18 PDF pages to
-9, a 40-page one from 33 to 14.* No font size was changed to get there; only
-space and layout. Sections run on with no forced page breaks, and headings
-(section heads, group heads, page-section heads) are kept with what follows
-them, so no sheet is left half empty and no heading is stranded at the foot of
-a page. The space goes where it does the most good: the performance gauge sits
-beside its metrics, a page section puts its gauges beside a two-column metric
-list and flows its failing audits across two columns, a finding's scope,
-effort and measured impact share one line with its pages listed inline, the
-certificate and cookie tables sit side by side, and the appendix lists its
-measurements two to a row. Print margins are 9mm by 10mm (`@page`). If a
+9, a 40-page one from 33 to 14. The rewording took them to 7 and 8.* No font
+size was changed to get there; only space, layout and words. Sections run on
+with no forced page breaks, and headings (section heads, group heads,
+page-section heads) are kept with what follows them, so no sheet is left half
+empty and no heading is stranded at the foot of a page. The space goes where
+it does the most good: the performance gauge sits beside its metrics, the
+other categories sit three abreast, a page section puts its gauges beside a
+two-column metric list and flows its problems across two columns, a
+finding's scope and effort share one line with its pages listed inline, the
+connection and cookie tables sit beside the header checklist, and the other
+measurements run two to a row. Print margins are 9mm by 10mm (`@page`). If a
 change needs more room, take it from padding before touching a font size.
 
 **The audit lists come from a stored summary, not a re-parsed LHR.** When a
@@ -119,12 +161,52 @@ report never parses a raw LHR, and works whether or not raw LHRs are kept.
 Scores and metric values come from the observations (per-metric medians);
 the audit list comes from the run with the median performance score. A page
 whose summary is missing still renders, with its gauges and metrics.
+Informative audits are stored but not printed: Lighthouse does not score
+them, and a client cannot act on them.
+
+### Plain language
+
+The reader owns the site and may never have opened a developer tool, so
+nothing the report prints should need one to understand.
+
+- **Lighthouse audits are retitled by audit id** (`plain_audit_title`) as the
+  problem they describe: "Images are bigger than they need to be", not
+  "Improve image delivery"; "The main content is not marked for screen
+  readers", not "Document does not have a main landmark." An id without an
+  entry keeps Lighthouse's own title. Audits that mean the same thing to a
+  reader (the eleven ARIA attribute checks, say) share a title and are listed
+  once. Lighthouse's descriptions are not printed.
+- **Savings are time when there is a meaningful amount** (a tenth of a
+  second or more), otherwise download size in decimal KB or MB: "could save
+  about 2.4 s", "could save about 234 KB". Other display strings ("2 failure
+  reasons") are dropped.
+- **Metrics keep Lighthouse's short name beside a plain one**: "Main content"
+  with LCP, "Unresponsive time" with TBT, "Page fills in" with Speed Index.
+  A client who knows the acronyms can still find them; one who does not is
+  not asked to.
+- **Templates read as page types** (`page_kind`): "Blog post", "Top-level
+  page"; dates read as "6 October 2026".
+- **Finding text comes from the current rules.** The report renders each
+  finding's title, detail and fix from today's `rules.yaml`, filled in from
+  the stored observations of the page it fired on, which are the same values
+  the engine read when the run was finalised. A run audited before a rule was
+  reworded reads in the current words; its rules, severities and pages are
+  the run's own. A rule that no longer exists falls back to the stored text.
+  Rule titles and details are written for the client; remediation is for
+  whoever makes the fix and may stay technical (see the header of
+  `rules.yaml`).
 
 ### The finding split, and a bug worth remembering
 
 The model splits findings into **significant** (critical, high, medium —
-full cards) and **minor** (the one-line list), with no cap on the detailed
-treatment.
+full cards), **minor** (the one-line list) and **notes**, with no cap on the
+detailed treatment. Info findings describe the audit rather than the site (a
+busy or drifting test machine, results that varied, software the database
+could not check, an inconclusive or blocked probe), so they are listed under
+"Notes on these results" in About this report, not as things to fix, and
+the per-page issue counts leave them out. `no-field-data` is not repeated
+there because the verdict says it, and `crux-history-improvement` is good
+news, so it shows in the verdict.
 
 The first version took the top 5. On a site with six critical-or-high
 findings that meant an alphabetical rule-id tiebreak decided which one got

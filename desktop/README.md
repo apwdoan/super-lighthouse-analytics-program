@@ -104,9 +104,12 @@ plus the repo's worker, as a dev build does.
   identical SQLite file (`slap/slap.sqlite3`, `SLAP_DB` override included)
   and opens it with the identical DDL. The pre-rename SALP fallbacks (the
   old `salp/` data directory and the `SALP_DB` env var) have been removed.
-- **Rules are data.** The engine embeds `rules/rules.yaml`, byte-for-byte
-  the file every version has shipped; a differential run proved the
-  interpreters agree finding-for-finding, rendered text included.
+- **Rules are data.** The engine embeds `rules/rules.yaml`; a differential
+  run against the earlier interpreter proved the two agree
+  finding-for-finding, rendered text included. The wording has since been
+  rewritten for clients (titles and details plain, remediation for whoever
+  fixes it), and the report renders a finding's words from the current file,
+  so rewording a rule is safe; its conditions are what must not drift.
 - **Check the thing the real code path does, not a proxy for it.**
   `--self-check` runs a real storage roundtrip and loads the real rules;
   CI runs it on every built artifact, piped on Windows because PowerShell

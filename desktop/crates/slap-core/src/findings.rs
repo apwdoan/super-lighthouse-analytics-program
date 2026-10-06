@@ -1,11 +1,13 @@
 //! The findings engine: rules are data, not code.
 //!
-//! The rules did NOT get rewritten, and that is the design paying off:
-//! `rules/rules.yaml` beside this crate is the file every engine version
-//! interpreted byte-for-byte. While app versions shared one copy, a
-//! differential test proved they agreed finding-for-finding, rendered text
-//! included; that agreement is what makes findings written into the
-//! database by any version comparable.
+//! The rules were carried across the rewrite as data, not ported as code,
+//! and that is the design paying off: `rules/rules.yaml` beside this crate
+//! is the file every engine version has interpreted. While app versions
+//! shared one copy, a differential test proved they agreed
+//! finding-for-finding, rendered text included; agreement on the conditions
+//! is what makes findings written into the database by any version
+//! comparable. The wording has since been rewritten for clients, and the
+//! report renders a finding's words from the current file.
 //!
 //! Conditions are evaluated by a small declarative interpreter rather than
 //! anything eval-like: rule files are the thing most likely to be edited

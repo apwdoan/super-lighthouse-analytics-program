@@ -30,23 +30,27 @@ footer. The HTML is the deliverable: fully self-contained (inlined CSS, no
 external assets), so it survives being emailed. The PDF is a print-to-PDF
 rendering of that same document, so the two can never disagree.
 
-Page one is the verdict, not the data: the home page's four Lighthouse gauges
-(with the site median under each when several pages were measured), a
-plain-language Core Web Vitals verdict from real-user data, and **What to fix
-first**, every critical and high finding in full with its fix and the pages it
-affects. Then:
+It is written for the site's owner, not its developer: plain names for the
+metrics with Lighthouse's short names beside them, Lighthouse's audits
+retitled as the problems they describe, and savings in seconds and KB.
 
-- **Lighthouse: the home page**: the full Lighthouse view, with metrics,
-  insights, diagnostics, and each category's failing audits.
-- **Lighthouse across N pages**: how every measured page falls into
-  Lighthouse's bands per category, and the Lighthouse issues that fail on the
-  most pages.
-- **Pages audited**: every page with all four scores, LCP, TBT and CLS.
-- **Pages worth a closer look**: a Lighthouse section for each page that is an
-  outlier, or that has issues few other pages have, so an every-page report
-  stays readable.
-- **Security**, **Software**, and an appendix with the methodology, run
-  provenance, Lighthouse runtime settings and every measurement collected.
+Page one is the verdict, not the data: the home page's four Lighthouse gauges
+(with the typical page's score under each when several pages were tested), a
+plain-language Core Web Vitals verdict from real-visitor data, and **What to
+fix first**, every critical, high and medium finding in full with how to fix
+it and the pages it affects. Then:
+
+- **Home page in detail**: the speed measurements, the ways to make the page
+  faster, and each other category's problems.
+- **Across the site**: how every tested page falls into Lighthouse's bands per
+  category, the problems found on the most pages, and every page with its
+  scores, load time and issue count.
+- **Pages worth a closer look**: a section for each page that stands out,
+  with pages of one type that share the same problems shown once, so an
+  every-page report stays readable.
+- **Security**, **Software and technology**, and **About this report**: how
+  the audit tested, the test details, notes on the results, and a short list
+  of other measurements.
 
 The design rules behind this layout live in [`docs/reports.md`](docs/reports.md).
 

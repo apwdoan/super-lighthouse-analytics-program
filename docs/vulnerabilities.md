@@ -77,8 +77,8 @@ party, which is not a thing to do quietly on a client's behalf, and a
 rate-limited dependency mid-batch turns a network hiccup into a report that
 silently finds nothing.
 
-**Dated.** `generated_at` is printed in the report appendix beside the
-Lighthouse and Chrome versions, and the Settings page's Backends card
+**Dated.** `generated_at` is printed in the report's Software and technology
+section beside the database's sources, and the Settings page's Backends card
 marks it stale past 30
 days. A bundle built once and run for a year carries a year-old database, and
 a report that does not say so is wrong in a way nobody can detect.
@@ -93,7 +93,7 @@ is dead weight; narrower would be a silent gap.
 
 | Source | Status |
 |---|---|
-| **NIST NVD** | **Primary.** The [CVE API 2.0](https://nvd.nist.gov/developers/vulnerabilities), queried by CPE per tracked product. Keyless at 5 req/30s (a full refresh is ~5 minutes), or 50 req/30s with a free key via `NVD_API_KEY` (~40 seconds). CVSS severity comes from NIST's own analysis, permanent storage is permitted, and it covers what no free WordPress-specific source could: **WordPress core (350 usable CVEs) plus the most common plugins**. Fair use requires the notice in `NVD_NOTICE`; the report appendix prints it. |
+| **NIST NVD** | **Primary.** The [CVE API 2.0](https://nvd.nist.gov/developers/vulnerabilities), queried by CPE per tracked product. Keyless at 5 req/30s (a full refresh is ~5 minutes), or 50 req/30s with a free key via `NVD_API_KEY` (~40 seconds). CVSS severity comes from NIST's own analysis, permanent storage is permitted, and it covers what no free WordPress-specific source could: **WordPress core (350 usable CVEs) plus the most common plugins**. Fair use requires the NVD's attribution notice; the report prints it beside the database date. |
 | **OSV.dev** (npm) | Retained as an alternative, and selectable beside the update button on the Settings page. No key, no CPE map to maintain, npm only. |
 | **WPScan** | **Ruled out on licence.** "Permanent storage of our vulnerability data is not permitted", "API vulnerability data caching is not permitted", and commercial integration requires an Enterprise account. An offline bundled database is precisely what it forbids. |
 | **Wordfence** | Was free and unauthenticated when this was designed. As of 2026-08-02 the v2 endpoints return **410 Gone** and v3 returns **401**. NVD made the question moot. |
