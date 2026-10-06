@@ -73,6 +73,7 @@ async fn a_real_fetch_produces_a_run_the_ui_would_show() {
         lighthouse_pages: 5,
         lighthouse_scope: slap_core::schema::LighthouseScope::Sampled,
         lighthouse_concurrency: 3,
+        lighthouse_runs: 3,
         artifact_dir: None,
         keep_lhr: false,
         // Probing stays off in this test: no host is authorised.

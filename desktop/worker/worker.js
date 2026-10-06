@@ -140,6 +140,13 @@ function settingsFor(job) {
     formFactor,
     throttlingMethod: job.throttlingMethod || "simulate",
     disableStorageReset: false,
+    // The full-page screenshot is a picture of the whole page that
+    // Lighthouse's own viewer crops element thumbnails from. Nothing SLAP
+    // reports uses it, no score or metric depends on it, and it is the
+    // slowest thing gathered after the page load itself: 1.5 to 2.2 seconds
+    // of a 19-second run on a 7950X, so about a tenth of every run, and a
+    // third of a kept report's size.
+    disableFullPageScreenshot: true,
   };
 
   if (formFactor === "desktop") {

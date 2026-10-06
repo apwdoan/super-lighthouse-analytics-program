@@ -108,9 +108,9 @@ a section), so a config file alone controls it:
 ## Lighthouse on every page
 
 With Lighthouse on, SLAP runs full, self-hosted Lighthouse (the bundled Node
-worker driving a pinned Chrome for Testing, median of 3 runs a page). It is
-on by default: **New audit** starts with Lighthouse ticked, since the
-report's gauges and speed figures come from it. Untick it for a quick
+worker driving a pinned Chrome for Testing, the middle of up to 3 runs a
+page). It is on by default: **New audit** starts with Lighthouse ticked,
+since the report's gauges and speed figures come from it. Untick it for a quick
 server-and-security pass, or set `[lighthouse] enabled = false` in
 `config.toml` to have it start unticked. Which pages it measures is a
 setting, chosen in **New audit** or **Settings → Lighthouse**, and saved as
@@ -121,10 +121,10 @@ setting, chosen in **New audit** or **Settings → Lighthouse**, and saved as
 - **Every discovered page** (`every_page`): every page discovery found, up to
   the per-site cap (`pages_per_site`, 20), which each report discloses.
 
-Every page is about 30 seconds of wall-clock time at the default concurrency
-of 3, so every-page mode turns a big batch into an overnight job. Before it
-starts, New audit counts the pages (discovery only) and shows the time and disk
-it will take. While it runs, an activity dock shows the pages in Chrome, pages
+Every page is at most about 30 seconds of wall-clock time at the defaults (3
+runs, 3 pages at a time), so every-page mode turns a big batch into an
+overnight job. Before it starts, New audit counts the pages (discovery only)
+and shows the time and disk it will take. While it runs, an activity dock shows the pages in Chrome, pages
 measured of planned, and an ETA. The batch can be stopped at any time.
 
 Long batches are built to survive:
@@ -151,6 +151,37 @@ Lighthouse. Design notes: [`docs/every-page-lighthouse.md`](docs/every-page-ligh
     scope = "every_page"
     concurrency = 3
     keep_artifacts = true
+
+### Speed
+
+A Lighthouse run is Chrome loading the page in real time, about 20 seconds
+on a fast desktop. That time is spent in Chrome, not in SLAP, and SLAP
+already runs several pages at once. Two things are done for every audit, at
+no cost to the scores:
+
+- **A page whose first two runs agree stops there.** When their
+  performance scores are within 2 points and in one band, a third run could
+  only land the median between them, so it is skipped. The report says how
+  many times pages were tested.
+- **Lighthouse's full-page screenshot is not taken.** Only Lighthouse's own
+  viewer uses it, for element thumbnails; it was about a tenth of every run.
+
+Two more are settings, under **Settings → Lighthouse**, because they trade
+accuracy for time:
+
+- **Pages at a time** (1 to 4, default 3): more finishes sooner, but the
+  pages share the processor and the site's server. Measured on a 16-core
+  desktop, one page scored about 7 points lower 3 at a time than 1 at a
+  time; the numbers are in [`docs/lighthouse.md`](docs/lighthouse.md).
+- **Runs per page** (1, 3 or 5, default 3): one run is about three times
+  faster and is what PageSpeed Insights shows, but a single test can be off
+  by several points.
+
+Both are saved in `config.toml`:
+
+    [lighthouse]
+    concurrency = 3
+    runs = 3
 
 ## Building from source
 

@@ -22,8 +22,10 @@ reader must not have to infer which one they are reading.
 
 ## Cost
 
-Median of 3 runs, ~30 seconds a run, 3 at a time: every page costs about 30
-seconds of wall clock.
+Median of up to 3 runs, ~30 seconds a run, 3 at a time: every page costs at
+most about 30 seconds of wall clock. A page whose first two runs agree
+stops there (see "Stopping early" in `lighthouse.md`), and the runs per page
+and pages at a time are settings, so this is a ceiling at the defaults.
 
 | Batch | Sampled | Every page |
 |---|---|---|
@@ -117,8 +119,8 @@ Per measured page, under `artifact_dir/<batch>/<host>/`:
   audits per Lighthouse group, passed/manual/not-applicable counts, metric
   ratings and runtime settings. The report is drawn from these.
 - `page-<id>.lhr.json.gz`, when `[lighthouse] keep_artifacts` (default on):
-  the median run's full LHR, about 600 KB. One of the three runs, not all
-  three.
+  the median run's full LHR, about 600 KB. One of the page's runs, not
+  all of them.
 
 2,000 pages is about 1.2 GB with full reports, about 12 MB without. Both are
 rows in the `artifact` table, so deleting a site removes them.

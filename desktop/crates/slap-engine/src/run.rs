@@ -96,6 +96,10 @@ pub struct EngineConfig {
     pub lighthouse_scope: LighthouseScope,
     /// How many Lighthouse instances may run at once across the whole batch.
     pub lighthouse_concurrency: usize,
+    /// The runs each Lighthouse page is planned for (`[lighthouse] runs`).
+    /// The shell copies it into `lighthouse` when it builds the runner; the
+    /// estimate reads it here, before there is a runner to ask.
+    pub lighthouse_runs: usize,
     /// Where per-page Lighthouse summaries (and, if kept, raw LHRs) are
     /// written. None keeps nothing on disk; the observations still land.
     pub artifact_dir: Option<PathBuf>,
@@ -138,6 +142,7 @@ impl EngineConfig {
             lighthouse_pages: d.lighthouse_pages_per_site.max(1) as usize,
             lighthouse_scope: settings.lighthouse.scope(),
             lighthouse_concurrency: settings.lighthouse.effective_concurrency(),
+            lighthouse_runs: settings.lighthouse.effective_runs(),
             artifact_dir: Some(settings.artifact_dir.clone()),
             keep_lhr: settings.lighthouse.keep_artifacts,
             probe: ProbeSettings {
@@ -417,7 +422,7 @@ pub async fn estimate_batch(urls: &[String], cfg: &EngineConfig) -> BatchEstimat
         .buffered(cfg.concurrency.max(1))
         .collect()
         .await;
-    let runs = cfg.lighthouse.as_ref().map(|l| l.runs).unwrap_or(3);
+    let runs = cfg.lighthouse.as_ref().map(|l| l.runs).unwrap_or(cfg.lighthouse_runs).max(1);
     let pages = sites.iter().map(|s| s.pages).sum();
     let lighthouse_pages: usize = sites.iter().map(|s| s.lighthouse_pages).sum();
     let per_page = SUMMARY_BYTES_PER_PAGE + if cfg.keep_lhr { LHR_BYTES_PER_PAGE } else { 0 };

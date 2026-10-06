@@ -136,7 +136,11 @@ Chromium (pinned Chrome for Testing, fetched on first use)
 
 **The Node worker is deliberately dumb.** No business logic, no thresholds,
 no storage, no formatting. It launches Chrome, runs Lighthouse, writes the
-raw LHR, exits. Everything downstream of "what did Chrome measure" is the
+raw LHR, exits. It does turn one thing off: Lighthouse's full-page
+screenshot (`disableFullPageScreenshot`), a picture of the whole page that
+only Lighthouse's own viewer uses, for element thumbnails. No score or metric
+depends on it, and it was the slowest thing gathered after the page load,
+1.5 to 2.2 seconds of a 19-second run, and a third of a kept LHR's size. Everything downstream of "what did Chrome measure" is the
 engine's job. If you want to add a condition to `worker.js`, it belongs in
 the engine's Lighthouse collector or in `rules/rules.yaml` instead.
 
@@ -163,14 +167,62 @@ failure.
 
 Budget for 100 sites, mobile median-of-3, concurrency 3: roughly 50 minutes.
 
+The cap is `[lighthouse] concurrency`, 1 to 4, also under Settings →
+Lighthouse as "pages at a time". It stays at 4 because of what more costs.
+
+### Measured on the 7950X
+
+One page (a heavy WordPress home page, simulated mobile) run 61 times on a
+Ryzen 9 7950X (16 cores, 32 threads), in pools of N Lighthouse processes at
+once, each with its own Chrome:
+
+| At once | Time per run, effective | Performance (median) | TBT | Server response | benchmarkIndex |
+|---|---|---|---|---|---|
+| 1 | 19.1 s | 40 (35 to 50) | ~440 ms | 1.3 s | ~4,550 |
+| 3 | 7.4 s | 33 | ~700 ms | 1.7 s | ~4,350 |
+| 6 | 4.4 s | 36 | ~550 ms | 2.6 s | ~3,650 |
+| 8 | 3.6 s | 28 | ~1,000 ms | 3.0 s | ~3,300 |
+
+What the numbers say:
+
+- **The work is in Chrome, not in SLAP.** Starting Node and importing
+  Lighthouse took 0.85 s of a run, launching Chrome 0.5 s, closing it 0.25 s;
+  the rest was Lighthouse loading the page and gathering. A long-lived
+  worker or a reused Chrome would save under a tenth of a run, and a reused
+  Chrome would carry connections and state from one run into the next.
+- **Fewer categories do not help.** A performance-only run took 18.9 s
+  against 19.1 s for all four: the page load is the cost, not the
+  accessibility or SEO audits.
+- **Parallel runs are not free even at 3.** The pool runs started together
+  on one URL, the worst case; a real batch staggers different pages. Even
+  so, 3 at once already scored the page about 7 points lower than one at a
+  time, and 8 at once about 12 lower with TBT more than doubled. The site's
+  own server slowed too, answering in 3 seconds instead of 1.3 with 8 pages
+  in flight, which on a lighter page would move FCP and LCP as well.
+
+So the cap stays where it is, the default stays 3, and the faster settings
+are offered as a choice with that cost stated, never as a default.
+
 *Not done:* pinning workers to dedicated cores, which the roadmap floats as
-an option. Worth measuring on the 7950X before adding the complexity.
+an option.
 
 ## Median and spread
 
-Three runs per site per form factor; the **median** is reported, because a
+Up to three runs per page (`[lighthouse] runs`, 1 to 5, under Settings →
+Lighthouse as "runs per page"); the **median** is reported, because a
 single Lighthouse run is noise. The median, not the mean: one
 outlier run should not move the number.
+
+**Stopping early.** Once more than half of a page's planned runs are in,
+the median of all of them can only land between the lowest and highest
+score already taken, whatever the remaining runs measure: there are too few
+of them left to outnumber either end. So when those scores are within 2
+points of each other and in one Lighthouse band, the rest are skipped
+(`lighthouse::settled`). With three runs that means two runs that agree.
+The cost is information, not accuracy: a skipped run cannot move the
+median outside the two taken, but it could have widened the recorded
+spread. The report says how many times pages were tested ("2 or 3 times")
+and why some were tested less.
 
 The **spread** (max − min) is recorded beside it for LCP, TBT, the
 performance score, and the CPU benchmark. This is what the roadmap means by

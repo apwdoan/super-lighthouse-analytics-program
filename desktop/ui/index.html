@@ -631,6 +631,8 @@ async function viewAudit() {
   try { s = await invoke("get_settings"); } catch {}
   const runs = s.lighthouse_runs || 3, conc = s.lighthouse_concurrency || 3, perRun = s.seconds_per_run || 30;
   const pagesCap = s.pages_per_site || 20, sampledCap = Math.min(s.lighthouse_pages_per_site || 5, pagesCap);
+  // A page stops early once its runs agree, so the planned count is a ceiling.
+  const runsEach = (r) => r === 1 ? "one run each" : `the middle of up to ${r} runs each`;
 
   const head = el("div", {},
     crumbs({ label: "New audit" }),
@@ -664,7 +666,7 @@ async function viewAudit() {
     const per = scopeNow() === "every_page" ? pagesCap : sampledCap;
     const pages = n * per;
     estimate.replaceChildren("Up to ", el("b", {}, num(pages) + " pages"), " in Chrome: about ",
-      el("b", {}, duration(pages * runs * perRun / conc)), `, ${conc} at a time, median of ${runs} runs each.`,
+      el("b", {}, duration(pages * runs * perRun / conc)), `, ${conc} at a time, ${runsEach(runs)}.`,
       scopeNow() === "every_page" ? " The exact page count is checked before anything starts." : "");
   }
   for (const r of [sampled, every]) r.addEventListener("change", async () => {
@@ -727,7 +729,7 @@ async function viewAudit() {
       out.replaceChildren(el("div", { class: "confirm" },
         el("div", { class: "big" }, `${num(est.lighthouse_pages)} pages, about ${duration(est.seconds)}`),
         el("div", { class: "muted", style: "margin-top:2px" },
-          `${num(est.sites.length)} site${est.sites.length === 1 ? "" : "s"}, ${est.concurrency} pages at a time, median of ${est.runs_per_page} runs each. `
+          `${num(est.sites.length)} site${est.sites.length === 1 ? "" : "s"}, ${est.concurrency} pages at a time, ${runsEach(est.runs_per_page)}. `
           + `About ${bytes(est.disk_bytes)} on disk` + (s.keep_lhr ? ", full Lighthouse reports included (Settings → Lighthouse)." : ".")),
         capped.length ? el("div", { class: "notice info" },
           `${capped.length} site${capped.length === 1 ? " has" : "s have"} more pages than the per-site cap of ${pagesCap}. `
@@ -1286,10 +1288,54 @@ async function viewSettings() {
       } catch (e) { keepToggle.checked = !keepToggle.checked; lhMsg.textContent = String(e && e.message ? e.message : e); }
       finally { keepToggle.disabled = false; }
     });
+    // Speed: how many pages share Chrome at once, and how many runs each gets.
+    const lhSpeed = { conc: s.lighthouse_concurrency || 3, runs: s.lighthouse_runs || 3 };
+    const lhIntro = el("p", { class: "secondary" });
+    const showIntro = () => {
+      lhIntro.textContent = `Which pages get the full browser audit when Lighthouse is on. Every page takes up to about ${Math.round(lhSpeed.runs * (s.seconds_per_run || 30) / lhSpeed.conc)} seconds of wall-clock time, ${lhSpeed.conc} at a time, so the every-page mode turns a large batch into an overnight job. New audit shows the exact count and time before anything starts.`;
+    };
+    showIntro();
+    const selStyle = "padding:7px 9px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);color:var(--ink)";
+    const pick = (choices, current, label) => {
+      const sel = el("select", { style: selStyle });
+      // A value set by hand in config.toml that is not one of the choices
+      // still shows as itself rather than as the first option.
+      if (!choices.some(([v]) => v === current)) choices = [...choices, [current, label(current)]].sort((a, b) => a[0] - b[0]);
+      for (const [v, text] of choices) sel.append(el("option", { value: String(v) }, text));
+      sel.value = String(current);
+      return sel;
+    };
+    const maxConc = s.lighthouse_max_concurrency || 4;
+    const concSel = pick(
+      Array.from({ length: maxConc }, (_, i) => i + 1).map(n => [n,
+        n === 1 ? "1 page at a time (steadiest scores)"
+          : n === 3 ? "3 pages at a time (default)"
+          : n === maxConc ? `${n} pages at a time (fastest)`
+          : `${n} pages at a time`]),
+      lhSpeed.conc, n => `${n} pages at a time`);
+    const runsSel = pick([
+        [1, "1 run a page (fastest, as PageSpeed Insights does)"],
+        [3, "Up to 3 runs a page, middle result (default)"],
+        [5, "Up to 5 runs a page, middle result (steadiest)"]],
+      lhSpeed.runs, n => `Up to ${n} runs a page, middle result`);
+    const saveSpeed = (sel, command, key) => sel.addEventListener("change", async () => {
+      const n = Number(sel.value), before = lhSpeed[key];
+      sel.disabled = true; lhMsg.textContent = "Saving…";
+      try {
+        await invoke(command, { n });
+        lhSpeed[key] = n; showIntro();
+        lhMsg.textContent = "Saved. Used by your next audit with Lighthouse on.";
+      } catch (e) { sel.value = String(before); lhMsg.textContent = String(e && e.message ? e.message : e); }
+      finally { sel.disabled = false; }
+    });
+    saveSpeed(concSel, "set_lighthouse_concurrency", "conc");
+    saveSpeed(runsSel, "set_lighthouse_runs", "runs");
     const lighthouseCard = el("div", { class: "card pad" },
       el("h2", {}, "Lighthouse"),
-      el("p", { class: "secondary" }, `Which pages get the full browser audit when Lighthouse is on. Every page is about ${Math.round((s.lighthouse_runs || 3) * (s.seconds_per_run || 30) / (s.lighthouse_concurrency || 3))} seconds of wall-clock time, ${s.lighthouse_concurrency || 3} at a time, so the every-page mode turns a large batch into an overnight job. New audit shows the exact count and time before anything starts.`),
+      lhIntro,
       el("div", { style: "margin:4px 0 14px" }, scopeSel),
+      el("div", { class: "row-actions", style: "margin:0 0 6px" }, concSel, runsSel),
+      el("p", { class: "muted", style: "font-size:12.5px;margin:0 0 14px" }, "More pages at a time finishes sooner, but the pages share this computer's processor and the site's server, which lowers their scores; Lighthouse's own advice is one at a time. Each page keeps the middle result of its runs, and stops early once they agree to within 2 points. One run is about three times faster, but a single test can be off by several points."),
       el("label", { class: "seg" }, keepToggle, " Keep each page's full Lighthouse report on disk"),
       el("p", { class: "muted", style: "font-size:12.5px;margin:6px 0 0" }, "Reports are always drawn from a compact per-page summary, so turning this off changes nothing in them. Full reports are for opening in Lighthouse's own viewer, and cost about 1.2 GB per 2,000 pages."),
       lhMsg);

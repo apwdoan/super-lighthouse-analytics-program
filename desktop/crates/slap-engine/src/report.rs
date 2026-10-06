@@ -229,6 +229,16 @@ fn plural(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
 
+/// How many tests the pages got, from the fewest to the most: "3", "2 or
+/// 3", "3 to 5", each followed by `unit`.
+fn run_range(low: i64, high: i64, unit: &str) -> String {
+    match high - low {
+        0 => format!("{high}{unit}"),
+        1 => format!("{low} or {high}{unit}"),
+        _ => format!("{low} to {high}{unit}"),
+    }
+}
+
 /// A page template as the kind of page a client would call it.
 fn page_kind(template: &str) -> String {
     let kind = match template {
@@ -1666,7 +1676,17 @@ fn build_model(conn: &Connection, run_id: i64) -> Result<Json, String> {
             }
         }
     }
-    let runs = num("lh.runs").filter(|r| *r > 0.0).map(|r| r as i64);
+    // How many times the measured pages were tested. Not one number: a page
+    // whose first runs agree stops early (lighthouse::settled), so a report
+    // can hold pages tested twice beside pages tested three times.
+    let run_counts: Vec<i64> = measured
+        .iter()
+        .filter_map(|p| values_of(p).get("lh.runs").copied())
+        .filter(|r| *r > 0.0)
+        .map(|r| r as i64)
+        .collect();
+    let runs = run_counts.iter().max().copied();
+    let runs_min = run_counts.iter().min().copied();
     let lighthouse = json!({
         "home": home_lh,
         "measured": measured.len(),
@@ -1902,10 +1922,13 @@ fn build_model(conn: &Connection, run_id: i64) -> Result<Json, String> {
         if let Some(c) = &chrome_major {
             details.push(json!({ "label": "Browser", "value": format!("Chrome {c}") }));
         }
-        match runs {
-            Some(1) => details.push(json!({ "label": "Tests per page", "value": "1" })),
-            Some(r) => details.push(json!({ "label": "Tests per page", "value": format!("{r}, middle result used") })),
-            None => {}
+        match (runs_min, runs) {
+            (_, Some(1)) => details.push(json!({ "label": "Tests per page", "value": "1" })),
+            (Some(low), Some(high)) => details.push(json!({
+                "label": "Tests per page",
+                "value": format!("{}, middle result used", run_range(low, high, "")),
+            })),
+            _ => {}
         }
     }
     details.push(json!({ "label": "Audit reference", "value": run_id.to_string() }));
@@ -2008,6 +2031,15 @@ fn build_model(conn: &Connection, run_id: i64) -> Result<Json, String> {
                 "none"
             },
             "runs": runs,
+            // "once", "3 times", "2 or 3 times".
+            "runs_phrase": match (runs_min, runs) {
+                (_, Some(1)) => Some("once".to_string()),
+                (Some(low), Some(high)) => Some(run_range(low, high, " times")),
+                _ => None,
+            },
+            // Some pages were tested fewer times than others: say why.
+            "stopped_early": matches!((runs_min, runs), (Some(low), Some(high)) if low < high),
+            "agreement_points": crate::lighthouse::AGREEMENT_POINTS as i64,
             "device": device_phrase,
             "network": network_phrase,
             "details": details,
@@ -2550,5 +2582,12 @@ mod tests {
         assert!(html.contains("Enable LazyLoad for images"), "WP Rocket line is independent");
         no_advice["show_wp_rocket"] = json!(false);
         assert!(!render(no_advice).contains("class=\"fix\""), "no empty fix block");
+    }
+
+    #[test]
+    fn test_counts_read_as_a_range_when_pages_stopped_early() {
+        assert_eq!(run_range(3, 3, " times"), "3 times");
+        assert_eq!(run_range(2, 3, " times"), "2 or 3 times");
+        assert_eq!(run_range(3, 5, ""), "3 to 5");
     }
 }

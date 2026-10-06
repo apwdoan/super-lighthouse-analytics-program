@@ -78,6 +78,8 @@ pub fn run() {
             commands::estimate_audit,
             commands::power_status,
             commands::set_lighthouse_scope,
+            commands::set_lighthouse_concurrency,
+            commands::set_lighthouse_runs,
             commands::set_keep_lhr,
             commands::report_html,
             commands::report_pdf,

@@ -223,7 +223,9 @@ pub fn get_settings() -> Result<Json, String> {
         "lighthouse_enabled": settings.lighthouse.enabled,
         "lighthouse_scope": settings.lighthouse.scope().as_str(),
         "lighthouse_concurrency": settings.lighthouse.effective_concurrency(),
-        "lighthouse_runs": 3,
+        "lighthouse_runs": settings.lighthouse.effective_runs(),
+        "lighthouse_max_concurrency": slap_core::settings::MAX_LIGHTHOUSE_CONCURRENCY,
+        "lighthouse_max_runs": slap_core::settings::MAX_LIGHTHOUSE_RUNS,
         "lighthouse_pages_per_site": settings.discovery.lighthouse_pages_per_site,
         "pages_per_site": settings.discovery.pages_per_site,
         "keep_lhr": settings.lighthouse.keep_artifacts,
@@ -872,6 +874,22 @@ pub fn set_keep_lhr(enabled: bool) -> Result<Json, String> {
     Ok(json!({ "enabled": enabled }))
 }
 
+/// Save how many Lighthouse pages may be in Chrome at once (1 to 4). More
+/// at once finishes sooner, but the pages share the processor and the
+/// site's server, which lowers their scores.
+#[tauri::command]
+pub fn set_lighthouse_concurrency(n: u32) -> Result<Json, String> {
+    slap_core::settings::save_lighthouse_concurrency(n, None).map_err(|e| e.to_string())?;
+    Ok(json!({ "concurrency": n }))
+}
+
+/// Save how many Lighthouse runs each page is planned for (1 to 5).
+#[tauri::command]
+pub fn set_lighthouse_runs(n: u32) -> Result<Json, String> {
+    slap_core::settings::save_lighthouse_runs(n, None).map_err(|e| e.to_string())?;
+    Ok(json!({ "runs": n }))
+}
+
 /// Save the Lighthouse coverage mode: `"sampled"` or `"every_page"`.
 #[tauri::command]
 pub fn set_lighthouse_scope(scope: String) -> Result<Json, String> {
@@ -947,10 +965,12 @@ fn bundled_node() -> Option<String> {
 
 /// The Lighthouse runner config for this install: the bundled worker, the
 /// bundled (or PATH) Node, and the pinned Chromium, fetched on first use.
+/// `runs` is the planned runs per page, from `[lighthouse] runs`.
 fn lighthouse_config(
     app: &tauri::AppHandle,
     runtime: &tokio::runtime::Runtime,
     timeout_secs: u64,
+    runs: usize,
 ) -> Result<slap_engine::lighthouse::LighthouseConfig, String> {
     let dir = worker_dir(app).ok_or_else(|| {
         "Lighthouse needs its bundled worker, which is missing from this \
@@ -963,7 +983,7 @@ fn lighthouse_config(
         .block_on(slap_engine::lighthouse::resolve_or_fetch_chrome())
         .map_err(|e| format!("could not obtain Chromium for Lighthouse: {e}"))?;
     Ok(slap_engine::lighthouse::LighthouseConfig {
-        runs: 3,
+        runs: runs.max(1),
         form_factor: "mobile".into(),
         node_path: bundled_node().unwrap_or_else(|| "node".into()),
         worker_dir: dir,
@@ -1009,7 +1029,7 @@ fn run_audit_blocking(
                 cfg.probe.authorised_hosts = urls.iter().filter_map(|u| host_of(u)).collect();
             }
             if lighthouse {
-                cfg.lighthouse = Some(lighthouse_config(&app, &runtime, cfg.timeout_secs)?);
+                cfg.lighthouse = Some(lighthouse_config(&app, &runtime, cfg.timeout_secs, cfg.lighthouse_runs)?);
             }
             runtime.block_on(slap_engine::run_batch_controlled(&conn, &urls, &cfg, &cancel, emit))?
         }
@@ -1024,7 +1044,7 @@ fn run_audit_blocking(
                         && r["id"].as_i64().is_some_and(|id| run_ids.contains(&id))
                 });
             if needs_lighthouse {
-                cfg.lighthouse = Some(lighthouse_config(&app, &runtime, cfg.timeout_secs)?);
+                cfg.lighthouse = Some(lighthouse_config(&app, &runtime, cfg.timeout_secs, cfg.lighthouse_runs)?);
             }
             runtime.block_on(slap_engine::resume_runs(&conn, &run_ids, &cfg, &cancel, emit))?
         }

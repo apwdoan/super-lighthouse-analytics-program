@@ -109,6 +109,16 @@ process.stdin.on("end", () => {
   // a long batch produces when a laptop throttles.
   lhr.environment.benchmarkIndex = job.url.includes("/blog/") ? 900 : 1500;
   lhr.categories.performance.score = job.url.includes("/product/") ? 0.41 : 0.63;
+  // The about page measures differently every time, as a page on a busy
+  // server does, so its runs never agree and it gets all three. Its runs of
+  // one measurement are taken in turn, so a count per URL tells them apart.
+  if (job.url.endsWith("/about") && process.env.FAKE_COUNT_DIR) {
+    fs.mkdirSync(process.env.FAKE_COUNT_DIR, { recursive: true });
+    const counter = require("path").join(process.env.FAKE_COUNT_DIR, Buffer.from(job.url).toString("hex"));
+    fs.appendFileSync(counter, "x");
+    const n = fs.readFileSync(counter, "utf8").length;
+    lhr.categories.performance.score = [0.55, 0.7, 0.63][(n - 1) % 3];
+  }
   setTimeout(() => {
     process.stdout.write(JSON.stringify({
       ok: true,
@@ -153,6 +163,7 @@ fn config(worker_dir: &Path, artifacts: &Path, scope: LighthouseScope) -> slap_e
         lighthouse_pages: 3,
         lighthouse_scope: scope,
         lighthouse_concurrency: 2,
+        lighthouse_runs: 3,
         artifact_dir: Some(artifacts.to_path_buf()),
         keep_lhr: true,
         probe: slap_engine::run::ProbeSettings::default(),
@@ -190,6 +201,7 @@ async fn every_page_stop_and_resume() {
     let lhr_path = dir.path().join("lhr.json");
     std::fs::write(&lhr_path, lhr).unwrap();
     std::env::set_var("FAKE_LHR", &lhr_path);
+    std::env::set_var("FAKE_COUNT_DIR", dir.path().join("counts"));
     std::env::remove_var("FAKE_CHROME_VERSION");
     let artifacts = dir.path().join("artifacts");
     let conn = storage::open_db(&dir.path().join("slap.sqlite3")).unwrap();
@@ -245,7 +257,15 @@ async fn every_page_stop_and_resume() {
         for p in &pages {
             let id = p["id"].as_i64().unwrap();
             assert_eq!(p["audit_depth"], "full", "{}", p["url"]);
-            assert_eq!(value(&conn, id, "lh.runs"), Some(Value::Num(3.0)), "{}", p["url"]);
+            // Runs that agree stop at two, since a third could only land the
+            // median between them; the about page's never agree.
+            if p["url"].as_str().unwrap().ends_with("/about") {
+                assert_eq!(value(&conn, id, "lh.runs"), Some(Value::Num(3.0)));
+                assert_eq!(value(&conn, id, "lh.score.performance"), Some(Value::Num(63.0)), "55, 70, 63");
+                assert_eq!(value(&conn, id, "lh.score.performance.spread"), Some(Value::Num(15.0)));
+            } else {
+                assert_eq!(value(&conn, id, "lh.runs"), Some(Value::Num(2.0)), "{}", p["url"]);
+            }
         }
         // Inventory order is discovery order, home first.
         assert!(pages[0]["url"].as_str().unwrap().ends_with('/'));
@@ -397,6 +417,12 @@ async fn every_page_stop_and_resume() {
         "audits come from the stored summaries, retitled as the problem they describe"
     );
     assert!(html.contains("Most common problems"));
+    // Seven pages agreed after two tests and the about page took three: the
+    // report says so, rather than claiming three for every page.
+    assert!(html.contains("Each page tested was loaded 2 or 3 times with Google Lighthouse"));
+    assert!(html.contains("Testing stops early on a page whose first tests already agree to within 2 points"));
+    assert!(html.contains("(the average of 2 tests)"), "the home page's two tests agreed");
+    assert!(html.contains("2 or 3, middle result used"));
     // Product pages score 41 against a typical 63: outliers, so they have a
     // section; the page table still lists every page.
     assert!(html.contains("Performance 41 (typical page: 63)"));

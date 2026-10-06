@@ -10,7 +10,10 @@
 //!
 //! Two disciplines carried over:
 //! - **Median of N, spread recorded.** A single run is noise; the median goes
-//!   in the report and the spread beside it, so a wide spread is visible.
+//!   in the report and the spread beside it, so a wide spread is visible. A
+//!   page stops short of N only when the runs taken already settle the
+//!   median ([`settled`]), which with N = 3 skips about a third of the work
+//!   on a page whose first two runs agree.
 //! - **benchmarkIndex captured every run.** It is Lighthouse's own CPU
 //!   measure of the machine taking the measurement; a value that sags mid
 //!   batch is direct evidence of the contention that silently inflates TBT.
@@ -364,16 +367,44 @@ pub fn median_run_index(runs: &[HashMap<String, f64>]) -> Option<usize> {
     Some(order[pick])
 }
 
-/// Run Lighthouse `cfg.runs` times against a URL and aggregate the median,
-/// keeping the median run's report. An empty `runs_ok` means every run
+/// How far apart, in performance points, the runs already taken may be for
+/// the rest to be skipped. See [`settled`].
+pub const AGREEMENT_POINTS: f64 = 2.0;
+
+/// Whether the runs already taken of a page settle its median, so the rest
+/// of the `planned` runs can be skipped.
+///
+/// Once more than half of the planned runs are in, the median of all of them
+/// can only land between the lowest and the highest score already taken,
+/// whatever the remaining runs measure: there are too few of them left to
+/// outnumber either end. So when those scores are within
+/// [`AGREEMENT_POINTS`] of each other and in one Lighthouse band, the rest
+/// could not move the median outside that span, or across a band, and are
+/// not worth another 20 seconds of Chrome. With the default of 3 runs, that
+/// is two runs that agree; a page whose first two disagree gets its third.
+///
+/// `scores` are the performance scores (0 to 100) of the successful runs.
+pub fn settled(scores: &[f64], planned: usize) -> bool {
+    if scores.is_empty() || scores.len() * 2 <= planned {
+        return false;
+    }
+    let low = scores.iter().copied().fold(f64::INFINITY, f64::min);
+    let high = scores.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    high - low <= AGREEMENT_POINTS && rating_for_score(low / 100.0) == rating_for_score(high / 100.0)
+}
+
+/// Run Lighthouse against a URL up to `cfg.runs` times and aggregate the
+/// median, keeping the median run's report. Stops early once the runs taken
+/// settle the median (see [`settled`]). An empty `runs_ok` means every run
 /// failed; the observations then still record that the audit was attempted
 /// (`lh.runs = 0`) and why, so the report can say "failed", not "skipped".
 pub async fn measure_page(url: &str, cfg: &LighthouseConfig) -> PageMeasurement {
-    let mut runs = Vec::new();
+    let planned = cfg.runs.max(1);
+    let mut runs: Vec<HashMap<String, f64>> = Vec::new();
     let mut lhrs = Vec::new();
     let mut meta = None;
     let mut last_error = None;
-    for _ in 0..cfg.runs.max(1) {
+    for _ in 0..planned {
         match run_once(url, cfg).await {
             Ok((values, run_meta, lhr)) => {
                 if meta.is_none() {
@@ -383,6 +414,15 @@ pub async fn measure_page(url: &str, cfg: &LighthouseConfig) -> PageMeasurement 
                 lhrs.push(lhr);
             }
             Err(e) => last_error = Some(e),
+        }
+        // Every successful run must have a score to judge by; a run without
+        // one leaves the page to its planned count.
+        let scores: Vec<f64> = runs
+            .iter()
+            .filter_map(|r| r.get("lh.score.performance").copied())
+            .collect();
+        if scores.len() == runs.len() && settled(&scores, planned) {
+            break;
         }
     }
     if runs.is_empty() {
@@ -1059,6 +1099,44 @@ mod tests {
         // Two runs: the lower of the two, never a run that has no score.
         assert_eq!(median_run_index(&[HashMap::new(), run(50.0), run(80.0)]), Some(1));
         assert_eq!(median_run_index(&[]), None);
+    }
+
+    #[test]
+    fn runs_that_agree_settle_the_median_and_runs_that_differ_do_not() {
+        // Three planned: two runs within 2 points, in one band, are enough.
+        assert!(settled(&[42.0, 42.0], 3));
+        assert!(settled(&[42.0, 44.0], 3));
+        assert!(!settled(&[42.0, 45.0], 3), "3 points apart: take the third");
+        assert!(!settled(&[89.0, 90.0], 3), "1 point apart but across a band");
+        assert!(!settled(&[49.0, 50.0], 3), "the other band edge");
+        // Never before more than half of the planned runs are in.
+        assert!(!settled(&[42.0], 3));
+        assert!(!settled(&[42.0, 42.0], 4));
+        assert!(!settled(&[42.0, 42.0], 5));
+        assert!(settled(&[42.0, 43.0, 42.0], 5));
+        assert!(!settled(&[], 3));
+    }
+
+    /// The reason the rule is safe, checked rather than argued: whatever the
+    /// skipped runs would have scored, the median of all the planned runs
+    /// stays between the lowest and highest of the runs taken.
+    #[test]
+    fn skipped_runs_cannot_move_a_settled_median_outside_the_runs_taken() {
+        let within = |taken: &[f64], skipped: &[f64]| {
+            let mut all: Vec<f64> = taken.iter().chain(skipped).copied().collect();
+            let low = taken.iter().copied().fold(f64::INFINITY, f64::min);
+            let high = taken.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let m = median(std::mem::take(&mut all));
+            (low..=high).contains(&m)
+        };
+        for a in 0..=100 {
+            // Three planned, two taken.
+            assert!(within(&[42.0, 44.0], &[a as f64]), "third run {a}");
+            // Five planned, three taken.
+            for b in (0..=100).step_by(5) {
+                assert!(within(&[42.0, 43.0, 44.0], &[a as f64, b as f64]), "{a}, {b}");
+            }
+        }
     }
 
     #[test]

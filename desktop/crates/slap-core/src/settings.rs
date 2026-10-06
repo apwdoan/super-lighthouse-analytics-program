@@ -67,9 +67,21 @@ impl Default for CollectorConfig {
     }
 }
 
+/// The most Lighthouse pages that may be in Chrome at once, whatever a config
+/// file says. Measured on a 16-core desktop, one page tested 3 at a time
+/// already scored about 7 points lower than one at a time, and 8 at a time
+/// about 12 lower, with the site's server answering twice as slowly: past
+/// this, speed is bought with numbers that are not the site's.
+pub const MAX_LIGHTHOUSE_CONCURRENCY: u32 = 4;
+
+/// The most Lighthouse runs a page may be given. Lighthouse's own guidance
+/// is that the median of 5 is about twice as stable as one run; more than
+/// that buys little and costs a full run each.
+pub const MAX_LIGHTHOUSE_RUNS: u32 = 5;
+
 /// Lighthouse settings. `concurrency` is NOT `http_concurrency`: contended
 /// CPU inflates TBT and TTI, producing plausible, irreproducible scores.
-/// The UI hard-caps it at 4; the default stays 3.
+/// It is capped at [`MAX_LIGHTHOUSE_CONCURRENCY`]; the default stays 3.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct LighthouseConfig {
@@ -107,11 +119,19 @@ impl LighthouseConfig {
             .unwrap_or(crate::schema::LighthouseScope::Sampled)
     }
 
-    /// The Lighthouse concurrency actually used: at least 1, at most 4.
-    /// Contended CPU inflates TBT and gives plausible, irreproducible
-    /// scores, so the cap holds whatever a config file says.
+    /// The Lighthouse concurrency actually used: at least 1, at most
+    /// [`MAX_LIGHTHOUSE_CONCURRENCY`]. Contended CPU inflates TBT and gives
+    /// plausible, irreproducible scores, so the cap holds whatever a config
+    /// file says.
     pub fn effective_concurrency(&self) -> usize {
-        self.concurrency.clamp(1, 4) as usize
+        self.concurrency.clamp(1, MAX_LIGHTHOUSE_CONCURRENCY) as usize
+    }
+
+    /// The runs each page is planned for: at least 1, at most
+    /// [`MAX_LIGHTHOUSE_RUNS`]. A page can stop short of it when its first
+    /// runs already agree; the engine's `lighthouse::settled` says when.
+    pub fn effective_runs(&self) -> usize {
+        self.runs.clamp(1, MAX_LIGHTHOUSE_RUNS) as usize
     }
 }
 
@@ -698,6 +718,28 @@ pub fn save_lighthouse_scope(
     )
 }
 
+/// Save how many Lighthouse pages may be in Chrome at once, from 1 to
+/// [`MAX_LIGHTHOUSE_CONCURRENCY`].
+pub fn save_lighthouse_concurrency(n: u32, path: Option<&Path>) -> Result<PathBuf, SettingsError> {
+    if !(1..=MAX_LIGHTHOUSE_CONCURRENCY).contains(&n) {
+        return Err(SettingsError(format!(
+            "Lighthouse can test 1 to {MAX_LIGHTHOUSE_CONCURRENCY} pages at a time, not {n}"
+        )));
+    }
+    save_setting("concurrency", Some(SettingValue::Int(n.into())), Some("lighthouse"), path)
+}
+
+/// Save how many Lighthouse runs each page is planned for, from 1 to
+/// [`MAX_LIGHTHOUSE_RUNS`].
+pub fn save_lighthouse_runs(n: u32, path: Option<&Path>) -> Result<PathBuf, SettingsError> {
+    if !(1..=MAX_LIGHTHOUSE_RUNS).contains(&n) {
+        return Err(SettingsError(format!(
+            "Lighthouse can run 1 to {MAX_LIGHTHOUSE_RUNS} times a page, not {n}"
+        )));
+    }
+    save_setting("runs", Some(SettingValue::Int(n.into())), Some("lighthouse"), path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -791,6 +833,35 @@ mod tests {
         write(&config, "[lighthouse]\nconcurrency = 16\n");
         let settings = Settings::load(Some(&config)).unwrap();
         assert_eq!(settings.lighthouse.effective_concurrency(), 4);
+    }
+
+    #[test]
+    fn lighthouse_speed_saves_within_its_limits_and_reads_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.toml");
+        write(&config, "[lighthouse]\nscope = \"every_page\"\n");
+        save_lighthouse_concurrency(4, Some(&config)).unwrap();
+        save_lighthouse_runs(1, Some(&config)).unwrap();
+        let settings = Settings::load(Some(&config)).unwrap();
+        assert_eq!(settings.lighthouse.effective_concurrency(), 4);
+        assert_eq!(settings.lighthouse.effective_runs(), 1);
+        assert_eq!(settings.lighthouse.scope().as_str(), "every_page", "the rest survives");
+
+        // Out of range is refused, and the file keeps what it had.
+        assert!(save_lighthouse_concurrency(5, Some(&config)).is_err());
+        assert!(save_lighthouse_concurrency(0, Some(&config)).is_err());
+        assert!(save_lighthouse_runs(6, Some(&config)).is_err());
+        assert!(save_lighthouse_runs(0, Some(&config)).is_err());
+        let settings = Settings::load(Some(&config)).unwrap();
+        assert_eq!(settings.lighthouse.effective_concurrency(), 4);
+        assert_eq!(settings.lighthouse.effective_runs(), 1);
+
+        // A hand-edited file is clamped, never trusted.
+        write(&config, "[lighthouse]\nruns = 0\n");
+        assert_eq!(Settings::load(Some(&config)).unwrap().lighthouse.effective_runs(), 1);
+        write(&config, "[lighthouse]\nruns = 50\n");
+        assert_eq!(Settings::load(Some(&config)).unwrap().lighthouse.effective_runs(), 5);
+        assert_eq!(LighthouseConfig::default().effective_runs(), 3);
     }
 
     #[test]

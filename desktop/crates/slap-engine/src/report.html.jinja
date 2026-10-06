@@ -102,7 +102,7 @@
   {% endif %}
   <p class="caption scale-caption">
     {%- if lh.home %}
-    Home page scores out of 100, tested as {{ lh.setup }}{% if lh.home.runs and lh.home.runs > 1 %} (the middle of {{ lh.home.runs }} tests){% endif %}.{% if lh.multi %} "Typical page" is the middle score of all {{ lh.measured }} pages tested.{% endif %}
+    Home page scores out of 100, tested as {{ lh.setup }}{% if lh.home.runs == 2 %} (the average of 2 tests){% elif lh.home.runs and lh.home.runs > 2 %} (the middle of {{ lh.home.runs }} tests){% endif %}.{% if lh.multi %} "Typical page" is the middle score of all {{ lh.measured }} pages tested.{% endif %}
     {%- elif about.lighthouse == 'tested' %}
     Lighthouse could not test the home page, so its scores are not shown here.
     {%- elif about.lighthouse == 'failed' %}
@@ -440,7 +440,7 @@
       <h3>How we tested</h3>
       <ul>
         {% if about.lighthouse == 'tested' %}
-        <li>Each page tested was loaded {% if about.runs == 1 %}once {% elif about.runs %}{{ about.runs }} times {% endif %}with Google Lighthouse, the testing tool behind Google's PageSpeed Insights, set up to behave like {{ about.device }} on {{ about.network }}.{% if about.runs and about.runs > 1 %} Scores use the middle result, so one unusually fast or slow test does not skew them.{% endif %} On a modern computer with fast broadband, pages will usually feel quicker than these figures suggest.</li>
+        <li>Each page tested was loaded {% if about.runs_phrase %}{{ about.runs_phrase }} {% endif %}with Google Lighthouse, the testing tool behind Google's PageSpeed Insights, set up to behave like {{ about.device }} on {{ about.network }}.{% if about.runs and about.runs > 1 %} Scores use the middle result, so one unusually fast or slow test does not skew them.{% endif %}{% if about.stopped_early %} Testing stops early on a page whose first tests already agree to within {{ about.agreement_points }} points, since a further test could only move its score between them.{% endif %} On a modern computer with fast broadband, pages will usually feel quicker than these figures suggest.</li>
         {% elif about.lighthouse == 'failed' %}
         <li>Browser tests with Google Lighthouse were tried but could not be completed, so this report covers the server, security and delivery checks only.</li>
         {% else %}
