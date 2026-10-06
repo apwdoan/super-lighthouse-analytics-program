@@ -3673,6 +3673,7 @@ name = "slap-engine"
 version = "0.1.0"
 dependencies = [
  "brotli 7.0.0",
+ "dunce",
  "flate2",
  "futures",
  "minijinja",

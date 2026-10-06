@@ -45,6 +45,10 @@ flate2 = "1"
 brotli = "7"
 # For extracting the pinned Chrome for Testing download on first run.
 zip = "2"
+# Turns Windows verbatim paths (\\?\C:\...) back into ordinary ones before
+# they reach Node, which cannot start a script from one. Already in the build
+# through Tauri.
+dunce = "1"
 
 [dev-dependencies]
 tiny_http = "0.12"

@@ -1134,8 +1134,8 @@ async function viewSettings() {
       try {
         await invoke("set_wp_rocket_suggestions", { enabled: wpToggle.checked });
         wpMsg.textContent = wpToggle.checked
-          ? "On: reports show the “In WP Rocket” fix line on relevant findings."
-          : "Off: reports omit WP Rocket suggestions.";
+          ? "On: findings show the “In WP Rocket” fix line, here and in reports."
+          : "Off: WP Rocket suggestions are hidden here and left out of reports.";
       } catch (e) {
         wpToggle.checked = !wpToggle.checked; // revert on failure
         wpMsg.textContent = String(e && e.message ? e.message : e);
@@ -1162,8 +1162,8 @@ async function viewSettings() {
       el("p", { class: "secondary" }, "“How to fix” adds a short line under a finding saying what to change. Turn it off for reports that should state the problems and leave the fixes to be quoted separately. It does not affect the app’s own views."),
       el("label", { class: "seg" }, fixToggle, " Include “How to fix” advice in reports"),
       fixMsg,
-      el("p", { class: "secondary", style: "margin-top:16px" }, "WP Rocket suggestions add an “In WP Rocket” line to a finding’s fix, naming the exact plugin setting that addresses it. Turn this off for clients who do not run WP Rocket, or reports that should not carry plugin-specific advice. Detection of WP Rocket in the technology section is unaffected."),
-      el("label", { class: "seg" }, wpToggle, " Include WP Rocket suggestions in reports"),
+      el("p", { class: "secondary", style: "margin-top:16px" }, "WP Rocket suggestions add an “In WP Rocket” line to a finding’s fix, naming the exact plugin setting that addresses it. Turn this off for clients who do not run WP Rocket: the line goes from the findings in this app and from reports. Detection of WP Rocket in the technology section is unaffected."),
+      el("label", { class: "seg" }, wpToggle, " Show WP Rocket suggestions"),
       wpMsg);
 
     // Vulnerability database: regenerate the offline CVE data from the NVD,

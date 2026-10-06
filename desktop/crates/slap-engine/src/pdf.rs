@@ -20,7 +20,7 @@
 //! is actually printed.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 /// The sheet, in inches: US Letter.
@@ -159,7 +159,8 @@ fn chromium_print(
     let log_path = pdf.with_extension("log");
     let log = std::fs::File::create(&log_path)
         .map_err(|e| format!("could not make the print log: {e}"))?;
-    let mut child = Command::new(chrome)
+    // No console window on Windows, whatever Chromium starts (see `spawn`).
+    let mut child = crate::spawn::std_command(crate::spawn::plain(chrome))
         .args([
             "--headless=new",
             "--no-sandbox",

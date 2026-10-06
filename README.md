@@ -96,9 +96,10 @@ saved as a top-level key in `config.toml`:
 When a finding can be resolved from inside
 [WP Rocket](https://wp-rocket.me), the report adds an "In WP Rocket" line to
 that finding naming the exact setting to change. It is on by default. Turn it
-off under **Settings → Report content** for clients who do not run WP Rocket,
-or for reports that should not carry plugin-specific advice; WP Rocket
-detection in the report's technology section is unaffected either way. Like
+off under **Settings → Report content** for clients who do not run WP Rocket:
+the line then goes from the findings in the app as well as from reports.
+WP Rocket detection in the report's technology section is unaffected either
+way. Like
 branding, the choice is saved in `config.toml`, as a top-level key (not inside
 a section), so a config file alone controls it:
 

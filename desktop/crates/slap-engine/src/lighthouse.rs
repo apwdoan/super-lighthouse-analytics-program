@@ -241,7 +241,10 @@ pub async fn run_once(
 ) -> Result<(HashMap<String, f64>, Json, Json), String> {
     use tokio::io::AsyncWriteExt;
 
-    let worker_js = cfg.worker_dir.join("worker.js");
+    // Plain paths: Node cannot start a script from a Windows verbatim path,
+    // the kind Tauri's resource folder comes as (see `spawn`).
+    let worker_dir = crate::spawn::plain(&cfg.worker_dir);
+    let worker_js = worker_dir.join("worker.js");
     if !worker_js.exists() {
         return Err(format!("worker.js not found at {}", worker_js.display()));
     }
@@ -257,11 +260,12 @@ pub async fn run_once(
         "categories": ["performance", "accessibility", "best-practices", "seo"],
     });
 
-    let mut command = tokio::process::Command::new(&cfg.node_path);
+    // No console window per run on Windows (see `spawn`).
+    let mut command = crate::spawn::tokio_command(crate::spawn::plain(&cfg.node_path));
     command
         .arg(&worker_js)
-        .env("CHROME_PATH", &chrome)
-        .current_dir(&cfg.worker_dir)
+        .env("CHROME_PATH", crate::spawn::plain(&chrome))
+        .current_dir(&worker_dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -421,7 +425,8 @@ pub async fn run_median(url: &str, cfg: &LighthouseConfig) -> (Vec<Observation>,
 /// what lets a resumed run prove it is still being measured by the same
 /// engine it started with.
 pub async fn probe(cfg: &LighthouseConfig) -> Result<Json, String> {
-    let worker_js = cfg.worker_dir.join("worker.js");
+    let worker_dir = crate::spawn::plain(&cfg.worker_dir);
+    let worker_js = worker_dir.join("worker.js");
     if !worker_js.exists() {
         return Err(format!("worker.js not found at {}", worker_js.display()));
     }
@@ -435,11 +440,11 @@ pub async fn probe(cfg: &LighthouseConfig) -> Result<Json, String> {
     // reduced version from the user agent.
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(cfg.timeout_secs.max(120)),
-        tokio::process::Command::new(&cfg.node_path)
+        crate::spawn::tokio_command(crate::spawn::plain(&cfg.node_path))
             .arg(&worker_js)
             .arg("--probe")
-            .env("CHROME_PATH", &chrome)
-            .current_dir(&cfg.worker_dir)
+            .env("CHROME_PATH", crate::spawn::plain(&chrome))
+            .current_dir(&worker_dir)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())

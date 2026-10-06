@@ -104,7 +104,7 @@ pub fn run_report(state: State<'_, AppState>, run_id: i64) -> Result<Json, Strin
         Ok(json!({
             "run": storage::get_run(conn, run_id)?,
             "pages": storage::run_pages(conn, run_id)?,
-            "findings": storage::get_findings(conn, run_id)?,
+            "findings": as_shown(storage::get_findings(conn, run_id)?),
             "observations": storage::get_observations(conn, run_id)?,
         }))
     })
@@ -112,7 +112,26 @@ pub fn run_report(state: State<'_, AppState>, run_id: i64) -> Result<Json, Strin
 
 #[tauri::command]
 pub fn findings_across_sites(state: State<'_, AppState>) -> Result<Json, String> {
-    with_conn(&state, |conn| storage::findings_across_sites(conn, 200)).map(Json::from)
+    with_conn(&state, |conn| storage::findings_across_sites(conn, 200).map(as_shown)).map(Json::from)
+}
+
+/// Findings as the app shows them. The WP Rocket switch (Settings → Report
+/// content) covers the app's own views as well as the reports: with it off,
+/// no finding carries a WP Rocket setting to show, wherever it is shown.
+fn as_shown(findings: Vec<Json>) -> Vec<Json> {
+    let settings = slap_core::settings::Settings::load(None).unwrap_or_default();
+    without_wp_rocket(findings, !settings.wp_rocket_suggestions)
+}
+
+fn without_wp_rocket(mut findings: Vec<Json>, hide: bool) -> Vec<Json> {
+    if hide {
+        for finding in &mut findings {
+            if let Some(fields) = finding.as_object_mut() {
+                fields.insert("wp_rocket_setting".into(), Json::Null);
+            }
+        }
+    }
+    findings
 }
 
 /// What the Sites screen shows when the database has no completed runs yet:
@@ -1011,4 +1030,19 @@ fn run_audit_blocking(
         }
     };
     serde_json::to_value(summary).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_wp_rocket_switch_hides_the_setting_from_the_apps_findings() {
+        let findings = || vec![json!({ "title": "Slow images", "wp_rocket_setting": "Media > LazyLoad" })];
+        let hidden = without_wp_rocket(findings(), true);
+        assert!(hidden[0]["wp_rocket_setting"].is_null());
+        assert_eq!(hidden[0]["title"], "Slow images", "nothing else changes");
+        let shown = without_wp_rocket(findings(), false);
+        assert_eq!(shown[0]["wp_rocket_setting"], "Media > LazyLoad");
+    }
 }

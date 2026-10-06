@@ -26,6 +26,7 @@ pub mod pdf;
 pub mod probe;
 pub mod report;
 pub mod run;
+pub mod spawn;
 pub mod tls;
 pub mod vulndb;
 pub mod vulndb_build;
