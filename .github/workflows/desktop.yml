@@ -160,10 +160,17 @@ jobs:
         working-directory: desktop
         run: node scripts/prepare-bundle.mjs
 
+      # Bash on every runner, and the list quoted. Windows steps default to
+      # PowerShell, where `tauri` is npm's tauri.ps1 shim: a PowerShell
+      # script, so a bare msi,nsis reaches it as an array, and the shim
+      # passes that on as one argument, "msi nsis", which the CLI refuses.
       - name: Build the bundles
         if: steps.gate.outputs.build == 'true'
         working-directory: desktop
-        run: tauri build --bundles ${{ matrix.bundles }}
+        shell: bash
+        env:
+          BUNDLES: ${{ matrix.bundles }}
+        run: tauri build --bundles "$BUNDLES"
 
       # ----------------------------------------------------------------
       # Run the artifact that was just built. The assertions live in
