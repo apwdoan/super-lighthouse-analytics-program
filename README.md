@@ -242,8 +242,29 @@ takes a numeric pre-release part, so the tag check refuses `v0.3.0-beta`.
 
 To publish a tag that already exists, run **Release desktop app** by hand
 from the Actions tab with that tag, optionally as a draft to look over
-first. To build without releasing, run **Build desktop app (Tauri)** by
-hand; its bundles stay on the run for 14 days.
+first.
+
+### Dev builds
+
+To try the current code without releasing it, run **Dev build** by hand
+from the Actions tab, on the branch to build. It builds every platform (or
+the ones you pick) through the same workflow a release uses, and gives one
+download, **SLAP-dev-*version*-*commit***, on the run's page for 14 days:
+a folder per platform with its installers and a portable binary, the app
+ready to run from a folder without installing it, plus a `README.txt`
+saying which file is which and a `SHA256SUMS.txt`.
+
+| Platform | Portable binary |
+|---|---|
+| Windows | `*-portable.zip`: unzip, run `SLAP\slap-desktop.exe` |
+| macOS | `*.app.zip`: unzip, open `SLAP.app` |
+| Linux | `*-portable.tar.gz`: extract, run `SLAP/bin/slap-desktop` |
+
+A portable binary is never the executable alone: Lighthouse needs the
+bundled Node and worker beside it, so each one carries them, laid out as an
+installed copy has them. It uses the same settings and database as an
+installed SLAP. If one platform fails, the others are still combined, and
+the download says which is missing.
 
 ## API keys
 

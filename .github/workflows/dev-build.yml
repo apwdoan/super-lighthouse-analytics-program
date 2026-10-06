@@ -1,0 +1,190 @@
+name: Dev build
+
+# One download with everything a build of the current code makes: every
+# platform's installers and its portable binary (the app ready to run from
+# a folder, nothing installed), side by side, with their checksums and a
+# README saying which file is which.
+#
+# Run it by hand from the Actions tab. The "Use workflow from" branch is the
+# code that is built, at the commit it pointed to when the run started. Not
+# on every push, for the reason desktop.yml is not: four platforms of real
+# runner minutes, two of them macOS. The download is on the run's summary
+# page for 14 days. Nothing is published and no tag is made; releases come
+# from release.yml.
+on:
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: Which platforms to build
+        type: choice
+        default: all
+        options:
+          - all
+          - windows
+          - macos          # both Macs
+          - macos-arm64    # Apple Silicon only
+          - macos-x64      # Intel only
+          - linux
+
+permissions:
+  contents: read
+
+# A newer dev build of the same branch replaces one still running.
+concurrency:
+  group: dev-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    uses: ./.github/workflows/desktop.yml
+    permissions:
+      contents: read
+    with:
+      # The commit, not the branch: every platform builds the same code
+      # even if the branch moves while the run is going.
+      ref: ${{ github.sha }}
+      platforms: ${{ inputs.platforms }}
+      # Each platform's own artifact only carries its files to the combine
+      # job; the combined download is the one that is kept.
+      retention-days: 1
+
+  combine:
+    name: Combine into one download
+    needs: build
+    # A dev build is still worth having when one platform failed: what did
+    # build is combined, and the README and the summary say what is missing.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Read the version
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: desktop/src-tauri/tauri.conf.json
+          sparse-checkout-cone-mode: false
+
+      - name: Download each platform's build
+        uses: actions/download-artifact@v8
+        with:
+          pattern: SLAP-desktop-*
+          path: builds
+
+      - name: Lay out the download
+        id: layout
+        shell: bash
+        env:
+          SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+          PICKED: ${{ inputs.platforms }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version desktop/src-tauri/tauri.conf.json)
+          short=${SHA::7}
+          name="SLAP-dev-${version}-${short}"
+          mkdir dev
+
+          # One folder per platform, named as the build matrix names it.
+          shopt -s nullglob
+          for dir in builds/SLAP-desktop-*; do
+            label=${dir#builds/SLAP-desktop-}
+            mkdir -p "dev/$label"
+            find "$dir" -type f -exec cp {} "dev/$label/" \;
+          done
+          shopt -u nullglob
+          built=$(find dev -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+          if [ -z "$built" ]; then
+            echo "::error::No platform produced a build. The build jobs' logs say why."
+            exit 1
+          fi
+
+          # Which platforms were asked for, to name the ones that did not build.
+          case "$PICKED" in
+            windows) wanted="windows-x64" ;;
+            macos) wanted="macos-arm64 macos-x64" ;;
+            macos-arm64) wanted="macos-arm64" ;;
+            macos-x64) wanted="macos-x64" ;;
+            linux) wanted="linux-x64" ;;
+            *) wanted="windows-x64 macos-arm64 macos-x64 linux-x64" ;;
+          esac
+          missing=""
+          for label in $wanted; do
+            if [ ! -d "dev/$label" ]; then missing="$missing $label"; fi
+          done
+          missing=${missing# }
+
+          (cd dev && find . -type f -printf '%P\n' | sort | xargs -d '\n' sha256sum) > SHA256SUMS.txt
+          mv SHA256SUMS.txt dev/
+
+          {
+            echo "SLAP dev build"
+            echo "Version ${version}, commit ${short} on ${BRANCH}, built $(date -u '+%Y-%m-%d %H:%M') UTC."
+            echo "Not a release: a build of the code as it was at that commit, for trying it out."
+            echo
+            if [ -n "$missing" ]; then
+              echo "NOT INCLUDED: ${missing}. Those platforms did not build; the run's logs say why."
+              echo
+            fi
+            echo "Each folder is one platform. In each, the installers, and a portable"
+            echo "binary: the app ready to run from a folder, nothing installed. A portable"
+            echo "copy uses the same settings and database as an installed SLAP."
+            echo
+            echo "windows-x64"
+            echo "  *-setup.exe         installer, Windows 10 or 11 (64-bit)"
+            echo "  *.msi               installer for managed installs"
+            echo "  *-portable.zip      unzip anywhere, then run SLAP\\slap-desktop.exe"
+            echo "                      (needs Microsoft Edge WebView2, part of Windows 11)"
+            echo
+            echo "macos-arm64 (Apple Silicon) and macos-x64 (Intel)"
+            echo "  *.dmg               open it and drag SLAP into Applications"
+            echo "  *.app.zip           unzip, then open SLAP.app"
+            echo
+            echo "linux-x64"
+            echo "  *.AppImage          chmod +x it, then run it"
+            echo "  *.deb               sudo apt install ./SLAP_*.deb"
+            echo "  *-portable.tar.gz   tar -xzf it, then run SLAP/bin/slap-desktop"
+            echo "                      (needs WebKitGTK 4.1: libwebkit2gtk-4.1-0)"
+            echo
+            echo "None of these are code-signed. Windows SmartScreen: More info, then"
+            echo "Run anyway. macOS: open it once, then System Settings > Privacy &"
+            echo "Security > Open Anyway; if it says SLAP is damaged, run"
+            echo "  xattr -dr com.apple.quarantine /path/to/SLAP.app"
+            echo
+            echo "SHA256SUMS.txt has every file's checksum. From this folder:"
+            echo "  sha256sum -c SHA256SUMS.txt"
+          } > dev/README.txt
+
+          {
+            echo "## ${name}"
+            echo
+            echo "Commit \`${short}\` on \`${BRANCH}\`. Download **${name}** from the Artifacts section below."
+            echo
+            if [ -n "$missing" ]; then
+              echo "> **Not included:** ${missing}. Those platforms did not build."
+              echo
+            fi
+            echo "| File | Size |"
+            echo "|---|---|"
+            (cd dev && find . -type f -not -name README.txt -not -name SHA256SUMS.txt -printf '%P\t%s\n' | sort) |
+              while IFS=$'\t' read -r file size; do
+                # The backticks are Markdown's, for the file name, not a command.
+                # shellcheck disable=SC2016
+                printf '| `%s` | %s MB |\n' "$file" "$(awk -v b="$size" 'BEGIN { printf "%.1f", b / 1048576 }')"
+              done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "Combined: $(echo "$built" | tr '\n' ' ')(build result: $BUILD_RESULT)"
+          ls -lR dev
+
+      - name: Upload the dev build
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.layout.outputs.name }}
+          path: dev/
+          if-no-files-found: error
+          retention-days: 14
+          # Installers and archives are compressed already.
+          compression-level: 0

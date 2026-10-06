@@ -10,8 +10,10 @@ name: Build desktop app (Tauri)
 # Run it by hand to try a build; its artifacts stay on the run. Releases
 # come from release.yml, which calls this workflow for a tag, so a release
 # ships exactly what this lane builds and self-checks, and a tag builds
-# once. Same trigger philosophy as the original build workflow: each
-# platform produces a real artifact and real minutes, so not on every push.
+# once. dev-build.yml calls it too, and combines what every platform built
+# into one download. Same trigger philosophy as the original build
+# workflow: each platform produces a real artifact and real minutes, so not
+# on every push.
 on:
   workflow_dispatch:
     inputs:
@@ -36,6 +38,10 @@ on:
         description: Which platforms to build, as for a manual run.
         type: string
         default: all
+      retention-days:
+        description: How long each platform's artifact is kept.
+        type: number
+        default: 14
 
 permissions:
   contents: read
@@ -200,9 +206,66 @@ jobs:
           & $app --self-check 2>&1 | ForEach-Object { "$_" }
           if ($LASTEXITCODE -ne 0) { throw "self-check failed (exit $LASTEXITCODE)" }
 
+      # The app without an installer, to run from a folder. Never the bare
+      # executable: Lighthouse needs the bundled Node and worker, which the
+      # app looks for beside it, so each platform packs the binary with
+      # them, as an installed copy has them, in an archive that keeps file
+      # permissions (an artifact does not).
+      #   Windows: slap-desktop.exe, slap-node.exe and _up_/worker, side by
+      #            side, as the installer lays them out.
+      #   macOS:   the .app, which holds all three already.
+      #   Linux:   the .deb's own files: bin/, lib/ and share/. The app finds
+      #            its resources in ../lib beside bin/, as it does in /usr.
+      - name: Package the portable binary
+        if: steps.gate.outputs.build == 'true'
+        working-directory: desktop
+        shell: bash
+        env:
+          LABEL: ${{ matrix.label }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          out=target/release/portable
+          rm -rf "$out"
+          mkdir -p "$out/SLAP"
+          case "$RUNNER_OS" in
+            Windows)
+              cp target/release/slap-desktop.exe target/release/slap-node.exe "$out/SLAP/"
+              cp -R target/release/_up_ "$out/SLAP/"
+              test -f "$out/SLAP/_up_/worker/worker.js"
+              test -d "$out/SLAP/_up_/worker/node_modules/lighthouse"
+              zip="SLAP_${version}_${LABEL}-portable.zip"
+              if command -v 7z > /dev/null; then
+                (cd "$out" && 7z a -tzip -bso0 -bsp0 "$zip" SLAP)
+              else
+                (cd "$out" && pwsh -NoProfile -Command "Compress-Archive -Path SLAP -DestinationPath '$zip'")
+              fi
+              ;;
+            macOS)
+              app=$(find target/release/bundle/macos -maxdepth 1 -name '*.app' | head -n 1)
+              test -n "$app"
+              test -x "$app/Contents/MacOS/slap-node"
+              test -n "$(find "$app/Contents/Resources" -path '*/worker/worker.js' -print -quit)"
+              ditto -c -k --sequesterRsrc --keepParent "$app" "$out/SLAP_${version}_${LABEL}.app.zip"
+              ;;
+            Linux)
+              deb=$(find target/release/bundle/deb -maxdepth 1 -name '*.deb' | head -n 1)
+              test -n "$deb"
+              dpkg-deb -x "$deb" "$out/deb"
+              mv "$out/deb/usr/"* "$out/SLAP/"
+              test -x "$out/SLAP/bin/slap-desktop"
+              test -x "$out/SLAP/bin/slap-node"
+              test -n "$(find "$out/SLAP/lib" -path '*/_up_/worker/worker.js' -print -quit)"
+              tar -C "$out" -czf "$out/SLAP_${version}_${LABEL}-portable.tar.gz" SLAP
+              ;;
+          esac
+          rm -rf "$out/SLAP" "$out/deb"
+          ls -l "$out"
+
       # release.yml publishes these: it downloads every SLAP-desktop-*
       # artifact of the run and picks the installers out by extension, so
       # a renamed artifact or a new bundle type needs a matching change there.
+      # dev-build.yml takes all of them, portable binaries included.
       - name: Upload
         if: steps.gate.outputs.build == 'true'
         uses: actions/upload-artifact@v6
@@ -212,8 +275,8 @@ jobs:
             desktop/target/release/bundle/msi/*.msi
             desktop/target/release/bundle/nsis/*.exe
             desktop/target/release/bundle/dmg/*.dmg
-            desktop/target/release/bundle/macos/*.app/**
             desktop/target/release/bundle/deb/*.deb
             desktop/target/release/bundle/appimage/*.AppImage
+            desktop/target/release/portable/*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: ${{ inputs.retention-days || 14 }}
