@@ -623,7 +623,7 @@ mod tests {
         let engine = FindingsEngine::load(None).unwrap();
         // 63 rules carried forward unchanged, plus the desktop-era
         // https-unreachable rule that flags an http-fallback audit.
-        assert_eq!(engine.rules.len(), 64, "rules.yaml rule count drifted");
+        assert_eq!(engine.rules.len(), 65, "rules.yaml rule count drifted");
     }
 
     #[test]

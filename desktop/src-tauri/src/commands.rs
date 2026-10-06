@@ -133,6 +133,11 @@ pub fn library_status(state: State<'_, AppState>) -> Result<Json, String> {
 /// artifact files after the rows are gone. The UI confirms before calling this.
 #[tauri::command]
 pub fn delete_site(site_id: i64) -> Result<Json, String> {
+    // The audit writes on its own connection; deleting a site under a running
+    // run would make every later page write fail and leave orphan files.
+    if audit_active() {
+        return Err("An audit is running. Stop it or let it finish before deleting a site.".into());
+    }
     let settings = slap_core::settings::Settings::load(None).unwrap_or_default();
     let mut conn = storage::open_db(&settings.db_path).map_err(|e| e.to_string())?;
     let (runs, artifacts) =
@@ -191,6 +196,16 @@ pub fn get_settings() -> Result<Json, String> {
         "nvd_key_from_env": nvd_env.is_some(),
         // A report-content switch: whether findings carry WP Rocket suggestions.
         "wp_rocket_suggestions": settings.wp_rocket_suggestions,
+        // What the composer needs to describe and estimate a Lighthouse batch.
+        "lighthouse_scope": settings.lighthouse.scope().as_str(),
+        "lighthouse_concurrency": settings.lighthouse.effective_concurrency(),
+        "lighthouse_runs": 3,
+        "lighthouse_pages_per_site": settings.discovery.lighthouse_pages_per_site,
+        "pages_per_site": settings.discovery.pages_per_site,
+        "keep_lhr": settings.lighthouse.keep_artifacts,
+        "seconds_per_run": slap_engine::run::SECONDS_PER_LIGHTHOUSE_RUN,
+        "summary_bytes_per_page": slap_engine::run::SUMMARY_BYTES_PER_PAGE,
+        "lhr_bytes_per_page": slap_engine::run::LHR_BYTES_PER_PAGE,
     }))
 }
 
@@ -432,6 +447,12 @@ pub async fn pick_data_dir(app: tauri::AppHandle) -> Result<Option<String>, Stri
 /// configuration are left exactly as they were.
 #[tauri::command]
 pub fn set_data_dir(state: State<'_, AppState>, new_dir: String) -> Result<Json, String> {
+    // A running audit holds its own connection to the old database and runs
+    // the Chromium in the old folder: moving either under it loses every page
+    // measured after the move.
+    if audit_active() {
+        return Err("An audit is running. Stop it or let it finish before moving SLAP's data.".into());
+    }
     let new_dir = std::path::PathBuf::from(new_dir.trim());
     if new_dir.as_os_str().is_empty() {
         return Err("No folder was chosen.".to_string());
@@ -527,23 +548,6 @@ pub fn set_data_dir(state: State<'_, AppState>, new_dir: String) -> Result<Json,
     }))
 }
 
-/// Run a no-browser audit of the given URLs and return a summary.
-///
-/// The work happens on a dedicated thread with its own current-thread
-/// runtime, for two reasons: reqwest needs a runtime, and a fresh thread
-/// avoids any "cannot block inside a runtime" hazard if Tauri ever dispatches
-/// this on a runtime thread. It uses its OWN database connection, not the
-/// managed read connection: WAL lets the audit write while the UI keeps
-/// reading, and keeping the writer separate means the read lock is never held
-/// across the network.
-///
-/// Progress is emitted to the window as `slap://progress` events as it goes;
-/// the return value is the whole summary for the composer to act on.
-///
-/// When `lighthouse` is set, the browser audit runs on a sample of pages: the
-/// bundled Node worker drives a Chromium the app fetches on first run. If the
-/// prerequisites are missing (no Node, no worker resources), the audit fails
-/// with a specific reason rather than silently skipping the lab run.
 /// A fresh writer connection for the report commands. They write their own
 /// files, so they use their own connection rather than the managed read one.
 fn report_conn() -> Result<slap_core::rusqlite::Connection, String> {
@@ -670,18 +674,210 @@ pub async fn report_pdf(app: tauri::AppHandle, run_id: i64) -> Result<Option<Str
     Ok(Some(out.display().to_string()))
 }
 
+// ---------------------------------------------------------------------------
+// Audits: start, stop, resume
+// ---------------------------------------------------------------------------
+
+/// The audit in flight, if any: its Stop button. One audit at a time per app,
+/// because two batches would share the Lighthouse cap's CPU without sharing
+/// the cap, which is how contended, irreproducible numbers get made.
+static ACTIVE_AUDIT: Mutex<Option<slap_core::events::CancelToken>> = Mutex::new(None);
+
+/// Releases the single-flight slot on every exit path.
+struct AuditSlot;
+impl AuditSlot {
+    fn claim() -> Result<(Self, slap_core::events::CancelToken), String> {
+        let mut active = ACTIVE_AUDIT.lock().map_err(|_| "audit state poisoned".to_string())?;
+        if active.is_some() {
+            return Err("An audit is already running. Stop it or wait for it to finish.".into());
+        }
+        let token = slap_core::events::CancelToken::new();
+        *active = Some(token.clone());
+        Ok((AuditSlot, token))
+    }
+}
+impl Drop for AuditSlot {
+    fn drop(&mut self) {
+        if let Ok(mut active) = ACTIVE_AUDIT.lock() {
+            *active = None;
+        }
+    }
+}
+
+fn audit_active() -> bool {
+    ACTIVE_AUDIT.lock().map(|a| a.is_some()).unwrap_or(false)
+}
+
+/// What to run on the audit thread.
+enum AuditJob {
+    Start {
+        urls: Vec<String>,
+        lighthouse: bool,
+        probe: bool,
+        scope: Option<String>,
+    },
+    Resume {
+        run_ids: Vec<i64>,
+    },
+}
+
+/// Run an audit of the given URLs and return its summary.
+///
+/// Async on purpose. A synchronous Tauri command runs on the main thread, and
+/// an audit is minutes to hours long: the window would stop repainting and
+/// the progress events it emits could not be delivered until the batch was
+/// over. The work runs on a dedicated thread with its own current-thread
+/// runtime (reqwest needs one; a fresh thread avoids any "cannot block inside
+/// a runtime" hazard), and this command just awaits its answer. It uses its
+/// OWN database connection, not the managed read connection: WAL lets the
+/// audit write while the UI keeps reading.
+///
+/// Progress is emitted as `slap://progress` events; the return value is the
+/// whole summary. When `lighthouse` is set, the browser audit runs on the
+/// pages the `[lighthouse] scope` setting selects (one per template, or every
+/// page), through the bundled Node worker and a Chromium the app fetches on
+/// first run. Missing prerequisites fail the audit with a specific reason
+/// rather than silently skipping the lab run.
+///
+/// `scope` is the coverage the composer showed when Run was pressed
+/// (`"sampled"` or `"every_page"`); absent, the saved setting applies.
 #[tauri::command]
-pub fn start_audit(
+pub async fn start_audit(
     app: tauri::AppHandle,
     urls: Vec<String>,
     lighthouse: bool,
     probe: bool,
+    scope: Option<String>,
 ) -> Result<Json, String> {
-    let (tx, rx) = std::sync::mpsc::channel();
+    run_on_audit_thread(
+        app,
+        AuditJob::Start {
+            urls,
+            lighthouse,
+            probe,
+            scope,
+        },
+    )
+    .await
+}
+
+/// Carry interrupted runs on to completion (see `slap_engine::resume_runs`).
+#[tauri::command]
+pub async fn resume_audit(app: tauri::AppHandle, run_ids: Vec<i64>) -> Result<Json, String> {
+    run_on_audit_thread(app, AuditJob::Resume { run_ids }).await
+}
+
+/// Ask the running audit to stop. Pages already inside Chrome finish and are
+/// written; everything unfinished stays resumable.
+#[tauri::command]
+pub fn stop_audit() -> Result<Json, String> {
+    let active = ACTIVE_AUDIT.lock().map_err(|_| "audit state poisoned".to_string())?;
+    match &*active {
+        Some(token) => {
+            token.cancel();
+            Ok(json!({ "stopping": true }))
+        }
+        None => Ok(json!({ "stopping": false })),
+    }
+}
+
+#[tauri::command]
+pub fn audit_status() -> Json {
+    json!({ "active": audit_active() })
+}
+
+/// Runs that never finished: the app closed, crashed, lost power, or Stop was
+/// pressed. Empty while an audit is running, because its own runs are
+/// unfinished by definition and are not "interrupted".
+#[tauri::command]
+pub fn unfinished_runs() -> Result<Json, String> {
+    if audit_active() {
+        return Ok(json!({ "active": true, "runs": [] }));
+    }
+    let conn = report_conn()?;
+    let runs = storage::unfinished_runs(&conn).map_err(|e| e.to_string())?;
+    Ok(json!({ "active": false, "runs": runs }))
+}
+
+/// Close interrupted runs the operator chose not to resume.
+#[tauri::command]
+pub fn discard_runs(run_ids: Vec<i64>) -> Result<Json, String> {
+    if audit_active() {
+        return Err("Stop the running audit first.".into());
+    }
+    let conn = report_conn()?;
+    let n = slap_engine::discard_runs(&conn, &run_ids)?;
+    Ok(json!({ "discarded": n }))
+}
+
+/// Count what a batch would measure before it starts: discovery only, no page
+/// measured and nothing written. The composer shows the page count, the
+/// expected duration and the disk it will take, so an overnight job is
+/// started knowingly.
+#[tauri::command]
+pub async fn estimate_audit(urls: Vec<String>, scope: Option<String>) -> Result<Json, String> {
+    let settings = slap_core::settings::Settings::load(None).unwrap_or_default();
+    let mut cfg = slap_engine::EngineConfig::from_settings(&settings);
+    if let Some(scope) = scope.as_deref().and_then(slap_core::schema::LighthouseScope::parse) {
+        cfg.lighthouse_scope = scope;
+    }
+    let (tx, rx) = tokio::sync::oneshot::channel();
     std::thread::spawn(move || {
-        let _ = tx.send(run_audit_blocking(app, urls, lighthouse, probe));
+        let result = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| e.to_string())
+            .map(|rt| rt.block_on(slap_engine::estimate_batch(&urls, &cfg)));
+        let _ = tx.send(result);
     });
-    rx.recv()
+    let estimate = rx
+        .await
+        .map_err(|_| "the estimate stopped unexpectedly".to_string())??;
+    serde_json::to_value(estimate).map_err(|e| e.to_string())
+}
+
+/// Whether the machine is running on battery, for the composer's warning.
+#[tauri::command]
+pub fn power_status() -> Json {
+    json!({ "on_battery": crate::power::on_battery() })
+}
+
+/// Whether to keep each measured page's full Lighthouse report on disk
+/// (`[lighthouse] keep_artifacts`). The compact summary the report renders
+/// from is always kept; this is the ~600KB-a-page raw LHR.
+#[tauri::command]
+pub fn set_keep_lhr(enabled: bool) -> Result<Json, String> {
+    slap_core::settings::save_setting(
+        "keep_artifacts",
+        Some(slap_core::settings::SettingValue::Bool(enabled)),
+        Some("lighthouse"),
+        None,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(json!({ "enabled": enabled }))
+}
+
+/// Save the Lighthouse coverage mode: `"sampled"` or `"every_page"`.
+#[tauri::command]
+pub fn set_lighthouse_scope(scope: String) -> Result<Json, String> {
+    let parsed = slap_core::schema::LighthouseScope::parse(scope.trim())
+        .ok_or_else(|| format!("unknown Lighthouse scope {scope:?}"))?;
+    slap_core::settings::save_lighthouse_scope(parsed, None).map_err(|e| e.to_string())?;
+    Ok(json!({ "scope": parsed.as_str() }))
+}
+
+async fn run_on_audit_thread(app: tauri::AppHandle, job: AuditJob) -> Result<Json, String> {
+    let (slot, cancel) = AuditSlot::claim()?;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    std::thread::spawn(move || {
+        // Held on THIS thread: on Windows the keep-awake state belongs to the
+        // thread that set it.
+        let _awake = crate::power::KeepAwake::acquire("SLAP audit in progress");
+        let result = run_audit_blocking(app, job, cancel);
+        drop(slot);
+        let _ = tx.send(result);
+    });
+    rx.await
         .map_err(|_| "the audit thread stopped unexpectedly".to_string())?
 }
 
@@ -734,54 +930,89 @@ fn bundled_node() -> Option<String> {
     candidate.exists().then(|| candidate.display().to_string())
 }
 
+/// The Lighthouse runner config for this install: the bundled worker, the
+/// bundled (or PATH) Node, and the pinned Chromium, fetched on first use.
+fn lighthouse_config(
+    app: &tauri::AppHandle,
+    runtime: &tokio::runtime::Runtime,
+    timeout_secs: u64,
+) -> Result<slap_engine::lighthouse::LighthouseConfig, String> {
+    let dir = worker_dir(app).ok_or_else(|| {
+        "Lighthouse needs its bundled worker, which is missing from this \
+         install. Reinstall SLAP, or uncheck Lighthouse."
+            .to_string()
+    })?;
+    // The pinned Chromium: use one already present, or fetch Chrome for
+    // Testing on first run. This can take a minute the first time.
+    let chrome = runtime
+        .block_on(slap_engine::lighthouse::resolve_or_fetch_chrome())
+        .map_err(|e| format!("could not obtain Chromium for Lighthouse: {e}"))?;
+    Ok(slap_engine::lighthouse::LighthouseConfig {
+        runs: 3,
+        form_factor: "mobile".into(),
+        node_path: bundled_node().unwrap_or_else(|| "node".into()),
+        worker_dir: dir,
+        chrome_path: Some(chrome),
+        timeout_secs: timeout_secs.max(150),
+    })
+}
+
 fn run_audit_blocking(
     app: tauri::AppHandle,
-    urls: Vec<String>,
-    lighthouse: bool,
-    probe: bool,
+    job: AuditJob,
+    cancel: slap_core::events::CancelToken,
 ) -> Result<Json, String> {
     use tauri::Emitter;
 
     let settings = slap_core::settings::Settings::load(None).unwrap_or_default();
     let mut cfg = slap_engine::EngineConfig::from_settings(&settings);
-
-    if probe {
-        // The user affirmed authorization for this batch in the composer.
-        // Enable probing and authorise exactly these hosts, nothing else.
-        cfg.probe.enabled = true;
-        cfg.probe.authorised_hosts = urls.iter().filter_map(|u| host_of(u)).collect();
-    }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
     let conn = storage::open_db(&settings.db_path).map_err(|e| e.to_string())?;
-
-    if lighthouse {
-        let dir = worker_dir(&app).ok_or_else(|| {
-            "Lighthouse needs its bundled worker, which is missing from this \
-             install. Reinstall SLAP, or uncheck Lighthouse."
-                .to_string()
-        })?;
-        // The pinned Chromium: use one already present, or fetch Chrome for
-        // Testing on first run. This can take a minute the first time.
-        let chrome = runtime
-            .block_on(slap_engine::lighthouse::resolve_or_fetch_chrome())
-            .map_err(|e| format!("could not obtain Chromium for Lighthouse: {e}"))?;
-        cfg.lighthouse = Some(slap_engine::lighthouse::LighthouseConfig {
-            runs: 3,
-            form_factor: "mobile".into(),
-            node_path: bundled_node().unwrap_or_else(|| "node".into()),
-            worker_dir: dir,
-            chrome_path: Some(chrome),
-            timeout_secs: cfg.timeout_secs.max(150),
-        });
-    }
-
-    let summary = runtime.block_on(slap_engine::run_batch(&conn, &urls, &cfg, |event| {
+    let emit = |event: slap_core::events::Event| {
         // A dropped event must not fail the audit; the summary is the source
         // of truth and the events are a live convenience.
         let _ = app.emit("slap://progress", &event);
-    }))?;
+    };
+
+    let summary = match job {
+        AuditJob::Start {
+            urls,
+            lighthouse,
+            probe,
+            scope,
+        } => {
+            if let Some(scope) = scope.as_deref().and_then(slap_core::schema::LighthouseScope::parse) {
+                cfg.lighthouse_scope = scope;
+            }
+            if probe {
+                // The user affirmed authorization for this batch in the
+                // composer. Enable probing and authorise exactly these hosts.
+                cfg.probe.enabled = true;
+                cfg.probe.authorised_hosts = urls.iter().filter_map(|u| host_of(u)).collect();
+            }
+            if lighthouse {
+                cfg.lighthouse = Some(lighthouse_config(&app, &runtime, cfg.timeout_secs)?);
+            }
+            runtime.block_on(slap_engine::run_batch_controlled(&conn, &urls, &cfg, &cancel, emit))?
+        }
+        AuditJob::Resume { run_ids } => {
+            // Probing is never resumed: authorization was given for one batch,
+            // in the composer, and does not carry across sessions.
+            let needs_lighthouse = storage::unfinished_runs(&conn)
+                .map_err(|e| e.to_string())?
+                .iter()
+                .any(|r| {
+                    r["lh_scope"].is_string()
+                        && r["id"].as_i64().is_some_and(|id| run_ids.contains(&id))
+                });
+            if needs_lighthouse {
+                cfg.lighthouse = Some(lighthouse_config(&app, &runtime, cfg.timeout_secs)?);
+            }
+            runtime.block_on(slap_engine::resume_runs(&conn, &run_ids, &cfg, &cancel, emit))?
+        }
+    };
     serde_json::to_value(summary).map_err(|e| e.to_string())
 }

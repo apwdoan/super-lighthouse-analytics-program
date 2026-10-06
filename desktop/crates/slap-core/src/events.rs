@@ -49,6 +49,41 @@ pub enum Event {
         ok: bool,
         error: Option<String>,
     },
+    /// A site's light pass is written and its Lighthouse queue is known.
+    /// This is the first moment a batch knows how many browser audits it
+    /// holds, so it is what a progress view's ETA is built from: discovery
+    /// decides the page count, and until it has run the count is a guess.
+    PagesPlanned {
+        batch_id: String,
+        url: String,
+        run_id: i64,
+        pages: usize,
+        lighthouse_pages: usize,
+        /// Pages already measured in an earlier session (a resumed run).
+        lighthouse_done: usize,
+    },
+    /// One page went into Chrome. `index` is 1-based within the site's
+    /// Lighthouse queue, which runs in coverage order.
+    PageStarted {
+        batch_id: String,
+        url: String,
+        page_url: String,
+        index: usize,
+        total: usize,
+    },
+    /// One page's Lighthouse result (median of N runs) is on disk. Written
+    /// before this is emitted, so whatever the UI saw finish survives a crash.
+    PageFinished {
+        batch_id: String,
+        url: String,
+        page_url: String,
+        index: usize,
+        total: usize,
+        ok: bool,
+        performance: Option<f64>,
+        seconds: f64,
+        error: Option<String>,
+    },
     SiteFinished {
         batch_id: String,
         url: String,
@@ -81,6 +116,9 @@ impl Event {
             | Event::SiteStarted { batch_id, .. }
             | Event::CollectorStarted { batch_id, .. }
             | Event::CollectorFinished { batch_id, .. }
+            | Event::PagesPlanned { batch_id, .. }
+            | Event::PageStarted { batch_id, .. }
+            | Event::PageFinished { batch_id, .. }
             | Event::SiteFinished { batch_id, .. }
             | Event::BatchFinished { batch_id, .. }
             | Event::LogMessage { batch_id, .. } => batch_id,
@@ -108,6 +146,49 @@ impl Event {
                 } else {
                     format!(
                         "    {collector}: failed ({})",
+                        error.as_deref().unwrap_or("unknown")
+                    )
+                }
+            }
+            Event::PagesPlanned {
+                url,
+                pages,
+                lighthouse_pages,
+                lighthouse_done,
+                ..
+            } => {
+                if *lighthouse_done > 0 {
+                    format!(
+                        "    {url}: {pages} page(s), Lighthouse {lighthouse_done}/{lighthouse_pages} already done"
+                    )
+                } else {
+                    format!("    {url}: {pages} page(s), {lighthouse_pages} queued for Lighthouse")
+                }
+            }
+            Event::PageStarted {
+                page_url,
+                index,
+                total,
+                ..
+            } => format!("    lighthouse [{index}/{total}] {page_url}"),
+            Event::PageFinished {
+                page_url,
+                index,
+                total,
+                ok,
+                performance,
+                seconds,
+                error,
+                ..
+            } => {
+                if *ok {
+                    let score = performance
+                        .map(|p| format!("performance {}", p.round() as i64))
+                        .unwrap_or_else(|| "measured".to_string());
+                    format!("    lighthouse [{index}/{total}] {page_url}: {score} ({seconds:.0}s)")
+                } else {
+                    format!(
+                        "    lighthouse [{index}/{total}] {page_url}: failed ({})",
                         error.as_deref().unwrap_or("unknown")
                     )
                 }
@@ -283,6 +364,41 @@ mod tests {
             cancelled: false,
         };
         assert_eq!(batch.message(), "Batch finished: 4 ok, 1 failed");
+    }
+
+    #[test]
+    fn page_events_read_as_log_lines_and_serialise_for_the_dock() {
+        let finished = Event::PageFinished {
+            batch_id: "b".into(),
+            url: "https://example.com".into(),
+            page_url: "https://example.com/shop".into(),
+            index: 3,
+            total: 20,
+            ok: true,
+            performance: Some(71.0),
+            seconds: 88.4,
+            error: None,
+        };
+        assert_eq!(
+            finished.message(),
+            "    lighthouse [3/20] https://example.com/shop: performance 71 (88s)"
+        );
+        let json = serde_json::to_value(&finished).unwrap();
+        assert_eq!(json["type"], "page_finished");
+        assert_eq!(json["total"], 20);
+
+        let planned = Event::PagesPlanned {
+            batch_id: "b".into(),
+            url: "https://example.com".into(),
+            run_id: 7,
+            pages: 20,
+            lighthouse_pages: 20,
+            lighthouse_done: 0,
+        };
+        assert_eq!(
+            planned.message(),
+            "    https://example.com: 20 page(s), 20 queued for Lighthouse"
+        );
     }
 
     #[test]

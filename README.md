@@ -22,19 +22,33 @@ build notes, and the rules the codebase holds itself to.
 Every audit ends in a client-facing report, rendered by the engine's `report`
 module from a single self-contained Jinja template
 ([`report.html.jinja`](desktop/crates/slap-engine/src/report.html.jinja)) and
-styled by [`report.css`](desktop/templates/report/report.css), which it
-reuses verbatim from earlier versions of the app. The HTML is the
-deliverable: fully self-contained
-(inlined CSS, no external assets), so it survives being emailed. The PDF is a
-print-to-PDF rendering of that same document, so the two can never disagree.
+styled by [`report.css`](desktop/templates/report/report.css). It reads like
+the Lighthouse report a client already knows from PageSpeed Insights: score
+gauges in Lighthouse's three bands, the metrics grid with Lighthouse's rating
+shapes, audits grouped the way Lighthouse groups them, and its runtime-settings
+footer. The HTML is the deliverable: fully self-contained (inlined CSS, no
+external assets), so it survives being emailed. The PDF is a print-to-PDF
+rendering of that same document, so the two can never disagree.
 
-Page one is the verdict, not the data: a plain-language headline, the Core Web
-Vitals against their thresholds, and a strip of lab measurements. After that
-comes **What to fix first** — every critical and high finding in full, each
-with its specific fix — then **Security** (certificate, response headers,
-cookies), and an appendix with the methodology, run provenance, detected
-technology, and every measurement collected. The design rules behind this
-layout live in [`docs/reports.md`](docs/reports.md).
+Page one is the verdict, not the data: the home page's four Lighthouse gauges
+(with the site median under each when several pages were measured), a
+plain-language Core Web Vitals verdict from real-user data, and **What to fix
+first**, every critical and high finding in full with its fix and the pages it
+affects. Then:
+
+- **Lighthouse: the home page**: the full Lighthouse view, with metrics,
+  insights, diagnostics, and each category's failing audits.
+- **Lighthouse across N pages**: how every measured page falls into
+  Lighthouse's bands per category, and the Lighthouse issues that fail on the
+  most pages.
+- **Pages audited**: every page with all four scores, LCP, TBT and CLS.
+- **Pages worth a closer look**: a Lighthouse section for each page that is an
+  outlier, or that has issues few other pages have, so an every-page report
+  stays readable.
+- **Security**, **Software**, and an appendix with the methodology, run
+  provenance, Lighthouse runtime settings and every measurement collected.
+
+The design rules behind this layout live in [`docs/reports.md`](docs/reports.md).
 
 ### Branding
 
@@ -67,6 +81,49 @@ branding, the choice is saved in `config.toml`, as a top-level key (not inside
 a section), so a config file alone controls it:
 
     wp_rocket_suggestions = false
+
+## Lighthouse on every page
+
+With Lighthouse on, SLAP runs full, self-hosted Lighthouse (the bundled Node
+worker driving a pinned Chrome for Testing, median of 3 runs a page). Which
+pages it measures is a setting, chosen in **New audit** or **Settings →
+Lighthouse**, and saved as `[lighthouse] scope` in `config.toml`:
+
+- **One page per template** (`sampled`, the default): the most representative
+  pages, up to `lighthouse_pages_per_site` (5) a site.
+- **Every discovered page** (`every_page`): every page discovery found, up to
+  the per-site cap (`pages_per_site`, 20), which each report discloses.
+
+Every page is about 30 seconds of wall-clock time at the default concurrency
+of 3, so every-page mode turns a big batch into an overnight job. Before it
+starts, New audit counts the pages (discovery only) and shows the time and disk
+it will take. While it runs, an activity dock shows the pages in Chrome, pages
+measured of planned, and an ETA. The batch can be stopped at any time.
+
+Long batches are built to survive:
+
+- **Each page is saved as it finishes.** A crash, a closed app or Stop costs at
+  most the pages that were in Chrome at that moment.
+- **Interrupted audits can be resumed** from New audit, in place, keeping every
+  page already measured. A run is only resumed under the same Lighthouse and
+  Chrome it started with; if either changed, the site is re-audited as a new
+  run, so no report mixes two engines.
+- **The machine is kept awake** for the length of the batch, and New audit
+  warns before a long batch starts on battery.
+- **Lighthouse concurrency is capped across the whole batch** (`[lighthouse]
+  concurrency`, 3, never above 4), because contended CPU gives plausible,
+  irreproducible scores. A finding flags a run whose CPU benchmark drifted
+  between pages.
+
+Each measured page keeps a compact summary (a few KB) that the report is drawn
+from. Its full Lighthouse report (about 600 KB) is kept too unless
+`[lighthouse] keep_artifacts = false`; the toggle is under Settings →
+Lighthouse. Design notes: [`docs/every-page-lighthouse.md`](docs/every-page-lighthouse.md).
+
+    [lighthouse]
+    scope = "every_page"
+    concurrency = 3
+    keep_artifacts = true
 
 ## Building from source
 

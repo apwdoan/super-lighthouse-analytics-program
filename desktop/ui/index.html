@@ -129,6 +129,7 @@
   .s-high .dot     { background: var(--serious); }  .s-high { color: var(--serious); }
   .s-medium .dot   { background: var(--warning); }
   .s-low .dot, .s-info .dot { background: var(--muted-status); }
+  .s-good .dot     { background: var(--good); }
   .pill {
     display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600;
     background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-2);
@@ -172,6 +173,45 @@
   svg.spark { display: block; }
   .row-actions { display: flex; gap: 10px; align-items: center; margin: 6px 0 18px; flex-wrap: wrap; }
   .seg { font-size: 12.5px; color: var(--ink-3); }
+
+  /* ---- composer: Lighthouse coverage and the estimate ---- */
+  .scope-choice { display: grid; gap: 8px; margin: 4px 0 6px 24px; }
+  .scope-choice label { display: flex; gap: 9px; align-items: flex-start; font-size: 13.5px; color: var(--ink-2); cursor: pointer; }
+  .scope-choice label b { color: var(--ink); font-weight: 600; }
+  .scope-choice input { margin-top: 3px; }
+  .estimate { font-size: 13px; color: var(--ink-2); margin: 2px 0 0 24px; }
+  .estimate b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .confirm { margin-top: 14px; border: 1px solid var(--line-strong); border-radius: 10px; padding: 14px 16px; background: var(--surface-2); }
+  .confirm .big { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .confirm table td, .confirm table th { padding: 6px 10px; font-size: 12.5px; }
+  .confirm tbody tr { cursor: default; }
+  details.sites summary { cursor: pointer; color: var(--accent); font-size: 13px; margin-top: 8px; }
+
+  /* ---- the activity dock ---- */
+  .dock {
+    position: fixed; right: 18px; bottom: 18px; width: 380px; max-width: calc(100vw - 36px);
+    background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px;
+    box-shadow: 0 6px 30px rgba(11,11,11,.14); z-index: 20; font-size: 13px; overflow: hidden;
+  }
+  .dock[hidden] { display: none; }
+  .dock .dock-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .dock .dock-head b { flex: 1; font-size: 13.5px; }
+  .dock .pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; flex: none; }
+  .dock.done .pulse { animation: none; background: var(--good); }
+  .dock.stopped .pulse { animation: none; background: var(--warning); }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+  .dock .dock-body { padding: 10px 12px 12px; display: grid; gap: 9px; }
+  .dock.collapsed .dock-body { display: none; }
+  .dock .bar { height: 7px; border-radius: 4px; background: var(--line); overflow: hidden; }
+  .dock .bar > div { height: 100%; background: var(--accent); width: 0%; transition: width .3s; }
+  .dock .row { display: flex; justify-content: space-between; gap: 10px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .dock .row b { color: var(--ink); }
+  .dock .now { font: 12px/1.45 ui-monospace, Consolas, monospace; color: var(--ink-2); max-height: 64px; overflow: hidden; }
+  .dock .now div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dock .log { font: 11.5px/1.45 ui-monospace, Consolas, monospace; color: var(--ink-3); max-height: 76px; overflow: hidden; border-top: 1px solid var(--line); padding-top: 7px; }
+  .dock .log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dock .actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .dock button { padding: 6px 12px; font-size: 12.5px; }
 </style>
 </head>
 <body>
@@ -186,6 +226,8 @@
   <div class="foot" id="foot">SLAP</div>
 </nav>
 <main id="main"><div class="empty"><div class="big">◱</div><p>Loading…</p></div></main>
+<!-- The activity dock: outside <main> so it survives navigation. -->
+<aside class="dock" id="dock" hidden aria-live="polite"></aside>
 
 <script>
 "use strict";
@@ -400,7 +442,11 @@ async function viewSite(id) {
 }
 
 function runStatus(status) {
-  const map = { completed: ["low", "Completed"], failed: ["high", "Failed"], cancelled: ["medium", "Cancelled"], running: ["medium", "Running"], pending: ["info", "Pending"] };
+  // A run left pending or running while no audit is live was interrupted: the
+  // app closed, crashed, or Stop was pressed. New audit offers to resume it.
+  const live = dock.active();
+  const map = { completed: ["low", "Completed"], failed: ["high", "Failed"], cancelled: ["medium", "Cancelled"],
+    running: ["medium", live ? "Running" : "Interrupted"], pending: ["info", live ? "Queued" : "Interrupted"] };
   const [cls, word] = map[status] || ["info", status || "—"];
   const b = badge(cls); b.lastChild.textContent = word; return b;
 }
@@ -468,14 +514,25 @@ async function viewRun(id) {
     const pages = data.pages || [];
     let pagesSection = null;
     if (pages.length > 1) {
+      // Lighthouse performance per page, where the page was measured.
+      const perfByUrl = {};
+      for (const o of obs) if (o.metric_key === "lh.score.performance") perfByUrl[o.url] = o.numeric_value;
+      const measured = pages.filter(p => perfByUrl[p.url] != null).length;
+      const scoreCell = (v) => {
+        if (v == null) return el("span", { class: "muted" }, "—");
+        // Lighthouse's bands: 90+ good, 50-89 needs work, below 50 poor.
+        const cls = v >= 90 ? "s-good" : v >= 50 ? "s-medium" : "s-critical";
+        return el("span", { class: "badge " + cls }, el("span", { class: "dot" }), String(Math.round(v)));
+      };
       const rows = pages.map(p => el("tr", {},
         el("td", {}, el("b", {}, p.role === "home" ? "Home" : (p.template_class || "page")),
           el("div", { class: "muted", style: "font-size:12px" }, p.url)),
         el("td", {}, el("span", { class: "pill" }, p.discovered_via || "manual")),
+        el("td", { class: "num" }, scoreCell(perfByUrl[p.url])),
         el("td", { class: "num" }, String(p.finding_count ?? 0))));
-      pagesSection = el("div", {}, el("h2", {}, `Pages audited (${pages.length})`),
+      pagesSection = el("div", {}, el("h2", {}, `Pages audited (${pages.length}${measured ? `, ${measured} with Lighthouse` : ""})`),
         el("div", { class: "card" }, el("table", {},
-          el("thead", {}, el("tr", {}, el("th", {}, "Page"), el("th", {}, "Found via"), el("th", { class: "num" }, "Findings"))),
+          el("thead", {}, el("tr", {}, el("th", {}, "Page"), el("th", {}, "Found via"), el("th", { class: "num" }, "Performance"), el("th", { class: "num" }, "Findings"))),
           el("tbody", {}, ...rows))));
     }
 
@@ -538,7 +595,28 @@ async function viewFindings() {
   } catch (e) { errorView(e); }
 }
 
-function viewAudit() {
+// Durations, sizes and counts as the composer and the dock print them.
+function duration(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 60) return "under a minute";
+  const m = Math.round(seconds / 60);
+  if (m < 60) return m + " min";
+  const h = Math.floor(m / 60), r = m % 60;
+  return h + " h" + (r ? " " + r + " min" : "");
+}
+function bytes(n) {
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + " GB";
+  if (n >= 1e6) return Math.round(n / 1e6) + " MB";
+  return Math.max(1, Math.round(n / 1e3)) + " KB";
+}
+const num = (n) => Number(n || 0).toLocaleString();
+const errText = (e) => String(e && e.message ? e.message : e);
+
+async function viewAudit() {
+  let s = {};
+  try { s = await invoke("get_settings"); } catch {}
+  const runs = s.lighthouse_runs || 3, conc = s.lighthouse_concurrency || 3, perRun = s.seconds_per_run || 30;
+  const pagesCap = s.pages_per_site || 20, sampledCap = Math.min(s.lighthouse_pages_per_site || 5, pagesCap);
+
   const head = el("div", {},
     crumbs({ label: "New audit" }),
     el("h1", {}, "New audit"),
@@ -546,33 +624,298 @@ function viewAudit() {
   const box = el("textarea", { placeholder: "example.com\nhttps://another-site.org\n…" });
   const lighthouse = el("input", { type: "checkbox" });
   const probe = el("input", { type: "checkbox" });
-  const opts = el("div", { class: "row-actions" },
-    el("label", { class: "seg" }, el("input", { type: "checkbox", checked: "checked", disabled: "disabled" }), " No-browser collectors"),
-    el("label", { class: "seg" }, lighthouse, " Lighthouse (adds ~90s/site)"),
-    el("label", { class: "seg", title: "Actively requests sensitive paths (.env, .git, backups). Only for sites you own or manage." }, probe, " Probe exposed endpoints (sites you control only)"));
+
+  // Lighthouse coverage: a setting (config.toml), chosen here where its cost is visible.
+  const sampled = el("input", { type: "radio", name: "lh-scope", value: "sampled" });
+  const every = el("input", { type: "radio", name: "lh-scope", value: "every_page" });
+  (s.lighthouse_scope === "every_page" ? every : sampled).checked = true;
+  const scopeNow = () => every.checked ? "every_page" : "sampled";
+  const scopeBox = el("div", { class: "scope-choice" },
+    el("label", {}, sampled, el("span", {}, el("b", {}, "One page per template"),
+      ` — up to ${sampledCap} per site, the pages that speak for the most of the site first.`)),
+    el("label", {}, every, el("span", {}, el("b", {}, "Every discovered page"),
+      ` — up to ${pagesCap} per site. Thorough, and long: about ${Math.round(runs * perRun / conc)}s per page, so plan bigger batches as overnight jobs.`)));
+  const estimate = el("div", { class: "estimate" });
+  const urlsNow = () => box.value.split("\n").map(x => x.trim()).filter(Boolean);
+
+  function refresh() {
+    const on = lighthouse.checked;
+    scopeBox.style.display = on ? "" : "none";
+    estimate.style.display = on ? "" : "none";
+    const n = urlsNow().length;
+    if (!n) { estimate.replaceChildren("Add URLs to see how long the browser audit will take."); return; }
+    const per = scopeNow() === "every_page" ? pagesCap : sampledCap;
+    const pages = n * per;
+    estimate.replaceChildren("Up to ", el("b", {}, num(pages) + " pages"), " in Chrome: about ",
+      el("b", {}, duration(pages * runs * perRun / conc)), `, ${conc} at a time, median of ${runs} runs each.`,
+      scopeNow() === "every_page" ? " The exact page count is checked before anything starts." : "");
+  }
+  for (const r of [sampled, every]) r.addEventListener("change", async () => {
+    refresh();
+    try { await invoke("set_lighthouse_scope", { scope: scopeNow() }); } catch {}
+  });
+  lighthouse.addEventListener("change", refresh);
+  box.addEventListener("input", refresh);
+
+  const opts = el("div", {},
+    el("div", { class: "row-actions", style: "margin-bottom:6px" },
+      el("label", { class: "seg" }, el("input", { type: "checkbox", checked: "checked", disabled: "disabled" }), " No-browser collectors"),
+      el("label", { class: "seg" }, lighthouse, " Lighthouse"),
+      el("label", { class: "seg", title: "Actively requests sensitive paths (.env, .git, backups). Only for sites you own or manage." }, probe, " Probe exposed endpoints (sites you control only)")),
+    scopeBox, estimate);
+
+  const unfinishedBox = el("div", {});
   const out = el("div", {});
-  const run = el("button", { class: "primary" });
-  run.textContent = "Run audit";
-  run.addEventListener("click", async () => {
-    const urls = box.value.split("\n").map(s => s.trim()).filter(Boolean);
+  const run = el("button", { class: "primary" }, "Run audit");
+
+  async function start(urls) {
     out.replaceChildren();
-    if (!urls.length) { out.append(el("div", { class: "notice warn" }, "Add at least one URL first.")); return; }
+    unfinishedBox.replaceChildren();
     run.disabled = true; run.textContent = "Running… (" + urls.length + ")";
+    dock.begin(`Auditing ${urls.length} site${urls.length === 1 ? "" : "s"}`);
     try {
-      const summary = await invoke("start_audit", { urls, lighthouse: lighthouse.checked, probe: probe.checked });
-      const ok = summary.succeeded, failed = summary.failed;
-      const note = el("div", { class: "notice info" },
-        el("b", {}, `Audited ${summary.total} site(s): ${ok} ok` + (failed ? `, ${failed} failed` : "")),
-        el("div", { style: "margin-top:8px" }, el("button", { class: "ghost", onclick: () => go("sites") }, "View sites →")));
-      out.append(note);
+      const summary = await invoke("start_audit", { urls, lighthouse: lighthouse.checked, probe: probe.checked, scope: scopeNow() });
+      out.append(summaryNotice(summary));
     } catch (e) {
-      out.append(el("div", { class: "notice warn" }, String(e && e.message ? e.message : e)));
+      dock.fail(errText(e));
+      out.append(el("div", { class: "notice warn" }, errText(e)));
     } finally {
       run.disabled = false; run.textContent = "Run audit";
+      loadUnfinished();
     }
+  }
+
+  // Every-page mode counts pages first (discovery only) and asks before starting.
+  async function confirmEveryPage(urls) {
+    run.disabled = true;
+    out.replaceChildren(el("div", { class: "notice info" }, "Counting pages… (discovery only; nothing is measured yet)"));
+    try {
+      const [est, power] = await Promise.all([
+        invoke("estimate_audit", { urls, scope: scopeNow() }),
+        invoke("power_status").catch(() => ({})),
+      ]);
+      const capped = est.sites.filter(x => x.dropped > 0);
+      const failed = est.sites.filter(x => x.error);
+      const startBtn = el("button", { class: "primary" }, "Start audit");
+      startBtn.addEventListener("click", () => start(urls));
+      const back = el("button", { class: "ghost", onclick: () => out.replaceChildren() }, "Back");
+      const rows = est.sites.map(x => el("tr", {},
+        el("td", {}, x.url),
+        el("td", { class: "num" }, x.error ? "—" : num(x.pages)),
+        el("td", { class: "num" }, x.error ? el("span", { class: "muted" }, x.error) : num(x.found)),
+        el("td", { class: "num" }, num(x.lighthouse_pages))));
+      out.replaceChildren(el("div", { class: "confirm" },
+        el("div", { class: "big" }, `${num(est.lighthouse_pages)} pages, about ${duration(est.seconds)}`),
+        el("div", { class: "muted", style: "margin-top:2px" },
+          `${num(est.sites.length)} site${est.sites.length === 1 ? "" : "s"}, ${est.concurrency} pages at a time, median of ${est.runs_per_page} runs each. `
+          + `About ${bytes(est.disk_bytes)} on disk` + (s.keep_lhr ? ", full Lighthouse reports included (Settings → Lighthouse)." : ".")),
+        capped.length ? el("div", { class: "notice info" },
+          `${capped.length} site${capped.length === 1 ? " has" : "s have"} more pages than the per-site cap of ${pagesCap}. `
+          + "Those pages are left out, and each report says how many.") : null,
+        failed.length ? el("div", { class: "notice warn" }, `${failed.length} URL(s) could not be read and will fail.`) : null,
+        power && power.on_battery ? el("div", { class: "notice warn" },
+          el("b", {}, "This machine is on battery. "),
+          "Plug it in for a long batch: on battery the OS slows the CPU, which makes lab numbers worse and less consistent from page to page, and a laptop that sleeps stops the audit.") : null,
+        el("p", { class: "muted", style: "font-size:12.5px;margin:12px 0 0" },
+          "The machine is kept awake while the audit runs. If it stops anyway (a closed lid, a crash, the Stop button), every page measured so far is saved and the rest can be resumed from this screen."),
+        el("details", { class: "sites" }, el("summary", {}, "Pages per site"),
+          el("table", {}, el("thead", {}, el("tr", {}, el("th", {}, "Site"), el("th", { class: "num" }, "Pages"), el("th", { class: "num" }, "Found"), el("th", { class: "num" }, "Lighthouse"))),
+            el("tbody", {}, ...rows))),
+        el("div", { class: "row-actions", style: "margin:14px 0 0" }, startBtn, back)));
+    } catch (e) {
+      out.replaceChildren(el("div", { class: "notice warn" }, errText(e)));
+    } finally {
+      run.disabled = false;
+    }
+  }
+
+  run.addEventListener("click", () => {
+    const urls = urlsNow();
+    out.replaceChildren();
+    if (!urls.length) { out.append(el("div", { class: "notice warn" }, "Add at least one URL first.")); return; }
+    if (dock.active()) { out.append(el("div", { class: "notice warn" }, "An audit is already running. Stop it or wait for it to finish.")); return; }
+    if (lighthouse.checked && scopeNow() === "every_page") confirmEveryPage(urls);
+    else start(urls);
   });
-  mount(head, el("div", { class: "card pad" }, box, opts, el("div", { class: "row-actions" }, run, el("span", { class: "seg" }, "Runs locally. No account, nothing uploaded.")), out));
+
+  // Audits that did not finish: resume them in place, or close them.
+  async function loadUnfinished() {
+    unfinishedBox.replaceChildren();
+    let data;
+    try { data = await invoke("unfinished_runs"); } catch { return; }
+    const list = (data && data.runs) || [];
+    if (data.active || !list.length) return;
+    const ids = list.map(r => r.id);
+    const planned = list.reduce((a, r) => a + (r.lh_planned || 0), 0), done = list.reduce((a, r) => a + (r.lh_done || 0), 0);
+    const resume = el("button", { class: "primary" }, list.length === 1 ? "Resume" : `Resume all ${list.length}`);
+    const discard = el("button", { class: "ghost" }, "Discard");
+    const msg = el("div", { class: "muted", style: "font-size:12px" });
+    resume.addEventListener("click", async () => {
+      if (dock.active()) { msg.textContent = "An audit is already running. Resume once it has finished or been stopped."; return; }
+      resume.disabled = discard.disabled = true;
+      unfinishedBox.replaceChildren();
+      dock.begin(`Resuming ${list.length} run${list.length === 1 ? "" : "s"}`);
+      try { out.replaceChildren(summaryNotice(await invoke("resume_audit", { runIds: ids }))); }
+      catch (e) { dock.fail(errText(e)); out.replaceChildren(el("div", { class: "notice warn" }, errText(e))); }
+      finally { loadUnfinished(); }
+    });
+    discard.addEventListener("click", async () => {
+      resume.disabled = discard.disabled = true;
+      try { await invoke("discard_runs", { runIds: ids }); loadUnfinished(); }
+      catch (e) { msg.textContent = errText(e); resume.disabled = discard.disabled = false; }
+    });
+    const lines = list.slice(0, 8).map(r => el("li", {},
+      el("b", {}, r.hostname), " — ",
+      r.page_count ? (r.lh_planned ? `${num(r.lh_done)} of ${num(r.lh_planned)} pages measured` : `${num(r.page_count)} pages, finishing`) : "not started",
+      el("span", { class: "muted" }, "  " + ago(r.started_at))));
+    if (list.length > 8) lines.push(el("li", { class: "muted" }, `and ${list.length - 8} more`));
+    unfinishedBox.append(el("div", { class: "notice warn", style: "margin:0 0 14px" },
+      el("b", {}, `${list.length} audit${list.length === 1 ? "" : "s"} did not finish`),
+      planned ? ` — ${num(done)} of ${num(planned)} Lighthouse pages are saved.` : ".",
+      el("ul", { style: "margin:8px 0 4px;padding-left:20px" }, ...lines),
+      el("div", { class: "muted", style: "font-size:12.5px" },
+        "Resuming keeps every page already measured and finishes the rest, as long as the same Lighthouse and Chrome are installed. A run measured by a different engine is started again as a new run, so no report mixes two."),
+      el("div", { class: "row-actions", style: "margin:10px 0 0" }, resume, discard), msg));
+  }
+
+  refresh();
+  loadUnfinished();
+  mount(head, unfinishedBox, el("div", { class: "card pad" }, box, opts,
+    el("div", { class: "row-actions", style: "margin-top:14px" }, run, el("span", { class: "seg" }, "Runs locally. No account, nothing uploaded.")), out));
 }
+
+function summaryNotice(summary) {
+  const parts = [`${summary.succeeded} ok`];
+  if (summary.failed) parts.push(`${summary.failed} failed`);
+  if (summary.interrupted) parts.push(`${summary.interrupted} stopped before finishing`);
+  return el("div", { class: "notice info" },
+    el("b", {}, `Audited ${summary.total} site${summary.total === 1 ? "" : "s"}: ` + parts.join(", ")),
+    summary.interrupted ? el("div", { style: "margin-top:4px" }, "Everything measured so far is saved. Resume the rest from New audit.") : null,
+    el("div", { style: "margin-top:8px" }, el("button", { class: "ghost", onclick: () => go("sites") }, "View sites →")));
+}
+
+// -------- the activity dock --------
+// Listens to slap://progress for as long as the app is open, so it survives
+// navigation and shows a batch that is hours long: sites, pages in Chrome right
+// now, pages measured of pages planned, and an ETA that firms up as discovery
+// reports each site's page count.
+const dock = (() => {
+  const node = document.getElementById("dock");
+  let st = null, defaults = { runs: 3, conc: 3, perRun: 30 }, timer = null;
+  const fresh = (title) => ({
+    title, batch: null, state: "running", stopping: false, collapsed: false, error: null,
+    sitesTotal: 0, sitesDone: 0, sitesPlanned: 0, lhPlanned: 0, lhAlready: 0, lhDone: 0, lhFailed: 0,
+    firstPageAt: null, inChrome: new Map(), log: [],
+  });
+  const path = (u) => { try { const x = new URL(u); return x.host + (x.pathname === "/" ? "" : x.pathname); } catch { return u; } };
+  function note(text) { st.log.unshift(text); st.log.length = Math.min(st.log.length, 6); }
+  // Neither may clobber a batch that is already reporting progress: its
+  // events, not a second button press, own the panel until it finishes.
+  const live = () => !!(st && st.state === "running" && st.batch);
+  function begin(title) { if (live()) return; st = fresh(title); render(); }
+  function fail(message) {
+    if (live()) { note("✕ " + message); render(); return; }
+    if (!st) st = fresh("Audit");
+    st.state = "stopped"; st.error = message; render();
+  }
+  function active() { return !!(st && st.state === "running"); }
+  function onEvent(e) {
+    if (!e || !e.type) return;
+    if (e.type === "batch_started") {
+      if (!(st && st.state === "running" && !st.batch)) st = fresh("");
+      st.batch = e.batch_id; st.sitesTotal = e.total;
+      if (!st.title) st.title = (e.batch_id.startsWith("resume") ? "Resuming " : "Auditing ") + e.total + (e.total === 1 ? " site" : " sites");
+    }
+    if (!st) st = fresh("Audit in progress");
+    switch (e.type) {
+      case "site_started": note(`started ${path(e.url)}`); break;
+      case "pages_planned":
+        st.sitesPlanned++; st.lhPlanned += e.lighthouse_pages; st.lhAlready += e.lighthouse_done;
+        if (e.lighthouse_pages) note(`${path(e.url)}: ${e.pages} pages, ${e.lighthouse_pages - e.lighthouse_done} for Lighthouse`);
+        break;
+      case "page_started":
+        if (!st.firstPageAt) st.firstPageAt = Date.now();
+        st.inChrome.set(e.page_url, Date.now()); break;
+      case "page_finished":
+        st.inChrome.delete(e.page_url); st.lhDone++;
+        if (!e.ok) { st.lhFailed++; note(`✕ ${path(e.page_url)} failed`); }
+        else note(`${path(e.page_url)}: performance ${e.performance == null ? "—" : Math.round(e.performance)}`);
+        break;
+      case "site_finished": st.sitesDone++; note(`${e.ok ? "✓" : "✕"} ${path(e.url)}${e.ok ? "" : " failed"}`); break;
+      case "log_message": note(e.text); break;
+      case "batch_finished":
+        st.state = e.cancelled ? "stopped" : "done"; st.inChrome.clear();
+        note(e.cancelled ? "stopped: the rest can be resumed" : `finished: ${e.succeeded} ok, ${e.failed} failed`);
+        break;
+    }
+    render();
+  }
+  function eta() {
+    const left = Math.max(0, st.lhPlanned - st.lhAlready - st.lhDone);
+    const unplanned = Math.max(0, st.sitesTotal - st.sitesPlanned);
+    const perSite = st.sitesPlanned ? st.lhPlanned / st.sitesPlanned : null;
+    const remaining = left + (perSite == null ? 0 : unplanned * perSite);
+    // The configured pace until the batch has a few minutes of its own
+    // history; then its own throughput, which includes this machine's speed.
+    let rate = defaults.conc / (defaults.runs * defaults.perRun);
+    const elapsed = st.firstPageAt ? (Date.now() - st.firstPageAt) / 1000 : 0;
+    if (st.lhDone >= 3 && elapsed >= 120) rate = st.lhDone / elapsed;
+    return { remaining, secs: remaining / rate, approx: unplanned > 0 };
+  }
+  function render() {
+    if (!st) { node.hidden = true; return; }
+    node.hidden = false;
+    node.className = "dock" + (st.state === "done" ? " done" : st.state === "stopped" ? " stopped" : "") + (st.collapsed ? " collapsed" : "");
+    const planned = st.lhPlanned - st.lhAlready;
+    const pct = planned > 0 ? Math.min(100, 100 * st.lhDone / planned) : (st.sitesTotal ? 100 * st.sitesDone / st.sitesTotal : 0);
+    const status = st.state === "done" ? "Finished" : st.state === "stopped" ? (st.error ? "Could not run" : "Stopped") : (st.stopping ? "Stopping…" : "");
+    const headEl = el("div", { class: "dock-head", onclick: () => { st.collapsed = !st.collapsed; render(); } },
+      el("span", { class: "pulse" }), el("b", {}, st.title || "Audit"),
+      el("span", { class: "muted" }, status || (planned > 0 ? Math.floor(pct) + "%" : "")));
+    const body = el("div", { class: "dock-body" });
+    if (st.error) body.append(el("div", {}, st.error));
+    body.append(el("div", { class: "bar" }, el("div", { style: `width:${pct.toFixed(1)}%` })));
+    body.append(el("div", { class: "row" }, el("span", {}, "Sites"), el("span", {}, el("b", {}, num(st.sitesDone)), ` of ${num(st.sitesTotal)} finished`)));
+    if (st.lhPlanned) {
+      body.append(el("div", { class: "row" }, el("span", {}, "Lighthouse pages"),
+        el("span", {}, el("b", {}, num(st.lhDone)), ` of ${num(planned)}${st.sitesPlanned < st.sitesTotal ? "+" : ""}`,
+          st.lhAlready ? ` (${num(st.lhAlready)} saved earlier)` : "", st.lhFailed ? `, ${st.lhFailed} failed` : "")));
+    }
+    if (st.state === "running" && (st.lhPlanned || st.sitesPlanned)) {
+      const t = eta();
+      const left = duration(t.secs);
+      if (t.remaining > 0) body.append(el("div", { class: "row" }, el("span", {}, "Time left"),
+        el("span", {}, el("b", {}, (t.approx && left !== "under a minute" ? "about " : "") + left))));
+    }
+    if (st.inChrome.size) body.append(el("div", { class: "now" }, el("div", { class: "muted" }, "In Chrome now"),
+      ...[...st.inChrome.keys()].map(u => el("div", {}, path(u)))));
+    if (st.log.length) body.append(el("div", { class: "log" }, ...st.log.map(l => el("div", {}, l))));
+    const actions = el("div", { class: "actions" });
+    if (st.state === "running") {
+      const stop = el("button", { class: "ghost" }, st.stopping ? "Stopping after pages in Chrome…" : "Stop");
+      stop.disabled = st.stopping;
+      stop.addEventListener("click", async (ev) => {
+        ev.stopPropagation(); st.stopping = true; render();
+        try { await invoke("stop_audit"); } catch {}
+      });
+      actions.append(stop);
+    } else {
+      actions.append(el("button", { class: "ghost", onclick: (ev) => { ev.stopPropagation(); st = null; render(); } }, "Close"));
+    }
+    body.append(actions);
+    node.replaceChildren(headEl, body);
+  }
+  async function init() {
+    try {
+      const s = await invoke("get_settings");
+      defaults = { runs: s.lighthouse_runs || 3, conc: s.lighthouse_concurrency || 3, perRun: s.seconds_per_run || 30 };
+    } catch {}
+    if (TAURI.event && TAURI.event.listen) await TAURI.event.listen("slap://progress", (e) => onEvent(e.payload));
+    try { const a = await invoke("audit_status"); if (a.active && !st) begin("Audit in progress"); } catch {}
+    timer = setInterval(() => { if (active() && !st.collapsed) render(); }, 15000);
+  }
+  return { begin, fail, active, onEvent, init };
+})();
 
 async function viewDiagnostics() {
   loading();
@@ -810,7 +1153,38 @@ async function viewSettings() {
       el("div", { class: "row-actions" }, nvdSave, nvdClear),
       nvdOut);
 
-    mount(head, dataCard, vulndbCard, brandCard, wpRocketCard, cruxCard);
+    // Lighthouse: coverage and what is kept on disk.
+    const lhMsg = el("div", { class: "muted", style: "font-size:12px;margin-top:8px" });
+    const scopeSel = el("select", { style: "padding:7px 9px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);color:var(--ink)" },
+      el("option", { value: "sampled" }, `One page per template (up to ${s.lighthouse_pages_per_site || 5} per site)`),
+      el("option", { value: "every_page" }, `Every discovered page (up to ${s.pages_per_site || 20} per site)`));
+    scopeSel.value = s.lighthouse_scope || "sampled";
+    scopeSel.addEventListener("change", async () => {
+      lhMsg.textContent = "Saving…";
+      try { await invoke("set_lighthouse_scope", { scope: scopeSel.value }); lhMsg.textContent = "Saved. Used by your next audit with Lighthouse on."; }
+      catch (e) { lhMsg.textContent = String(e && e.message ? e.message : e); }
+    });
+    const keepToggle = el("input", { type: "checkbox" });
+    keepToggle.checked = s.keep_lhr !== false;
+    keepToggle.addEventListener("change", async () => {
+      keepToggle.disabled = true; lhMsg.textContent = "Saving…";
+      try {
+        await invoke("set_keep_lhr", { enabled: keepToggle.checked });
+        lhMsg.textContent = keepToggle.checked
+          ? "On — each measured page keeps its full Lighthouse report (about 600 KB)."
+          : "Off — only the summary each report is drawn from is kept (a few KB a page).";
+      } catch (e) { keepToggle.checked = !keepToggle.checked; lhMsg.textContent = String(e && e.message ? e.message : e); }
+      finally { keepToggle.disabled = false; }
+    });
+    const lighthouseCard = el("div", { class: "card pad" },
+      el("h2", {}, "Lighthouse"),
+      el("p", { class: "secondary" }, `Which pages get the full browser audit when Lighthouse is on. Every page is about ${Math.round((s.lighthouse_runs || 3) * (s.seconds_per_run || 30) / (s.lighthouse_concurrency || 3))} seconds of wall-clock time, ${s.lighthouse_concurrency || 3} at a time, so the every-page mode turns a large batch into an overnight job. New audit shows the exact count and time before anything starts.`),
+      el("div", { style: "margin:4px 0 14px" }, scopeSel),
+      el("label", { class: "seg" }, keepToggle, " Keep each page's full Lighthouse report on disk"),
+      el("p", { class: "muted", style: "font-size:12.5px;margin:6px 0 0" }, "Reports are always drawn from a compact per-page summary, so turning this off changes nothing in them. Full reports are for opening in Lighthouse's own viewer, and cost about 1.2 GB per 2,000 pages."),
+      lhMsg);
+
+    mount(head, dataCard, lighthouseCard, vulndbCard, brandCard, wpRocketCard, cruxCard);
   } catch (e) { errorView(e); }
 }
 
@@ -838,6 +1212,7 @@ window.addEventListener("hashchange", render);
       el("p", { class: "muted" }, "It needs the app shell to reach your data. Open it inside SLAP.")));
   }
   if (!location.hash) location.hash = "#/sites";
+  dock.init();
   render();
 })();
 </script>

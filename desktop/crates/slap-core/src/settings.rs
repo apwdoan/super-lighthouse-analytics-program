@@ -84,7 +84,33 @@ pub struct LighthouseConfig {
     pub node_path: String,
     pub worker_path: Option<PathBuf>,
     pub chrome_path: Option<String>,
+    /// Keep the median run's full Lighthouse report (gzipped JSON, ~600KB a
+    /// page) beside the database. A compact per-page summary, which is what
+    /// the client report renders from, is always kept; this decides whether
+    /// the raw LHR is too. Across an every-page batch it is the difference
+    /// between ~1.2GB and a few MB per 2,000 pages.
     pub keep_artifacts: bool,
+    /// `"sampled"` (one page per template, the default) or `"every_page"`.
+    /// Kept as text and read through [`LighthouseConfig::scope`], so a typo
+    /// in a hand-edited config falls back to the default instead of
+    /// refusing to load; this section has always been the lenient one.
+    pub scope: String,
+}
+
+impl LighthouseConfig {
+    /// The configured coverage mode, defaulting to sampled for anything
+    /// unrecognised.
+    pub fn scope(&self) -> crate::schema::LighthouseScope {
+        crate::schema::LighthouseScope::parse(self.scope.trim())
+            .unwrap_or(crate::schema::LighthouseScope::Sampled)
+    }
+
+    /// The Lighthouse concurrency actually used: at least 1, at most 4.
+    /// Contended CPU inflates TBT and gives plausible, irreproducible
+    /// scores, so the cap holds whatever a config file says.
+    pub fn effective_concurrency(&self) -> usize {
+        self.concurrency.clamp(1, 4) as usize
+    }
 }
 
 impl Default for LighthouseConfig {
@@ -105,6 +131,7 @@ impl Default for LighthouseConfig {
             worker_path: None,
             chrome_path: None,
             keep_artifacts: true,
+            scope: crate::schema::LighthouseScope::Sampled.as_str().to_string(),
         }
     }
 }
@@ -637,6 +664,21 @@ pub fn save_wp_rocket_suggestions(
     )
 }
 
+/// Persist the Lighthouse coverage mode (`[lighthouse] scope`). The
+/// `[lighthouse]` section is the lenient one (unknown keys are ignored), so an
+/// older app version reading the same config is unaffected by the key.
+pub fn save_lighthouse_scope(
+    scope: crate::schema::LighthouseScope,
+    path: Option<&Path>,
+) -> Result<PathBuf, SettingsError> {
+    save_setting(
+        "scope",
+        Some(SettingValue::Str(scope.as_str().to_string())),
+        Some("lighthouse"),
+        path,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -699,6 +741,37 @@ mod tests {
             "unknown lighthouse keys are ignored"
         );
         assert_eq!(settings.config_path.as_deref(), Some(config.as_path()));
+    }
+
+    #[test]
+    fn lighthouse_scope_defaults_to_sampled_and_round_trips() {
+        use crate::schema::LighthouseScope;
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.toml");
+
+        // Absent: sampled, the default that keeps a batch to its old budget.
+        assert_eq!(
+            LighthouseConfig::default().scope(),
+            LighthouseScope::Sampled
+        );
+
+        // A hand-edited typo falls back rather than refusing to start.
+        write(&config, "[lighthouse]\nscope = \"every-pages\"\n");
+        let settings = Settings::load(Some(&config)).unwrap();
+        assert_eq!(settings.lighthouse.scope(), LighthouseScope::Sampled);
+
+        // Saved through the surgical writer, it reads back, and the user's
+        // other lighthouse keys survive.
+        write(&config, "[lighthouse]\nenabled = true\n");
+        save_lighthouse_scope(LighthouseScope::EveryPage, Some(&config)).unwrap();
+        let settings = Settings::load(Some(&config)).unwrap();
+        assert_eq!(settings.lighthouse.scope(), LighthouseScope::EveryPage);
+        assert!(settings.lighthouse.enabled);
+
+        // The concurrency cap holds whatever the file says.
+        write(&config, "[lighthouse]\nconcurrency = 16\n");
+        let settings = Settings::load(Some(&config)).unwrap();
+        assert_eq!(settings.lighthouse.effective_concurrency(), 4);
     }
 
     #[test]

@@ -6,6 +6,7 @@
 //! binary, not here.
 
 pub mod commands;
+pub mod power;
 pub mod selfcheck;
 
 use commands::AppState;
@@ -69,6 +70,15 @@ pub fn run() {
             commands::findings_across_sites,
             commands::library_status,
             commands::start_audit,
+            commands::resume_audit,
+            commands::stop_audit,
+            commands::audit_status,
+            commands::unfinished_runs,
+            commands::discard_runs,
+            commands::estimate_audit,
+            commands::power_status,
+            commands::set_lighthouse_scope,
+            commands::set_keep_lhr,
             commands::report_html,
             commands::report_pdf,
             commands::delete_site,

@@ -28,4 +28,7 @@ pub mod tls;
 pub mod vulndb;
 pub mod vulndb_build;
 
-pub use run::{run_batch, AuditSummary, EngineConfig, RunSummary};
+pub use run::{
+    discard_runs, estimate_batch, resume_runs, run_batch, run_batch_controlled, AuditSummary,
+    BatchEstimate, EngineConfig, RunSummary,
+};

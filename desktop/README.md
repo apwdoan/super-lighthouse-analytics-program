@@ -29,8 +29,9 @@ in the project docs under `docs/`.
       data/vulndb.json    the committed offline vulnerability database,
                           embedded by slap-engine's `vulndb` matcher at
                           build time (CI refreshes it).
-      templates/report/   report.css, reused verbatim by the `report`
-                          module's minijinja render of the client report.
+      templates/report/   report.css, the client report's stylesheet, in
+                          Lighthouse's visual language; inlined by the
+                          `report` module's minijinja render.
       fixtures/           the slowsite fixture and its recorded LHR, for
                           Lighthouse and report testing without a network.
 
@@ -38,6 +39,9 @@ in the project docs under `docs/`.
 
     cd desktop
     cargo test -p slap-core         # the core's tests
+    cargo test -p slap-engine       # the engine's, including every-page
+                                    # Lighthouse, Stop and resume end to end
+                                    # (that one needs `node` on PATH)
     cargo build                     # the desktop binary
     ./target/debug/slap-desktop --self-check
 

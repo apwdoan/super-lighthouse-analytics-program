@@ -737,6 +737,28 @@ rules:
     effort: none
     evidence: [lh.benchmark_index, lh.benchmark_index.spread, lh.runs]
 
+  # Run-level, written once on the home page when a run is finalised. The
+  # per-page rule above catches a page measured on a slow or busy machine;
+  # this catches the machine CHANGING speed between pages, which is what a
+  # many-hour every-page batch does when it warms up, throttles, or goes onto
+  # battery. Each page's own benchmark can look fine while pages measured
+  # hours apart are no longer comparable.
+  - id: lh-benchmark-drift
+    severity: info
+    title: "The measuring machine's speed changed during this audit"
+    detail: >-
+      Lighthouse's CPU benchmark ranged from {lh.run.benchmark_min} to
+      {lh.run.benchmark_max} across the {lh.run.pages_measured} pages measured
+      in this run, a drift of {lh.run.benchmark_drift}. Heat, power settings or
+      other work on the machine change how fast it runs, so lab figures for
+      pages measured at different times are not strictly comparable. Compare
+      pages by their findings rather than by small score differences.
+    when:
+      all:
+        - {metric: lh.run.benchmark_drift, gt: 0.2}
+    effort: none
+    evidence: [lh.run.benchmark_min, lh.run.benchmark_max, lh.run.benchmark_drift, lh.run.pages_measured]
+
   # --- Per-page subresources -------------------------------------------
   #
   # These are the rules per-page analysis exists for. A site's home page is

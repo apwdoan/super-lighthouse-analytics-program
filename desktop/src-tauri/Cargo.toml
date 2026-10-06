@@ -40,4 +40,9 @@ tokio = { version = "1", features = ["rt", "sync"] }
 # console of its own, and the check's output should still reach a
 # developer who ran it from a shell. CI does not rely on this (it pipes,
 # which hands the process valid handles), but people type things.
-windows-sys = { version = "0.59", features = ["Win32_System_Console"] }
+# Win32_System_Power: keeping the machine awake through a long audit
+# (SetThreadExecutionState) and the on-battery check (GetSystemPowerStatus).
+windows-sys = { version = "0.59", features = ["Win32_System_Console", "Win32_System_Power"] }
+
+[dev-dependencies]
+tempfile = "3"

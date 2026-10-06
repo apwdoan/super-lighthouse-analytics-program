@@ -59,7 +59,13 @@ CREATE TABLE IF NOT EXISTS run (
     lh_version          TEXT,
     chrome_version      TEXT,
     throttling_profile  TEXT,
-    git_sha             TEXT
+    git_sha             TEXT,
+    -- Which pages got the browser audit ('sampled' | 'every_page'), or NULL
+    -- when Lighthouse was not run. A report must say which it was.
+    lh_scope            TEXT,
+    -- The URL as the operator typed it. What a resumed run audits when it
+    -- was interrupted before its first page was written.
+    requested_url       TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_run_batch ON run(batch_id);
 CREATE INDEX IF NOT EXISTS idx_run_site_started ON run(site_id, started_at DESC);
@@ -215,6 +221,19 @@ pub fn migrate(conn: &Connection) -> Result<Vec<String>> {
             if !page_columns.contains(column) {
                 conn.execute(&format!("ALTER TABLE page ADD COLUMN {column} {ddl}"), [])?;
                 applied.push(format!("page.{column} added"));
+            }
+        }
+    }
+
+    // Every-page Lighthouse and resumable runs: the coverage mode and the URL
+    // a run was asked to audit. Nullable and additive, so an older version
+    // reading the same file selects `run.*` and simply ignores them.
+    {
+        let run_columns = column_names(conn, "run")?;
+        for column in ["lh_scope", "requested_url"] {
+            if !run_columns.contains(column) {
+                conn.execute(&format!("ALTER TABLE run ADD COLUMN {column} TEXT"), [])?;
+                applied.push(format!("run.{column} added"));
             }
         }
     }
@@ -445,6 +464,109 @@ pub fn finish_run(
         params![status.as_str(), utcnow(), error, run_id],
     )?;
     Ok(())
+}
+
+/// Queue a run before any of its work starts: `pending`, carrying the URL it
+/// was asked to audit and the Lighthouse coverage it will use. Creating every
+/// run of a batch up front is what lets an interrupted batch be resumed in
+/// full: the sites that never started are rows here, not lost URLs.
+pub fn create_pending_run(
+    conn: &Connection,
+    batch_id: &str,
+    site_id: i64,
+    slap_version: &str,
+    schema_version: i64,
+    requested_url: &str,
+    lh_scope: Option<&str>,
+) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO run (batch_id, site_id, started_at, status, slap_version, \
+         schema_version, requested_url, lh_scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        params![
+            batch_id,
+            site_id,
+            utcnow(),
+            RunStatus::Pending.as_str(),
+            slap_version,
+            schema_version,
+            requested_url,
+            lh_scope
+        ],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// A pending run begins: `running`, stamped with the time work actually
+/// started (a run queued at 9pm and reached at 4am was measured at 4am).
+/// A run that is already running (a resume) keeps its original start.
+pub fn start_run(conn: &Connection, run_id: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE run SET status = ?, started_at = CASE WHEN status = ? THEN ? ELSE started_at END \
+         WHERE id = ?",
+        params![
+            RunStatus::Running.as_str(),
+            RunStatus::Pending.as_str(),
+            utcnow(),
+            run_id
+        ],
+    )?;
+    Ok(())
+}
+
+/// Mark a page for (or record) the browser audit. Set to `full` when the
+/// page is QUEUED for Lighthouse, not when it finishes: depth records what
+/// was attempted, and a queued page whose `lh.runs` observation is missing
+/// is exactly what a resume has left to do.
+pub fn set_page_audit_depth(conn: &Connection, page_id: i64, depth: AuditDepth) -> Result<()> {
+    conn.execute(
+        "UPDATE page SET audit_depth = ? WHERE id = ?",
+        params![depth.as_str(), page_id],
+    )?;
+    Ok(())
+}
+
+/// Remove a run's findings so they can be re-evaluated from its stored
+/// observations. Only ever called while finalising a run that is still in
+/// flight: findings are a pure function of observations, and a resumed run's
+/// pages gained observations after any earlier evaluation.
+pub fn clear_run_findings(conn: &Connection, run_id: i64) -> Result<usize> {
+    conn.execute(
+        "DELETE FROM finding WHERE page_id IN (SELECT id FROM page WHERE run_id = ?)",
+        params![run_id],
+    )
+}
+
+/// Pages of a run queued for Lighthouse that have no Lighthouse result yet,
+/// home first then in id order (the order they were queued in). `lh.runs` is
+/// written for every attempted page, success or failure, so its absence is
+/// the definition of "not done".
+pub fn pages_awaiting_lighthouse(conn: &Connection, run_id: i64) -> Result<Vec<Json>> {
+    let mut stmt = conn.prepare(
+        "SELECT p.* FROM page p WHERE p.run_id = ? AND p.audit_depth = 'full' \
+         AND NOT EXISTS (SELECT 1 FROM observation o WHERE o.page_id = p.id \
+                         AND o.metric_key = 'lh.runs') \
+         ORDER BY CASE p.role WHEN 'home' THEN 0 ELSE 1 END, p.id",
+    )?;
+    rows_to_json(&mut stmt, &[sql_int(run_id)])
+}
+
+/// Runs that started (or were queued) and never reached a terminal status:
+/// the app closed, crashed, lost power, or the operator pressed Stop. Each
+/// row carries what the resume decision needs: the provenance it was
+/// measured under, its coverage, and how far it got.
+pub fn unfinished_runs(conn: &Connection) -> Result<Vec<Json>> {
+    let mut stmt = conn.prepare(
+        "SELECT run.*, site.hostname, \
+         (SELECT COUNT(*) FROM page p WHERE p.run_id = run.id) AS page_count, \
+         (SELECT COUNT(*) FROM page p WHERE p.run_id = run.id AND p.audit_depth = 'full') \
+            AS lh_planned, \
+         (SELECT COUNT(DISTINCT p.id) FROM page p JOIN observation o ON o.page_id = p.id \
+            WHERE p.run_id = run.id AND o.metric_key = 'lh.runs') AS lh_done \
+         FROM run JOIN site ON site.id = run.site_id \
+         WHERE run.status IN ('pending', 'running') \
+         ORDER BY run.batch_id, run.id",
+    )?;
+    rows_to_json(&mut stmt, &[])
 }
 
 /// Record which engine produced a run. Reports without this get argued with.
@@ -1271,8 +1393,71 @@ mod tests {
             .unwrap();
         assert_eq!(depth2, "light", "no artifact, no claimed browser audit");
 
+        // The run gained the every-page columns, empty on history.
+        let (scope, requested): (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT lh_scope, requested_url FROM run WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((scope, requested), (None, None));
+
         // And a second open applies nothing new.
         assert!(migrate(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_unfinished_run_reports_what_lighthouse_has_left_to_do() {
+        let (_dir, conn) = scratch();
+        let site = upsert_site(&conn, "big.example", None, None).unwrap();
+        let run = create_pending_run(
+            &conn,
+            "batch-x",
+            site,
+            "0.1.0",
+            1,
+            "big.example",
+            Some("every_page"),
+        )
+        .unwrap();
+        // Queued, not started: listed as unfinished with nothing done.
+        let unfinished = unfinished_runs(&conn).unwrap();
+        assert_eq!(unfinished.len(), 1);
+        assert_eq!(unfinished[0]["status"], "pending");
+        assert_eq!(unfinished[0]["requested_url"], "big.example");
+        assert_eq!(unfinished[0]["lh_scope"], "every_page");
+        assert_eq!(unfinished[0]["page_count"], 0);
+
+        start_run(&conn, run).unwrap();
+        let mut ids = Vec::new();
+        for path in ["/", "/a", "/b"] {
+            let url = format!("https://big.example{path}");
+            let mut page = NewPage::new(&url);
+            if path != "/" {
+                page.role = PageRole::Discovered;
+            }
+            let id = create_page(&conn, run, &page).unwrap();
+            set_page_audit_depth(&conn, id, AuditDepth::Full).unwrap();
+            ids.push(id);
+        }
+        // The home page finished; /a failed (lh.runs = 0 is still "done");
+        // /b was in flight when the app closed.
+        insert_observations(&conn, ids[0], &[obs("lh.runs", Value::Num(3.0)).unwrap()]).unwrap();
+        insert_observations(&conn, ids[1], &[obs("lh.runs", Value::Num(0.0)).unwrap()]).unwrap();
+
+        let left = pages_awaiting_lighthouse(&conn, run).unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0]["url"], "https://big.example/b");
+
+        let unfinished = unfinished_runs(&conn).unwrap();
+        assert_eq!(unfinished[0]["status"], "running");
+        assert_eq!(unfinished[0]["lh_planned"], 3);
+        assert_eq!(unfinished[0]["lh_done"], 2);
+
+        // Finishing takes it off the list.
+        finish_run(&conn, run, RunStatus::Completed, None).unwrap();
+        assert!(unfinished_runs(&conn).unwrap().is_empty());
     }
 
     #[test]

@@ -59,19 +59,53 @@ same defence — do not remove it.
 
 ## Structure
 
+*Restyled 2026-10-05 in Lighthouse's visual language.* A client has seen the
+Lighthouse report in PageSpeed Insights or DevTools, so the report borrows its
+grammar wholesale rather than inventing a second one: gauges, metric rows,
+audit lists, runtime settings. What stays SLAP's own is the order (verdict
+first) and everything Lighthouse does not do (findings across pages, security,
+software).
+
 Page one is the verdict, not the data.
 
-1. **Verdict.** A plain-language headline, then a KPI row of three stat
-   tiles (LCP, INP, CLS) with threshold meters, then a lab strip (TTFB,
-   HTML size, compression, redirects) and one sentence explaining why lab
-   and field figures disagree.
-2. **What to fix first.** Every critical and high finding in full: what is
-   wrong, evidence chips, the specific fix, and the WP Rocket setting where
-   one applies. Everything else collapses to a one-line list.
-3. **Security.** TLS and certificate, the six recommended response headers,
-   cookie hygiene.
-4. **Appendix.** Methodology, run provenance, detected technology, and
+1. **Gauges.** The home page's four Lighthouse categories, as Lighthouse draws
+   them, with the site median under each when several pages were measured,
+   and Lighthouse's score-scale legend.
+2. **Verdict.** "Core Web Vitals assessment: Passed / Failed / No real-user
+   data", a plain-language headline, and the three field metrics in the
+   PageSpeed Insights layout: the p75, and a marker on the good /
+   needs-improvement / poor scale.
+3. **What to fix first.** Every critical, high and medium finding in full:
+   what is wrong, the pages it affects (or "Site-wide" when its evidence is
+   all origin-scoped), the specific fix, and the WP Rocket setting where one
+   applies. Everything else collapses to a one-line list.
+4. **Lighthouse: the home page.** The full Lighthouse view: the performance
+   gauge, the metrics grid, Insights and Diagnostics, then each other
+   category's failing audits by Lighthouse group, with the passed, manual and
+   not-applicable counts.
+5. **Lighthouse across N pages.** Per category, the median and a stacked bar
+   of how many pages fail, are average, or pass; then the Lighthouse audits
+   that fail on the most pages, with their reach ("38 of 40 pages") and
+   typical saving.
+6. **Pages audited.** Every page with all four scores, LCP, TBT and CLS.
+7. **Pages worth a closer look.** A compact Lighthouse section (gauges,
+   metrics, failing audits capped per category) for each page that is an
+   outlier (15+ points under the site's median performance, or failing a
+   category the site passes) or carries a finding fewer than half the pages
+   have. Capped at 25 with the remainder counted; with six or fewer pages
+   measured, every page gets one.
+8. **Software, Security, Appendix.** Methodology, run provenance, Lighthouse's
+   runtime settings (device, network, CPU, browser, benchmark), coverage, and
    every measurement collected.
+
+**The audit lists come from a stored summary, not a re-parsed LHR.** When a
+page is measured, the median run's LHR is reduced to a few KB (failing and
+informative audits per Lighthouse group, counts, metric ratings, runtime
+settings) and written beside the database as an `lh-summary` artifact. The
+report never parses a raw LHR, and works whether or not raw LHRs are kept.
+Scores and metric values come from the observations (per-metric medians);
+the audit list comes from the run with the median performance score. A page
+whose summary is missing still renders, with its gauges and metrics.
 
 ### The finding split, and a bug worth remembering
 
@@ -89,40 +123,32 @@ critical/high findings.
 
 ## Colour and accessibility
 
-Colours are the reference data-viz palette, used verbatim. The status roles
-carry all severity meaning: `good` `#0ca30c`, `warning` `#fab219`,
-`serious` `#ec835a`, `critical` `#d03b3b`.
+*Replaced 2026-10-05.* The report uses Lighthouse's own palette:
 
-Running the palette validator against the report surface surfaced two
-constraints that shape the markup:
+| Role | Fill (shapes, arcs, bars) | Text |
+|---|---|---|
+| Pass (90-100) | `#0c6` | `#080` |
+| Average (50-89) | `#fa3` | `#c33300` |
+| Fail (0-49) | `#f33` | `#c00` |
+| Informative | `#757575` outline | ink |
 
-```
-[FAIL] Normal-vision floor  #ec835a ↔ #fab219  ΔE 13.6 — below the 15 floor
-[WARN] Contrast vs surface  #fab219 1.79, #ec835a 2.57 — below 3:1
-```
+Two rules carry over from the earlier palette, because they are about
+accessibility rather than taste:
 
-`serious` is the "high" badge and `warning` is the "medium" badge, and they
-sit adjacent in the findings list. So:
+- **A rating never relies on colour alone.** Lighthouse's answer is shape: a
+  red triangle fails, an orange square is average, a green circle passes, a
+  grey ring is informative. Every gauge band, metric, audit, score chip and
+  security status here carries one. Finding badges also print their severity
+  WORD, because high and medium sit adjacent in the findings list and their
+  fills are too close to separate. The report stays readable in greyscale.
+- **Light fills are never text.** `#0c6`, `#fa3` and `#f33` are below 3:1 on
+  white, so they are used for shapes, arcs and bars. Numbers wear the dark
+  steps (`#080`, `#c33300`, `#c00`, all above 4.5:1), exactly as Lighthouse
+  colours the number inside a gauge.
 
-- **Every badge, tile, and status cell prints its status WORD.** Never
-  reduce one to a bare coloured dot. This is the documented mitigation for
-  both findings above, and it is the reason the report is readable in
-  greyscale, which is how a lot of clients will actually print it. The model
-  carries `status_word` on every tile and card for exactly this.
-- **Status colours are used as fills, rules, and dots beside dark ink,
-  never as text colour.** Text always wears the ink tokens.
-
-Form choices follow the same reference: three current values is a KPI row
-of stat tiles, not a chart. A value against thresholds is a meter. Tile
-values use proportional figures; `tabular-nums` is reserved for the table
-columns that must align vertically.
-
-The meter's track is neutral with hairline ticks at 33% and 66%, where the
-good and needs-improvement thresholds land on **every** tile, so the three
-can be compared by eye without re-reading each axis. `meter_pct` is
-non-linear to make that true, and
-`meter_pins_thresholds_at_a_third_and_two_thirds` keeps the maths and the
-hard-coded tick positions in agreement.
+The metric ratings use Lighthouse's own scoring control points (for mobile
+LCP: 2.5s and 4s), which are its pass and average boundaries, so a metric is
+green here exactly when it would be green in Lighthouse.
 
 ## Formatting lives in the schema
 

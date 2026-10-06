@@ -120,6 +120,32 @@ string_enum! {
 }
 
 string_enum! {
+    /// Which of a site's pages get the browser (Lighthouse) audit. Recorded on
+    /// the run, because a report has to say which it was: "all 20 discovered
+    /// pages measured" and "5 of 20, one per template" are different claims.
+    ///
+    /// `Sampled` is the default and measures one representative per template,
+    /// coverage-ordered, up to the per-site budget. `EveryPage` measures every
+    /// page discovery found (still bounded by the discovery cap, which is
+    /// disclosed). At ~90s a page and a concurrency cap of 3, every page of a
+    /// 100-site, 20-page batch is an overnight job, not a coffee break.
+    LighthouseScope {
+        Sampled => "sampled",
+        EveryPage => "every_page",
+    }
+}
+
+impl LighthouseScope {
+    /// The words a report or the composer prints for this scope.
+    pub fn label(self) -> &'static str {
+        match self {
+            LighthouseScope::Sampled => "One page per template",
+            LighthouseScope::EveryPage => "Every discovered page",
+        }
+    }
+}
+
+string_enum! {
     Severity {
         Critical => "critical",
         High => "high",
@@ -752,6 +778,55 @@ fn base_entries() -> Vec<M> {
             "Throttling profile",
         ),
         m("lh.form_factor", None, Lighthouse, "Form factor measured"),
+        // --- Lighthouse: run-level coverage and machine stability ----------
+        // Written once, on the home page, when a run is finalised. Origin-
+        // scoped because they describe the whole run rather than any page:
+        // which pages were measured, and whether the measuring machine held
+        // the same speed from the first page to the last. Over a multi-hour
+        // every-page batch it often does not (thermal drift, a laptop that
+        // went onto battery), and per-page figures taken hours apart are only
+        // comparable if it did.
+        mo("lh.run.scope", None, Lighthouse, "Lighthouse coverage"),
+        mo(
+            "lh.run.pages_planned",
+            Count,
+            Lighthouse,
+            "Pages queued for Lighthouse",
+        ),
+        mo(
+            "lh.run.pages_measured",
+            Count,
+            Lighthouse,
+            "Pages measured by Lighthouse",
+        ),
+        moh(
+            "lh.run.pages_failed",
+            Count,
+            Lighthouse,
+            "Pages Lighthouse could not measure",
+            false,
+        ),
+        moh(
+            "lh.run.benchmark_min",
+            Score,
+            Lighthouse,
+            "Slowest CPU benchmark in the run",
+            true,
+        ),
+        moh(
+            "lh.run.benchmark_max",
+            Score,
+            Lighthouse,
+            "Fastest CPU benchmark in the run",
+            true,
+        ),
+        moh(
+            "lh.run.benchmark_drift",
+            Ratio,
+            Lighthouse,
+            "CPU benchmark drift across the run",
+            false,
+        ),
         // --- Mixed content and third-party subresources --------------------
         mh(
             "mixed.insecure_count",
@@ -1263,7 +1338,8 @@ mod tests {
         // finding), plus the 19 lh.opp.* family. A drift here means a metric was
         // added without updating this count; keep it deliberate so an accidental
         // key is caught.
-        assert_eq!(metric_registry().len(), 138 + 2 + 19);
+        // 138 base + 2 + 19 opportunities + 7 run-level Lighthouse entries.
+        assert_eq!(metric_registry().len(), 138 + 2 + 19 + 7);
     }
 
     #[test]
@@ -1369,5 +1445,31 @@ mod tests {
         assert!(!RunStatus::Running.is_terminal());
         assert_eq!(Source::CruxHistory.as_str(), "crux_history");
         assert_eq!(Unit::Seconds.as_str(), "s");
+        assert_eq!(
+            LighthouseScope::parse("every_page"),
+            Some(LighthouseScope::EveryPage)
+        );
+        assert_eq!(LighthouseScope::Sampled.as_str(), "sampled");
+    }
+
+    #[test]
+    fn run_level_lighthouse_metrics_are_origin_scoped() {
+        // They are written once per run on the home page; a page-scoped
+        // declaration would let them leak onto every page's findings.
+        for key in [
+            "lh.run.scope",
+            "lh.run.pages_planned",
+            "lh.run.pages_measured",
+            "lh.run.pages_failed",
+            "lh.run.benchmark_min",
+            "lh.run.benchmark_max",
+            "lh.run.benchmark_drift",
+        ] {
+            assert_eq!(metric_registry()[key].scope, Scope::Origin, "{key}");
+        }
+        assert_eq!(
+            format_value("lh.run.benchmark_drift", Some(&Value::Num(0.31))),
+            "31%"
+        );
     }
 }

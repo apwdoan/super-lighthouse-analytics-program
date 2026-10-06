@@ -1,495 +1,443 @@
-/* SLAP report styles.
+/* SLAP report styles, in Lighthouse's visual language.
  *
- * Colours are the reference data-viz palette, used verbatim. Two rules from
- * that palette are load-bearing and must not be "cleaned up":
+ * The report reads like the Lighthouse report a client already knows from
+ * PageSpeed Insights and DevTools: score gauges in Lighthouse's three bands,
+ * metric rows with Lighthouse's rating shapes, audits listed the way
+ * Lighthouse lists them, and Lighthouse's runtime-settings footer. What is
+ * SLAP's own is the verdict first, findings grouped by rule across pages,
+ * the cross-page view, security and software.
  *
- *   1. Status colours never carry meaning alone. Every severity badge and
- *      every metric tile prints its status WORD next to the colour. The
- *      serious (#ec835a) and warning (#fab219) steps sit only ΔE 13.6 apart
- *      in normal vision, and high/medium findings sit adjacent in the list,
- *      so hue cannot distinguish them.
- *   2. Both of those steps are below 3:1 contrast on this surface, so they
- *      are used as fills and rules beside dark ink, never as text colour.
+ * Rules that are load-bearing and must not be "cleaned up":
  *
- * Text always wears text tokens, never a status colour.
+ *   1. A rating never relies on colour alone. Lighthouse's own answer is the
+ *      SHAPE: a red triangle fails, an orange square is average, a green
+ *      circle passes, a grey circle is informative. Every gauge, metric and
+ *      audit here carries one. Finding badges and status cells also print a
+ *      status WORD, because high (orange) and medium (amber) sit adjacent in
+ *      the findings list and are too close in hue to separate.
+ *   2. The light fills (#0c6, #fa3, #f33) are below 3:1 on white, so they are
+ *      used for shapes, arcs and bars only. Text uses the dark "secondary"
+ *      steps (#080, #c33300, #c00), all above 4.5:1, exactly as Lighthouse
+ *      does for the numbers inside its gauges.
+ *   3. `print-color-adjust: exact` stays. Without it Chromium drops every
+ *      background when printing to PDF and the gauges and shapes vanish.
  */
 
 :root {
-  --surface: #fcfcfb;
-  --page: #f9f9f7;
-  --ink: #0b0b0b;
-  --ink-secondary: #52514e;
-  --ink-muted: #898781;
-  --grid: #e1e0d9;
-  --baseline: #c3c2b7;
-  --border: rgba(11, 11, 11, 0.10);
+  --font: Roboto, Helvetica, Arial, sans-serif;
+  --mono: "Roboto Mono", Menlo, "DejaVu Sans Mono", Consolas, "Lucida Console", monospace;
 
-  --good: #0ca30c;
-  --warning: #fab219;
-  --serious: #ec835a;
-  --critical: #d03b3b;
-  --muted-status: #898781;
-  --success-text: #006300;
+  --text: #212121;
+  --text-2: #616161;
+  --text-3: #757575;
+  --line: #ebebeb;
+  --line-2: #e0e0e0;
+  --surface: #ffffff;
+  --tint: #f5f5f5;
 
-  --accent: {{ branding.accent | default('#2a78d6') }};
+  /* Lighthouse's rating colours: fills, and the darker steps used for text. */
+  --pass: #0c6;
+  --pass-text: #080;
+  --pass-tint: rgba(0, 204, 102, 0.10);
+  --average: #fa3;
+  --average-text: #c33300;
+  --average-tint: rgba(255, 170, 51, 0.10);
+  --fail: #f33;
+  --fail-text: #c00;
+  --fail-tint: rgba(255, 51, 51, 0.10);
+  --info: #757575;
+  --info-tint: rgba(117, 117, 117, 0.10);
 
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Finding severities. Critical and high reuse the fail and average steps
+   * so a page reads as one palette; medium and low sit below them. */
+  --sev-critical: #f33;
+  --sev-high: #fa3;
+  --sev-medium: #ffd54f;
+  --sev-low: #bdbdbd;
+
+  --accent: {{ branding.accent | default('#1a73e8') }};
 }
 
 *, *::before, *::after { box-sizing: border-box; }
 
 html {
-  /* Without this Chromium drops every background when printing, which
-   * silently turns the severity badges into white-on-white. */
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
 
 body {
   margin: 0;
-  font-family: var(--sans);
+  font-family: var(--font);
   font-size: 13px;
-  line-height: 1.55;
-  color: var(--ink);
+  line-height: 1.5;
+  color: var(--text);
   background: var(--surface);
 }
 
-.page { max-width: 190mm; margin: 0 auto; padding: 0 0 24px; }
+.page { max-width: 190mm; margin: 0 auto; padding: 0 0 28px; }
 
-h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
-h1 { font-size: 30px; line-height: 1.2; }
-h2 { font-size: 19px; margin-bottom: 4px; }
+h1, h2, h3 { margin: 0; font-weight: 500; }
+h2 { font-size: 20px; line-height: 1.3; }
 h3 { font-size: 15px; }
 p { margin: 0 0 10px; }
 a { color: var(--accent); text-decoration: none; }
+code { font-family: var(--mono); font-size: 0.92em; }
 
-.muted { color: var(--ink-muted); }
-.secondary { color: var(--ink-secondary); }
-.caption { font-size: 11px; color: var(--ink-muted); line-height: 1.45; }
+.secondary { color: var(--text-2); }
+.muted { color: var(--text-3); }
+.caption { font-size: 11px; color: var(--text-3); line-height: 1.45; }
 
-/* ---------------------------------------------------------------- header */
+/* ------------------------------------------------------------- topbar */
 
-.masthead {
+/* Lighthouse's topbar: the URL measured and when, on one thin line. */
+.topbar {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 24px;
-  padding-bottom: 14px;
-  border-bottom: 2px solid var(--ink);
-  margin-bottom: 22px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-2);
+  font-size: 12px;
+  color: var(--text-2);
 }
-.masthead .brand {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-secondary);
+.topbar .brand { font-weight: 500; color: var(--text); white-space: nowrap; }
+.topbar img.logo { max-height: 26px; max-width: 140px; display: block; }
+.topbar .url { flex: 1; font-family: var(--mono); font-size: 11.5px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar .meta { text-align: right; white-space: nowrap; }
+
+.masthead { padding: 20px 0 6px; text-align: center; }
+.masthead .site { font-size: 26px; font-weight: 400; letter-spacing: -0.01em; }
+.masthead .kicker { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+
+/* ------------------------------------------------------------- gauges */
+
+.gauges {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  padding: 14px 0 6px;
 }
-.masthead .site { font-size: 24px; font-weight: 600; margin-top: 2px; }
-.masthead .meta { text-align: right; font-size: 11px; color: var(--ink-muted); }
-.masthead img.logo { max-height: 34px; max-width: 160px; }
+.gauge { width: 112px; text-align: center; break-inside: avoid; }
+.gauge svg { display: block; width: 88px; height: 88px; margin: 0 auto; }
+.gauge .base { stroke-width: 8; }
+.gauge .arc { fill: none; stroke-width: 8; stroke-linecap: round; }
+.gauge .num { font-family: var(--font); font-size: 30px; font-weight: 400; text-anchor: middle; dominant-baseline: central; }
+.gauge .label { font-size: 13px; line-height: 1.3; margin-top: 8px; color: var(--text); }
+.gauge .sub { font-size: 10.5px; color: var(--text-3); line-height: 1.35; margin-top: 3px; }
+.gauge.pass .base { fill: var(--pass-tint); stroke: var(--pass-tint); }
+.gauge.pass .arc { stroke: var(--pass); }
+.gauge.pass .num { fill: var(--pass-text); }
+.gauge.average .base { fill: var(--average-tint); stroke: var(--average-tint); }
+.gauge.average .arc { stroke: var(--average); }
+.gauge.average .num { fill: var(--average-text); }
+.gauge.fail .base { fill: var(--fail-tint); stroke: var(--fail-tint); }
+.gauge.fail .arc { stroke: var(--fail); }
+.gauge.fail .num { fill: var(--fail-text); }
+.gauge.none .base { fill: var(--info-tint); stroke: var(--info-tint); }
+.gauge.none .num { fill: var(--text-3); font-size: 20px; }
 
-/* --------------------------------------------------------------- section */
+.gauge.big { width: 160px; }
+.gauge.big svg { width: 120px; height: 120px; }
+.gauge.big .num { font-size: 38px; }
+.gauge.big .label { font-size: 20px; margin-top: 10px; }
 
-section { margin-bottom: 26px; }
+.gauge.small { width: 72px; }
+.gauge.small svg { width: 52px; height: 52px; }
+.gauge.small .num { font-size: 34px; }
+.gauge.small .label { font-size: 11px; margin-top: 4px; }
+
+/* Lighthouse's score-scale legend. */
+.scorescale {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 18px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  padding: 6px 0 4px;
+}
+.scorescale span { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ----------------------------------------------- rating shapes (Lighthouse) */
+
+.icon { display: inline-block; flex: none; width: 10px; height: 10px; }
+.icon.pass { border-radius: 50%; background: var(--pass); }
+.icon.average { background: var(--average); }
+.icon.fail {
+  width: 0; height: 0;
+  border-left: 5.5px solid transparent;
+  border-right: 5.5px solid transparent;
+  border-bottom: 10px solid var(--fail);
+}
+.icon.informative { border-radius: 50%; border: 2px solid var(--info); background: transparent; }
+.icon.none { border-radius: 50%; background: var(--line-2); }
+
+/* ---------------------------------------------------------- sections */
+
+section { margin-top: 30px; }
 .section-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  border-bottom: 1px solid var(--grid);
-  padding-bottom: 6px;
-  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line-2);
+  margin-bottom: 12px;
 }
+.section-head h2 { font-size: 20px; }
+.section-head .caption { text-align: right; }
 .eyebrow {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--ink-muted);
+  color: var(--text-3);
+  margin-bottom: 2px;
 }
 
-/* --------------------------------------------------------------- verdict */
+/* ------------------------------------------------------------- verdict */
 
 .verdict {
-  background: var(--page);
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 8px;
-  padding: 18px 20px;
-  margin-bottom: 18px;
+  padding: 16px 18px;
+  margin-top: 16px;
   break-inside: avoid;
 }
-.verdict .headline { font-size: 20px; font-weight: 600; line-height: 1.3; margin-bottom: 8px; }
-.verdict p { margin: 0; color: var(--ink-secondary); max-width: 62em; }
+.verdict .assessment { font-size: 13px; color: var(--text-2); margin-bottom: 6px; display: flex; align-items: center; gap: 7px; }
+.verdict .assessment b { font-weight: 500; }
+.verdict .assessment b.pass { color: var(--pass-text); }
+.verdict .assessment b.fail { color: var(--fail-text); }
+.verdict .headline { font-size: 19px; line-height: 1.35; margin-bottom: 6px; }
+.verdict p { margin: 0; color: var(--text-2); }
 
-.verdict-flag {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 10px 3px 8px;
-  border-radius: 999px;
-  margin-bottom: 10px;
-  color: var(--ink);
-  background: #fff;
-  border: 1px solid var(--border);
-}
-.verdict-flag .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
-
-/* KPI row of stat tiles. Not a chart: three current values, so tiles. */
-.tiles {
+/* Field data, in the PageSpeed Insights layout: the metric, its p75, and
+ * where that p75 sits on Google's good / needs-improvement / poor scale. */
+.field {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-bottom: 14px;
+  gap: 14px;
+  margin-top: 14px;
 }
-.tile {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 13px 14px 15px;
-  background: var(--surface);
-  break-inside: avoid;
+.field-metric { break-inside: avoid; }
+.field-metric .name { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-2); }
+.field-metric .value { font-size: 24px; line-height: 1.2; margin: 4px 0 6px; }
+.field-metric.pass .value { color: var(--pass-text); }
+.field-metric.average .value { color: var(--average-text); }
+.field-metric.fail .value { color: var(--fail-text); }
+.scale { position: relative; display: flex; height: 6px; border-radius: 3px; overflow: hidden; }
+.scale span { display: block; height: 100%; }
+.scale .g { width: 33%; background: var(--pass); }
+.scale .n { width: 33%; background: var(--average); }
+.scale .p { width: 34%; background: var(--fail); }
+.scale-wrap { position: relative; padding-top: 7px; }
+.scale-wrap .marker {
+  position: absolute; top: 0; width: 0; height: 0; margin-left: -5px;
+  border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--text);
 }
-.tile .tile-label { font-size: 12px; font-weight: 600; }
-.tile .tile-caption { font-size: 10px; color: var(--ink-muted); line-height: 1.4; min-height: 26px; }
-.tile .tile-value {
-  /* Proportional figures on purpose: tabular-nums makes a large standalone
-   * number look loose. Tabular is reserved for the appendix columns. */
-  font-size: 32px;
-  font-weight: 600;
-  line-height: 1.05;
-  margin: 6px 0 2px;
-}
-.tile .tile-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.field-metric .note { font-size: 10.5px; color: var(--text-3); margin-top: 5px; }
+
+/* ------------------------------------------------- Lighthouse categories */
+
+.lh-category { margin-top: 20px; break-inside: auto; }
+.lh-category-head { display: flex; flex-direction: column; align-items: center; padding: 8px 0 4px; break-inside: avoid; break-after: avoid; }
+.lh-category-head .description { text-align: center; max-width: 34em; font-size: 12px; color: var(--text-2); margin-top: 6px; }
+.lh-category-head.inline { flex-direction: row; gap: 14px; align-items: center; padding: 10px 0 4px; }
+.lh-category-head.inline .gauge { margin: 0; }
+.lh-category-head.inline .title { font-size: 17px; }
+/* The title sits beside the small gauge here, so the gauge's own label
+ * would print it twice. */
+.lh-category-head.inline .gauge .label { display: none; }
+.lh-category-head.inline .gauge { width: auto; }
+
+/* Lighthouse's metrics grid: two columns, a shape, the name, and the value
+ * large beneath it in the rating's text colour. */
+.metrics-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid var(--line-2); padding: 14px 0 6px; font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
+.metrics { display: grid; grid-template-columns: 1fr 1fr; column-gap: 28px; }
+.metric { padding: 9px 0 8px; border-bottom: 1px solid var(--line); break-inside: avoid; }
+.metric .title { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+.metric .value { font-size: 22px; line-height: 1.25; margin: 2px 0 0 19px; }
+.metric.pass .value { color: var(--pass-text); }
+.metric.average .value { color: var(--average-text); }
+.metric.fail .value { color: var(--fail-text); }
+.metric .spread { font-size: 10.5px; color: var(--text-3); margin-left: 6px; }
+.metrics-note { font-size: 11px; color: var(--text-3); padding: 6px 0 0; }
+
+/* Audit groups and rows, as Lighthouse lists them. */
+.audit-group { margin-top: 14px; }
+.audit-group-head {
   font-size: 11px;
-  font-weight: 600;
-  color: var(--ink);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line-2);
+  break-after: avoid;
 }
-.tile .tile-status .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.audit-group-head .count { color: var(--text-3); }
+.audit { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0 7px; border-bottom: 1px solid var(--line); break-inside: avoid; }
+.audit .icon { margin-top: 4px; }
+.audit .body { flex: 1; min-width: 0; }
+.audit .title { font-size: 13px; }
+.audit .display { font-size: 12px; margin-left: 6px; color: var(--text-2); }
+.audit.fail .display { color: var(--fail-text); }
+.audit.average .display { color: var(--average-text); }
+.audit .description { font-size: 11.5px; color: var(--text-3); margin-top: 2px; line-height: 1.45; }
+.audit .spread-pages { font-size: 11px; color: var(--text-2); white-space: nowrap; text-align: right; min-width: 72px; }
+.audit .spread-pages b { font-weight: 500; color: var(--text); }
+.clumps { font-size: 11.5px; color: var(--text-3); padding: 8px 0 2px; }
+.clumps span + span::before { content: "·"; margin: 0 8px; color: var(--line-2); }
 
-/* Meter. The fill carries severity; the track is neutral with hairline ticks
- * at the two thresholds, which sit at fixed positions on every tile so the
- * three can be compared by eye. A same-ramp track would imply the whole bar
- * means one thing, which is wrong when the bands change meaning. */
-.meter {
-  position: relative;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--grid);
-  margin: 9px 0 6px;
-  overflow: hidden;
-}
-.meter .fill { height: 100%; border-radius: 3px; }
-.meter .tick {
-  position: absolute;
-  top: 0;
-  width: 1px;
-  height: 100%;
-  /* Semi-transparent dark so the threshold marker is visible over
-   * both the neutral track and a saturated fill. A solid surface
-   * colour disappears on the track and reads as a gap on the fill. */
-  background: rgba(11, 11, 11, 0.22);
-}
-.tile .threshold { font-size: 10px; color: var(--ink-muted); }
-
-/* Lighthouse category scores. Numbers, not a chart: four current values,
- * so a KPI row. Each carries its status WORD beside the dot, same rule as
- * every other status in this document. */
-.scores {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  padding: 13px 0 14px;
-  border-top: 1px solid var(--grid);
-  margin-bottom: 4px;
-}
-.score { text-align: left; }
-.score .score-value {
-  font-size: 26px;
-  font-weight: 600;
-  line-height: 1.05;
-}
-.score .score-label { font-size: 11px; font-weight: 600; color: var(--ink-secondary); }
-.score .score-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 10px;
-  font-weight: 600;
-  margin-top: 2px;
-}
-.score-caption {
-  grid-column: 1 / -1;
-  font-size: 10px;
-  color: var(--ink-muted);
-  line-height: 1.45;
-  margin-top: 2px;
-}
-
-.lab-strip {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  border-top: 1px solid var(--grid);
-  padding-top: 12px;
-}
-.lab-stat .lab-value { font-size: 17px; font-weight: 600; }
-.lab-stat .lab-label { font-size: 11px; font-weight: 600; color: var(--ink-secondary); }
-.lab-stat .lab-note { font-size: 10px; color: var(--ink-muted); line-height: 1.35; }
-
-/* -------------------------------------------------------------- findings */
+/* ------------------------------------------------------------- findings */
 
 .finding {
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--muted-status);
-  border-radius: 6px;
-  padding: 13px 15px;
-  margin-bottom: 11px;
+  display: flex;
+  gap: 12px;
+  padding: 12px 0 11px;
+  border-bottom: 1px solid var(--line);
   break-inside: avoid;
 }
-.finding.critical { border-left-color: var(--critical); }
-.finding.serious  { border-left-color: var(--serious); }
-.finding.warning  { border-left-color: var(--warning); }
-.finding.good     { border-left-color: var(--good); }
+.finding .sev-bar { flex: none; width: 3px; border-radius: 2px; background: var(--sev-low); }
+.finding.critical .sev-bar { background: var(--sev-critical); }
+.finding.serious .sev-bar { background: var(--sev-high); }
+.finding.warning .sev-bar { background: var(--sev-medium); }
+.finding .finding-main { flex: 1; min-width: 0; }
+.finding-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 3px; }
+.finding-head h3 { flex: 1; font-size: 14px; font-weight: 500; }
+.finding p.detail { color: var(--text-2); margin-bottom: 6px; }
 
-.finding-head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 5px;
-}
-.finding-head h3 { flex: 1; }
-
-/* The severity WORD is mandatory. See the note at the top of this file. */
+/* The severity WORD is mandatory. See rule 1 at the top of this file. */
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 10px;
-  font-weight: 700;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 500;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: 10px;
   white-space: nowrap;
-  color: var(--ink);
-  background: var(--page);
-  border: 1px solid var(--border);
+  color: var(--text);
+  background: var(--tint);
 }
-/* Base sizing for every status dot. This MUST be an unscoped rule: when the
- * sizing lived only under `.badge .dot`, the dots in the security tables
- * (`.status-cell .dot`) collapsed to zero size and printed as nothing, so
- * those rows carried their status as a bare word with no colour at all. */
-.dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex: none;
-}
-.dot.critical { background: var(--critical); }
-.dot.serious  { background: var(--serious); }
-.dot.warning  { background: var(--warning); }
-.dot.good     { background: var(--good); }
-.dot.muted    { background: var(--muted-status); }
-.dot.poor     { background: var(--critical); }
-.dot.needs-improvement { background: var(--warning); }
-.dot.unknown  { background: var(--muted-status); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--sev-low); }
+.dot.critical, .dot.poor { background: var(--sev-critical); }
+.dot.serious { background: var(--sev-high); }
+.dot.warning, .dot.needs-improvement { background: var(--sev-medium); }
+.dot.good { background: var(--pass); }
+.dot.muted, .dot.unknown { background: var(--sev-low); }
 
-.finding p.detail { color: var(--ink-secondary); margin-bottom: 8px; }
+.chip { font-size: 10.5px; padding: 1px 8px; border-radius: 10px; background: var(--tint); color: var(--text-2); }
+.chip strong { color: var(--text); font-weight: 500; }
 
-.evidence {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 9px;
-}
-.chip {
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: var(--page);
-  border: 1px solid var(--border);
-  color: var(--ink-secondary);
-}
-.chip strong { color: var(--ink); font-weight: 600; }
+.fix { margin-top: 6px; font-size: 12px; background: var(--tint); border-radius: 6px; padding: 7px 10px; }
+.fix .fix-label { font-size: 10px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin-right: 6px; }
+.fix .wp-rocket { margin-top: 5px; font-size: 11.5px; }
+.finding-meta { display: flex; gap: 14px; font-size: 11px; color: var(--text-3); margin-top: 6px; }
 
-.fix {
-  border-top: 1px solid var(--grid);
-  padding-top: 8px;
-  font-size: 12px;
-}
-.fix .fix-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-muted);
-  margin-right: 6px;
-}
-.fix .wp-rocket {
-  margin-top: 6px;
-  padding: 6px 9px;
-  background: var(--page);
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  font-size: 11px;
-}
-.finding-meta {
-  display: flex;
-  gap: 14px;
-  font-size: 10px;
-  color: var(--ink-muted);
-  margin-top: 7px;
-}
+.scope { margin: 4px 0 2px; font-size: 11.5px; color: var(--text-2); }
+.scope-label { font-size: 10px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin-right: 6px; }
+.scope-pages { margin: 4px 0 0; padding-left: 0; list-style: none; columns: 2; font-family: var(--mono); font-size: 10.5px; }
+.scope-pages li { break-inside: avoid; padding: 1px 0; }
 
-.finding-compact {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--grid);
-  break-inside: avoid;
-}
+.finding-compact { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); break-inside: avoid; }
 .finding-compact .title { flex: 1; }
+.finding-compact .secondary { font-size: 11px; }
 
-/* ---------------------------------------------------------------- tables */
+/* ------------------------------------------------------- across pages */
+
+.coverage { font-size: 13px; color: var(--text-2); margin-bottom: 10px; }
+.coverage b { font-weight: 500; color: var(--text); }
+.dist { display: grid; grid-template-columns: 130px 52px 1fr 150px; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); break-inside: avoid; }
+.dist .name { font-size: 13px; }
+.dist .median { font-size: 18px; text-align: right; font-variant-numeric: tabular-nums; }
+.dist .median.pass { color: var(--pass-text); }
+.dist .median.average { color: var(--average-text); }
+.dist .median.fail { color: var(--fail-text); }
+.stack { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--line); }
+.stack span { display: block; height: 100%; }
+.stack .fail { background: var(--fail); }
+.stack .average { background: var(--average); }
+.stack .pass { background: var(--pass); }
+.dist .counts { font-size: 11px; color: var(--text-2); display: flex; gap: 10px; justify-content: flex-end; font-variant-numeric: tabular-nums; }
+.dist .counts span { display: inline-flex; align-items: center; gap: 4px; }
+.dist-head { display: grid; grid-template-columns: 130px 52px 1fr 150px; gap: 10px; font-size: 10.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; padding-bottom: 4px; border-bottom: 1px solid var(--line-2); }
+.dist-head .r { text-align: right; }
+
+/* ------------------------------------------------------------- tables */
 
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
 th {
   text-align: left;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--ink-muted);
-  border-bottom: 1px solid var(--baseline);
+  color: var(--text-3);
+  border-bottom: 1px solid var(--line-2);
   padding: 0 8px 5px 0;
 }
-td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--grid); vertical-align: top; }
-/* Only add a left gutter; do NOT rewrite the whole padding shorthand. Zeroing
- * padding-right here made a right-aligned value collide with the next
- * left-aligned column ("200http", "-4 daystls") in the appendix table. */
-td.num, th.num { text-align: right; padding-left: 14px; font-variant-numeric: tabular-nums; }
+td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+td.num, th.num { text-align: right; padding-left: 10px; font-variant-numeric: tabular-nums; }
 tr { break-inside: avoid; }
 
-/* ------------------------------------------------------ field-data trend */
+/* A path is compared character by character, so monospace and unwrapped. */
+td.path { font-family: var(--mono); font-size: 11px; white-space: nowrap; max-width: 230px; overflow: hidden; text-overflow: ellipsis; }
 
-.spark { margin-top: 8px; }
-.spark svg { display: block; overflow: visible; }
-/* A hairline, not a series colour: the threshold is context, and it must not
- * compete with the data drawn against it. */
-.spark-threshold {
-  stroke: var(--ink-muted);
-  stroke-width: 0.75;
-  stroke-dasharray: 3 3;
-  opacity: 0.55;
-}
-.spark-line {
-  fill: none;
-  stroke: var(--series-1, #2a78d6);
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  /* preserveAspectRatio="none" scales the stroke horizontally with the box;
-   * this keeps it an even weight at any tile width. */
-  vector-effect: non-scaling-stroke;
-}
-.spark-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 3px;
-  font-size: 9px;
-  color: var(--ink-muted);
-}
-.spark-meta strong { color: var(--ink-secondary); font-weight: 600; }
+/* Lighthouse-style score chip for a table cell: the shape, then the number
+ * in the band's text colour. */
+.score { display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
+.score.pass { color: var(--pass-text); }
+.score.average { color: var(--average-text); }
+.score.fail { color: var(--fail-text); }
+.score.none { color: var(--text-3); }
+.inventory td { padding-top: 5px; padding-bottom: 5px; }
+.inventory td.num { white-space: nowrap; }
 
-/* ------------------------------------------------- page inventory & scope */
+/* ---------------------------------------------------------- page detail */
 
-/* A path is data the reader compares character by character (/shop/widget vs
- * /shop/gadget), so it gets a monospace face and does not wrap: a wrapped
- * path in a narrow column reads as two pages. */
-td.path {
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-  font-size: 11px;
-  white-space: nowrap;
-  max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.page-detail { margin-top: 18px; padding-top: 12px; border-top: 2px solid var(--line-2); break-inside: auto; }
+.page-detail-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; break-after: avoid; }
+.page-detail-head .path { font-family: var(--mono); font-size: 14px; }
+.page-detail .keep { break-inside: avoid; }
+.page-detail .why { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 2px; }
+.page-detail .gauges { justify-content: flex-start; gap: 6px 14px; padding: 8px 0 2px; }
+.page-detail .metrics { grid-template-columns: repeat(3, 1fr); column-gap: 18px; }
+.page-detail .metric .value { font-size: 17px; }
 
-/* Which pages a finding affects. Indented under the finding rather than
- * beside it, because "1 of 12 pages" is a qualifier on the finding and a
- * reader who skips it must not lose the finding itself. */
-.scope {
-  margin: 8px 0 2px;
-  font-size: 11px;
-  color: var(--ink-secondary);
-}
-.scope-label {
-  display: inline-block;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-muted);
-  margin-right: 6px;
-}
-.scope-pages {
-  margin: 4px 0 0;
-  padding-left: 0;
-  list-style: none;
-  columns: 2;
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-  font-size: 10px;
-}
-.scope-pages li { break-inside: avoid; padding: 1px 0; }
-
-.finding-compact .secondary { margin-left: auto; font-size: 10px; }
+/* ------------------------------------------------------------- security */
 
 .sec-group { margin-bottom: 16px; break-inside: avoid; }
-.sec-group h3 { font-size: 13px; margin-bottom: 6px; }
-.status-cell { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 11px; }
-
-.appendix table { font-size: 11px; }
-.appendix td.key { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 10px; color: var(--ink-secondary); }
-.appendix td.val { font-variant-numeric: tabular-nums; }
-
+.sec-group h3 { font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+.status-cell { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; }
 .techlist { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 
-.methodology {
-  background: var(--page);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 14px 16px;
-  font-size: 11px;
-  color: var(--ink-secondary);
-}
-.methodology h3 { font-size: 12px; margin-bottom: 6px; color: var(--ink); }
+/* ------------------------------------------------------------- appendix */
+
+.appendix table { font-size: 11px; }
+.appendix td.key { font-family: var(--mono); font-size: 10px; color: var(--text-2); }
+.appendix td.val { font-variant-numeric: tabular-nums; }
+
+.methodology { background: var(--tint); border-radius: 8px; padding: 14px 16px; font-size: 11.5px; color: var(--text-2); }
+.methodology h3 { font-size: 12px; font-weight: 500; margin-bottom: 6px; color: var(--text); }
 .methodology ul { margin: 0 0 10px; padding-left: 18px; }
 .methodology li { margin-bottom: 3px; }
 
-.footer-note {
-  margin-top: 20px;
-  padding-top: 10px;
-  border-top: 1px solid var(--grid);
-  font-size: 10px;
-  color: var(--ink-muted);
-}
+/* Lighthouse's runtime-settings footer: what was emulated, by what. */
+.runtime { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; margin: 10px 0 0; }
+.runtime div { display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line-2); font-size: 11.5px; }
+.runtime div span:first-child { color: var(--text-3); min-width: 9.5em; }
 
-/* ----------------------------------------------------------------- print */
+.footer-note { margin-top: 22px; padding-top: 10px; border-top: 1px solid var(--line-2); font-size: 10.5px; color: var(--text-3); text-align: center; }
+
+/* ---------------------------------------------------------------- print */
 
 .page-break { break-before: page; }
 
 @media print {
   body { background: #fff; }
   .page { max-width: none; padding: 0; }
-  section { break-inside: auto; }
-  h2 { break-after: avoid; }
-  .section-head { break-after: avoid; }
+  h2, .section-head, .audit-group-head, .lh-category-head { break-after: avoid; }
 }
