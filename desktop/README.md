@@ -49,8 +49,10 @@ Release bundles come from the Tauri CLI, which CI installs via npm;
 locally: `npx --yes @tauri-apps/cli@^2 build`. Linux needs the
 webkit2gtk/gtk dev packages first (see `.github/workflows/desktop.yml` for
 the exact list). CI (`desktop.yml`) builds Windows, macOS arm64, macOS
-Intel, and Linux on dispatch and on `v*` tags, runs `--self-check` on
-every artifact it builds, and uploads the bundles.
+Intel, and Linux, runs `--self-check` on every artifact it builds, and
+uploads the bundles. Run it by hand to try a build; a `v*` tag runs
+`release.yml`, which builds through `desktop.yml` and publishes the
+bundles as a GitHub Release (see "Releases" in the top-level README).
 
 ### Lighthouse in the installer
 

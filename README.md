@@ -181,9 +181,34 @@ because Tauri expects the bundled Node binary to exist.
 [`desktop/README.md`](desktop/README.md) covers what it fetches, the resulting
 install size, and how the worker and Node resolve at runtime.
 
-Distributables are built by `.github/workflows/desktop.yml` (Windows, macOS
-Apple Silicon, macOS Intel, Linux) on `v*` tags or manual dispatch, with every
-artifact self-checked on the runner that built it before upload.
+### Releases
+
+Pushing a version tag publishes a GitHub Release with an installer for every
+platform:
+
+1. Set the version in `desktop/src-tauri/tauri.conf.json` and in
+   `[workspace.package]` of `desktop/Cargo.toml`. The two must agree.
+2. Commit, then tag that commit and push the tag:
+
+       git tag v0.2.0
+       git push origin v0.2.0
+
+[`.github/workflows/release.yml`](.github/workflows/release.yml) checks the
+tag against both versions first, then builds Windows, macOS Apple Silicon,
+macOS Intel and Linux through
+[`.github/workflows/desktop.yml`](.github/workflows/desktop.yml), which
+self-checks every build on the runner that made it. Only if all four
+succeed does it publish the release: the Windows installer and MSI, a disk
+image for each kind of Mac, the Linux AppImage and `.deb`, a
+`SHA256SUMS.txt`, and notes on the first launch (the builds are not
+code-signed yet), followed by GitHub's list of changes since the last
+release. A tag like `v0.3.0-1` becomes a pre-release; the Windows MSI only
+takes a numeric pre-release part, so the tag check refuses `v0.3.0-beta`.
+
+To publish a tag that already exists, run **Release desktop app** by hand
+from the Actions tab with that tag, optionally as a draft to look over
+first. To build without releasing, run **Build desktop app (Tauri)** by
+hand; its bundles stay on the run for 14 days.
 
 ## API keys
 

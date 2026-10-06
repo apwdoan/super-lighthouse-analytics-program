@@ -1,15 +1,17 @@
 name: Build desktop app (Tauri)
 
-# THE release lane: the pipeline that ships SLAP. It began life
+# THE build lane: the pipeline that builds SLAP. It began life
 # dispatch-only, proving the four-target pipeline on a near-empty app
 # before any logic landed, because packaging failures (codesign walking
 # the runtime tree, PowerShell not waiting for GUI processes, retired
 # runner images) all surface only when a real runner builds and runs a
 # real artifact.
 #
-# Tag a release, or run it by hand. Same trigger philosophy as the
-# original build workflow: each platform produces a real artifact and real
-# minutes, so not on every push.
+# Run it by hand to try a build; its artifacts stay on the run. Releases
+# come from release.yml, which calls this workflow for a tag, so a release
+# ships exactly what this lane builds and self-checks, and a tag builds
+# once. Same trigger philosophy as the original build workflow: each
+# platform produces a real artifact and real minutes, so not on every push.
 on:
   workflow_dispatch:
     inputs:
@@ -24,8 +26,16 @@ on:
           - macos-arm64    # Apple Silicon only
           - macos-x64      # Intel only
           - linux
-  push:
-    tags: ["v*"]
+  workflow_call:
+    inputs:
+      ref:
+        description: The tag, branch or commit to build. Empty builds the caller's own ref.
+        type: string
+        default: ""
+      platforms:
+        description: Which platforms to build, as for a manual run.
+        type: string
+        default: all
 
 permissions:
   contents: read
@@ -71,6 +81,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Empty on a manual run, which builds its own ref; release.yml
+          # passes the tag it is releasing.
+          ref: ${{ inputs.ref }}
 
       # The single gate decides whether to build, values through env
       # rather than interpolated into the script.
@@ -79,13 +93,14 @@ jobs:
         shell: bash
         env:
           EVENT: ${{ github.event_name }}
-          PICKED: ${{ inputs.platforms }}
+          PICKED: ${{ inputs.platforms || 'all' }}
           WANTED: ${{ matrix.wanted }}
           FAMILY: ${{ matrix.family }}
         run: |
           set -euo pipefail
-          # A tag push has no inputs; it builds everything. The platform
-          # picker only narrows manual dispatches.
+          # Only a manual run's platform picker narrows the build. A caller
+          # (release.yml) passes "all"; its event can be a tag push or a
+          # manual run of its own, so the event alone cannot decide.
           if [ "$EVENT" != "workflow_dispatch" ] \
              || [ "$PICKED" = "all" ] \
              || [ "$PICKED" = "$WANTED" ] \
@@ -178,6 +193,9 @@ jobs:
           & $app --self-check 2>&1 | ForEach-Object { "$_" }
           if ($LASTEXITCODE -ne 0) { throw "self-check failed (exit $LASTEXITCODE)" }
 
+      # release.yml publishes these: it downloads every SLAP-desktop-*
+      # artifact of the run and picks the installers out by extension, so
+      # a renamed artifact or a new bundle type needs a matching change there.
       - name: Upload
         if: steps.gate.outputs.build == 'true'
         uses: actions/upload-artifact@v6
